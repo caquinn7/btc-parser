@@ -1,6 +1,7 @@
 //// btc_tx provides facilities for parsing and modeling Bitcoin transaction data
 //// in a form suitable for inspection, analysis, and reference.
 
+import gleam/bit_array
 import gleam/bool
 import gleam/int
 import gleam/list.{Continue, Stop}
@@ -601,13 +602,33 @@ fn read_vec(count: Int, create_parser: fn(Int) -> Parser(a)) -> Parser(List(a)) 
 // ---- Decoding functions ----
 
 pub type DecodePolicy {
-  DecodePolicy(max_vin_count: Int, max_vout_count: Int, max_script_size: Int)
+  DecodePolicy(
+    max_vin_count: Int,
+    max_vout_count: Int,
+    max_script_size: Int,
+    witness_policy: WitnessPolicy,
+  )
 }
+
+pub type WitnessPolicy {
+  WitnessPolicy(
+    max_item_size: Int,
+    max_items_per_input: Int,
+    max_stack_payload_bytes_per_input: Int,
+  )
+}
+
+pub const default_witness_policy = WitnessPolicy(
+  max_item_size: 100,
+  max_items_per_input: 10_000,
+  max_stack_payload_bytes_per_input: 100_000,
+)
 
 pub const default_policy = DecodePolicy(
   max_vin_count: 100_000,
-  max_script_size: 10_000,
   max_vout_count: 100_000,
+  max_script_size: 10_000,
+  witness_policy: default_witness_policy,
 )
 
 pub fn decode(bytes: BitArray) -> Result(Transaction, DecodeError) {
@@ -664,14 +685,14 @@ pub fn decode_with_policy(
       use reader, witnesses <- run_parse(
         reader,
         tx_ctx,
-        read_witness_stacks(vin_count),
+        read_witness_stacks(vin_count, policy.witness_policy),
       )
 
       // lock_time
       use _, lock_time <- run_parse(
         reader,
         tx_ctx,
-        read_field("locktime", reader.read_u32_le),
+        read_field("lock_time", reader.read_u32_le),
       )
 
       Ok(Segwit(version:, inputs:, outputs:, lock_time:, witnesses:))
@@ -682,7 +703,7 @@ pub fn decode_with_policy(
       use _, lock_time <- run_parse(
         reader,
         tx_ctx,
-        read_field("locktime", reader.read_u32_le),
+        read_field("lock_time", reader.read_u32_le),
       )
 
       Ok(Legacy(version:, inputs:, outputs:, lock_time:))
@@ -726,7 +747,8 @@ fn peek_segwit() -> Parser(Bool) {
     case reader.peek_bytes(reader, 2) {
       Ok(bytes) -> {
         let assert <<marker, flag>> = bytes
-        Ok(#(reader, marker == 0x00 && flag == 0x01))
+        let is_segwit = marker == 0x00 && flag == 0x01
+        Ok(#(reader, is_segwit))
       }
 
       Error(err) ->
@@ -1030,13 +1052,16 @@ fn read_and_validate_script_length(
   }
 }
 
-fn read_witness_stacks(vin_count: Int) -> Parser(List(WitnessStack)) {
+fn read_witness_stacks(
+  vin_count: Int,
+  policy: WitnessPolicy,
+) -> Parser(List(WitnessStack)) {
   read_vec(vin_count, fn(index) {
-    in_context(AtWitnessStack(index), read_witness_stack())
+    in_context(AtWitnessStack(index), read_witness_stack(policy))
   })
 }
 
-fn read_witness_stack() -> Parser(WitnessStack) {
+fn read_witness_stack(policy: WitnessPolicy) -> Parser(WitnessStack) {
   // WitnessStack for one input:
   // ├─ stack_len (CompactSize) - number of witness items
   // ├─ WitnessItem #0
@@ -1049,26 +1074,99 @@ fn read_witness_stack() -> Parser(WitnessStack) {
     use reader, stack_len <- run_parse(
       reader,
       ctx,
-      read_compact_size_as_int("witnessStack_len"),
+      read_and_validate_witness_stack_length(policy.max_items_per_input),
     )
+
+    // Parse witness items while tracking cumulative byte size
     use reader, witness_items <- run_parse(
       reader,
       ctx,
-      read_vec(stack_len, fn(index) {
-        in_context(AtWitnessItem(index), read_witness_item())
-      }),
+      read_witness_items_with_byte_tracking(
+        stack_len,
+        policy.max_item_size,
+        policy.max_stack_payload_bytes_per_input,
+      ),
     )
 
     Ok(#(reader, WitnessStack(witness_items)))
   }
 }
 
-fn read_witness_item() -> Parser(WitnessItem) {
+/// Read witness items while tracking cumulative payload bytes and failing fast
+/// if the total exceeds max_stack_payload_bytes_per_input.
+fn read_witness_items_with_byte_tracking(
+  count: Int,
+  max_item_size: Int,
+  max_total_bytes: Int,
+) -> Parser(List(WitnessItem)) {
+  fn(reader, ctx) {
+    use <- bool.guard(count <= 0, Ok(#(reader, [])))
+
+    let indices = list.range(0, count - 1)
+    let init = Ok(#(reader, [], 0))
+
+    let result =
+      indices
+      |> list.fold_until(init, fn(acc, index) {
+        case acc {
+          Ok(#(current_reader, items, cumulative_bytes)) -> {
+            let item_parser =
+              in_context(AtWitnessItem(index), read_witness_item(max_item_size))
+
+            case item_parser(current_reader, ctx) {
+              Ok(#(next_reader, item)) -> {
+                let WitnessItem(bytes) = item
+                let item_byte_size = bit_array.byte_size(bytes)
+                let new_cumulative = cumulative_bytes + item_byte_size
+
+                // Check if we've exceeded the total byte limit
+                case new_cumulative > max_total_bytes {
+                  True -> {
+                    let err =
+                      InvalidValueRange(
+                        "witnessStack_total_payload_bytes",
+                        new_cumulative,
+                        Some(0),
+                        Some(max_total_bytes),
+                      )
+                      |> make_field_error(
+                        "witnessStack_total_payload_bytes",
+                        next_reader,
+                        ctx,
+                      )
+                    Stop(Error(err))
+                  }
+
+                  False ->
+                    Continue(
+                      Ok(#(next_reader, [item, ..items], new_cumulative)),
+                    )
+                }
+              }
+
+              Error(err) -> Stop(Error(err))
+            }
+          }
+
+          Error(_) -> Stop(acc)
+        }
+      })
+
+    case result {
+      Ok(#(final_reader, items, _cumulative)) ->
+        Ok(#(final_reader, list.reverse(items)))
+
+      Error(err) -> Error(err)
+    }
+  }
+}
+
+fn read_witness_item(max_item_size_policy: Int) -> Parser(WitnessItem) {
   fn(reader, ctx) {
     use reader, length <- run_parse(
       reader,
       ctx,
-      read_and_validate_witness_item_length(),
+      read_and_validate_witness_item_length(max_item_size_policy),
     )
     use reader, item_bytes <- run_parse(
       reader,
@@ -1080,7 +1178,38 @@ fn read_witness_item() -> Parser(WitnessItem) {
   }
 }
 
-fn read_and_validate_witness_item_length() -> Parser(Int) {
+/// Read and validate a witness stack length field.
+///
+/// Reads a CompactSize length, converts it to Int, and validates it against
+/// max_items_per_input policy.
+fn read_and_validate_witness_stack_length(
+  max_items_per_input_policy: Int,
+) -> Parser(Int) {
+  fn(reader, ctx) {
+    use reader, stack_len <- run_parse(
+      reader,
+      ctx,
+      read_compact_size_as_int("witnessStack_len"),
+    )
+
+    use <- bool.lazy_guard(stack_len > max_items_per_input_policy, fn() {
+      InvalidValueRange(
+        "witnessStack_len",
+        stack_len,
+        Some(0),
+        Some(max_items_per_input_policy),
+      )
+      |> make_field_error("witnessStack_len", reader, ctx)
+      |> Error
+    })
+
+    Ok(#(reader, stack_len))
+  }
+}
+
+fn read_and_validate_witness_item_length(
+  max_item_size_policy: Int,
+) -> Parser(Int) {
   fn(reader, ctx) {
     use reader, length <- run_parse(
       reader,
@@ -1088,10 +1217,23 @@ fn read_and_validate_witness_item_length() -> Parser(Int) {
       read_compact_size_as_int("witnessItem_len"),
     )
 
+    let field_err = make_field_error("witnessItem_len", reader, ctx)
+
+    use <- bool.lazy_guard(length > max_item_size_policy, fn() {
+      InvalidValueRange(
+        "witnessItem_len",
+        length,
+        Some(0),
+        Some(max_item_size_policy),
+      )
+      |> field_err
+      |> Error
+    })
+
     let remaining = reader.bytes_remaining(reader)
     use <- bool.lazy_guard(length > remaining, fn() {
       InsufficientBytes(claimed: length, remaining:)
-      |> make_field_error("witnessItem_len", reader, ctx)
+      |> field_err
       |> Error
     })
 

@@ -1,7 +1,7 @@
 import btc_tx.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack, CompactSizeError,
   DecodePolicy, InTransaction, Inputs, InsufficientBytes, InvalidValueRange,
-  Outputs, ParseFailed, ReaderError,
+  Outputs, ParseFailed, ReaderError, WitnessPolicy,
 }
 import gleam/bit_array
 import gleam/list
@@ -1530,6 +1530,293 @@ pub fn decode_witness_invalid_compact_size_in_item_length_test() {
       AtWitnessStack(0),
       AtWitnessItem(0),
       AtField("witnessItem_len"),
+    ]
+}
+
+// WitnessPolicy.max_item_size enforcement tests
+
+pub fn decode_witness_item_at_max_size_succeeds_test() {
+  let max_witness_item_size = 50
+
+  // Build input and output
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let output = build_output(<<1000:little-size(64)>>, <<>>)
+
+  // Build witness stack with item exactly at max_item_size (100 bytes by default)
+  let witness_item_data = repeat_byte(0xAB, max_witness_item_size)
+  let witness_stack = <<
+    compact_size(1):bits,
+    compact_size(max_witness_item_size):bits,
+    witness_item_data:bits,
+  >>
+
+  let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
+
+  let policy =
+    DecodePolicy(
+      ..btc_tx.default_policy,
+      witness_policy: WitnessPolicy(
+        ..btc_tx.default_witness_policy,
+        max_item_size: max_witness_item_size,
+      ),
+    )
+
+  let assert Ok(tx) = btc_tx.decode_with_policy(tx_bytes, policy)
+
+  // Verify the witness item has the correct size
+  let assert Ok(witnesses) = btc_tx.get_witnesses(tx)
+  let assert [stack] = witnesses
+
+  let items = btc_tx.get_witness_items(stack)
+  let assert [item] = items
+
+  let data = btc_tx.get_witness_item_bytes(item)
+  assert bit_array.byte_size(data) == max_witness_item_size
+}
+
+pub fn decode_witness_item_exceeds_custom_max_size_fails_test() {
+  let max_witness_item_size = 50
+
+  // Build input and output
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let output = build_output(<<1000:little-size(64)>>, <<>>)
+
+  // Build witness stack with item exceeding custom max_item_size
+  let witness_item_data = repeat_byte(0x42, max_witness_item_size + 1)
+
+  let witness_stack = <<
+    compact_size(1):bits,
+    compact_size(max_witness_item_size + 1):bits,
+    witness_item_data:bits,
+  >>
+
+  let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
+
+  let policy =
+    DecodePolicy(
+      ..btc_tx.default_policy,
+      witness_policy: WitnessPolicy(
+        ..btc_tx.default_witness_policy,
+        max_item_size: max_witness_item_size,
+      ),
+    )
+
+  // Decode should fail with InvalidValueRange error
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode_with_policy(tx_bytes, policy)
+
+  // Verify the error kind indicates value exceeded the max_item_size
+  assert btc_tx.parse_error_kind(parse_err)
+    == InvalidValueRange(
+      "witnessItem_len",
+      max_witness_item_size + 1,
+      Some(0),
+      Some(policy.witness_policy.max_item_size),
+    )
+
+  // Verify the error context indicates witness item length validation
+  assert btc_tx.parse_error_ctx(parse_err)
+    == [
+      InTransaction,
+      AtWitnessStack(0),
+      AtWitnessItem(0),
+      AtField("witnessItem_len"),
+    ]
+}
+
+// WitnessPolicy.max_items_per_input enforcement tests
+
+pub fn decode_witness_stack_at_max_items_per_input_succeeds_test() {
+  let max_items_per_input = 3
+
+  // Build input and output
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let output = build_output(<<1000:little-size(64)>>, <<>>)
+
+  // Build witness stack with exactly max_items_per_input items
+  let witness_items =
+    list.range(0, max_items_per_input - 1)
+    |> list.map(fn(_) { <<compact_size(5):bits, 1, 2, 3, 4, 5>> })
+    |> list.fold(<<>>, fn(acc, item) { <<acc:bits, item:bits>> })
+
+  let witness_stack = <<
+    compact_size(max_items_per_input):bits,
+    witness_items:bits,
+  >>
+
+  let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
+
+  let policy =
+    DecodePolicy(
+      ..btc_tx.default_policy,
+      witness_policy: WitnessPolicy(
+        ..btc_tx.default_witness_policy,
+        max_items_per_input: max_items_per_input,
+      ),
+    )
+
+  let assert Ok(tx) = btc_tx.decode_with_policy(tx_bytes, policy)
+
+  // Verify the witness stack has the correct number of items
+  let assert Ok(witnesses) = btc_tx.get_witnesses(tx)
+  let assert [stack] = witnesses
+
+  let items = btc_tx.get_witness_items(stack)
+  assert list.length(items) == max_items_per_input
+}
+
+pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
+  let max_items_per_input = 2
+
+  // Build input and output
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let output = build_output(<<1000:little-size(64)>>, <<>>)
+
+  // Build witness stack with max_items_per_input + 1 items
+  let witness_items =
+    list.range(0, max_items_per_input)
+    |> list.map(fn(_) { <<compact_size(5):bits, 1, 2, 3, 4, 5>> })
+    |> list.fold(<<>>, fn(acc, item) { <<acc:bits, item:bits>> })
+
+  let witness_stack = <<
+    compact_size(max_items_per_input + 1):bits,
+    witness_items:bits,
+  >>
+
+  let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
+
+  let policy =
+    DecodePolicy(
+      ..btc_tx.default_policy,
+      witness_policy: WitnessPolicy(
+        ..btc_tx.default_witness_policy,
+        max_items_per_input: max_items_per_input,
+      ),
+    )
+
+  // Decode should fail with InvalidValueRange error
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode_with_policy(tx_bytes, policy)
+
+  // Verify the error kind indicates value exceeded max_items_per_input
+  assert btc_tx.parse_error_kind(parse_err)
+    == InvalidValueRange(
+      "witnessStack_len",
+      max_items_per_input + 1,
+      Some(0),
+      Some(policy.witness_policy.max_items_per_input),
+    )
+
+  // Verify the error context indicates witness stack length validation
+  assert btc_tx.parse_error_ctx(parse_err)
+    == [InTransaction, AtWitnessStack(0), AtField("witnessStack_len")]
+}
+
+// WitnessPolicy.max_stack_payload_bytes_per_input enforcement tests
+
+pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
+  let max_payload_bytes = 50
+
+  // Build input and output
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let output = build_output(<<1000:little-size(64)>>, <<>>)
+
+  // Build witness stack with items totaling exactly max_payload_bytes
+  // 3 items: 20 bytes + 15 bytes + 15 bytes = 50 bytes total
+  let witness_items = <<
+    compact_size(20):bits,
+    repeat_byte(0xAA, 20):bits,
+    compact_size(15):bits,
+    repeat_byte(0xBB, 15):bits,
+    compact_size(15):bits,
+    repeat_byte(0xCC, 15):bits,
+  >>
+
+  let witness_stack = <<compact_size(3):bits, witness_items:bits>>
+
+  let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
+
+  let policy =
+    DecodePolicy(
+      ..btc_tx.default_policy,
+      witness_policy: WitnessPolicy(
+        ..btc_tx.default_witness_policy,
+        max_stack_payload_bytes_per_input: max_payload_bytes,
+      ),
+    )
+
+  let assert Ok(tx) = btc_tx.decode_with_policy(tx_bytes, policy)
+
+  // Verify the witness stack was parsed correctly
+  let assert Ok(witnesses) = btc_tx.get_witnesses(tx)
+  let assert [stack] = witnesses
+
+  let items = btc_tx.get_witness_items(stack)
+  assert list.length(items) == 3
+
+  // Verify total bytes
+  let total_bytes =
+    items
+    |> list.map(fn(item) {
+      item
+      |> btc_tx.get_witness_item_bytes
+      |> bit_array.byte_size
+    })
+    |> list.fold(0, fn(acc, size) { acc + size })
+
+  assert total_bytes == max_payload_bytes
+}
+
+pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
+  let max_payload_bytes = 50
+
+  // Build input and output
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let output = build_output(<<1000:little-size(64)>>, <<>>)
+
+  // Build witness stack with items totaling more than max_payload_bytes
+  // 3 items: 20 bytes + 15 bytes + 16 bytes = 51 bytes total (exceeds 50)
+  let witness_items = <<
+    compact_size(20):bits,
+    repeat_byte(0xAA, 20):bits,
+    compact_size(15):bits,
+    repeat_byte(0xBB, 15):bits,
+    compact_size(16):bits,
+    repeat_byte(0xCC, 16):bits,
+  >>
+
+  let witness_stack = <<compact_size(3):bits, witness_items:bits>>
+
+  let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
+
+  let policy =
+    DecodePolicy(
+      ..btc_tx.default_policy,
+      witness_policy: WitnessPolicy(
+        ..btc_tx.default_witness_policy,
+        max_stack_payload_bytes_per_input: max_payload_bytes,
+      ),
+    )
+
+  // Decode should fail with InvalidValueRange error
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode_with_policy(tx_bytes, policy)
+
+  // Verify the error kind indicates value exceeded max_payload_bytes
+  assert btc_tx.parse_error_kind(parse_err)
+    == InvalidValueRange(
+      "witnessStack_total_payload_bytes",
+      51,
+      Some(0),
+      Some(max_payload_bytes),
+    )
+
+  // Verify the error context indicates witness stack total payload bytes validation
+  assert btc_tx.parse_error_ctx(parse_err)
+    == [
+      InTransaction,
+      AtWitnessStack(0),
+      AtField("witnessStack_total_payload_bytes"),
     ]
 }
 
