@@ -618,6 +618,58 @@ fn read_vec(count: Int, create_parser: fn(Int) -> Parser(a)) -> Parser(List(a)) 
   }
 }
 
+/// Read a vector of items while tracking cumulative payload bytes.
+///
+/// Similar to `read_vec`, but each parsed item must provide its byte size,
+/// and parsing fails if the cumulative total exceeds `max_total_bytes`.
+///
+/// The `create_parser` function receives the index and returns a parser that
+/// produces both the item and its byte size as a tuple `#(item, byte_size)`.
+fn read_vec_with_byte_tracking(
+  count: Int,
+  max_total_bytes: Int,
+  total_bytes_field_name: String,
+  create_parser: fn(Int) -> Parser(#(a, Int)),
+) -> Parser(List(a)) {
+  fn(reader, ctx) {
+    use <- bool.guard(count <= 0, Ok(#(reader, [])))
+
+    let indices = list.range(0, count - 1)
+    let init = Ok(#(reader, [], 0))
+
+    indices
+    |> list.fold_until(init, fn(acc, index) {
+      case acc {
+        Ok(#(current_reader, items, cumulative_bytes)) -> {
+          let item_parser = create_parser(index)
+
+          case item_parser(current_reader, ctx) {
+            Ok(#(next_reader, #(item, item_byte_size))) -> {
+              let new_cumulative = cumulative_bytes + item_byte_size
+
+              case new_cumulative > max_total_bytes {
+                True ->
+                  PolicyLimitExceeded(new_cumulative, max_total_bytes)
+                  |> make_field_error(total_bytes_field_name, next_reader, ctx)
+                  |> Error
+                  |> Stop
+
+                False ->
+                  Continue(Ok(#(next_reader, [item, ..items], new_cumulative)))
+              }
+            }
+
+            Error(err) -> Stop(Error(err))
+          }
+        }
+
+        Error(_) -> Stop(acc)
+      }
+    })
+    |> result.map(fn(acc) { #(acc.0, list.reverse(acc.1)) })
+  }
+}
+
 // ---- Decoding functions ----
 
 pub type DecodePolicy {
@@ -1108,52 +1160,25 @@ fn read_witness_items_with_byte_tracking(
   max_item_size: Int,
   max_total_bytes: Int,
 ) -> Parser(List(WitnessItem)) {
-  fn(reader, ctx) {
-    use <- bool.guard(count <= 0, Ok(#(reader, [])))
+  read_vec_with_byte_tracking(
+    count,
+    max_total_bytes,
+    "witnessStack_total_payload_bytes",
+    fn(index) {
+      in_context(AtWitnessItem(index), fn(reader, ctx) {
+        use reader, item <- run_parse(
+          reader,
+          ctx,
+          read_witness_item(max_item_size),
+        )
 
-    let indices = list.range(0, count - 1)
-    let init = Ok(#(reader, [], 0))
+        let WitnessItem(bytes) = item
+        let byte_size = bit_array.byte_size(bytes)
 
-    indices
-    |> list.fold_until(init, fn(acc, index) {
-      case acc {
-        Ok(#(current_reader, items, cumulative_bytes)) -> {
-          let item_parser =
-            in_context(AtWitnessItem(index), read_witness_item(max_item_size))
-
-          case item_parser(current_reader, ctx) {
-            Ok(#(next_reader, item)) -> {
-              let WitnessItem(bytes) = item
-              let item_byte_size = bit_array.byte_size(bytes)
-              let new_cumulative = cumulative_bytes + item_byte_size
-
-              // Check if we've exceeded the total byte limit
-              case new_cumulative > max_total_bytes {
-                True -> {
-                  let err =
-                    PolicyLimitExceeded(new_cumulative, max_total_bytes)
-                    |> make_field_error(
-                      "witnessStack_total_payload_bytes",
-                      next_reader,
-                      ctx,
-                    )
-                  Stop(Error(err))
-                }
-
-                False ->
-                  Continue(Ok(#(next_reader, [item, ..items], new_cumulative)))
-              }
-            }
-
-            Error(err) -> Stop(Error(err))
-          }
-        }
-
-        Error(_) -> Stop(acc)
-      }
-    })
-    |> result.map(fn(acc) { #(acc.0, list.reverse(acc.1)) })
-  }
+        Ok(#(reader, #(item, byte_size)))
+      })
+    },
+  )
 }
 
 fn read_witness_item(max_item_size_policy: Int) -> Parser(WitnessItem) {
