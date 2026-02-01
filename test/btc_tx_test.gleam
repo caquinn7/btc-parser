@@ -1,7 +1,8 @@
 import btc_tx.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack, CompactSizeError,
   DecodePolicy, InTransaction, Inputs, InsufficientBytes, InvalidValueRange,
-  Outputs, ParseFailed, ReaderError, WitnessPolicy,
+  LengthTooLarge, Outputs, ParseFailed, PolicyLimitExceeded, ReaderError,
+  WitnessPolicy,
 }
 import gleam/bit_array
 import gleam/list
@@ -135,7 +136,7 @@ pub fn decode_returns_invalid_value_range_when_vin_count_zero_test() {
   assert btc_tx.parse_error_offset(parse_err) == 5
 
   assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange("vin_count", vin_count, Some(1), Some(1))
+    == InvalidValueRange(vin_count, Some(1), Some(1))
 
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, Inputs, AtField("vin_count")]
@@ -219,7 +220,7 @@ pub fn validate_vin_count_exceeds_policy_error_test() {
   assert btc_tx.parse_error_offset(parse_err) == 5
 
   assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange("vin_count", vin_count, Some(1), Some(2))
+    == InvalidValueRange(vin_count, Some(1), Some(2))
 
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, Inputs, AtField("vin_count")]
@@ -242,7 +243,7 @@ pub fn validate_vin_count_exceeds_structural_error_test() {
   assert btc_tx.parse_error_offset(parse_err) == 5
 
   assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange("vin_count", vin_count, Some(1), Some(2))
+    == InvalidValueRange(vin_count, Some(1), Some(2))
 
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, Inputs, AtField("vin_count")]
@@ -288,7 +289,7 @@ pub fn validate_vin_count_policy_wins_over_structural_test() {
   assert btc_tx.parse_error_offset(parse_err) == 5
 
   assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange("vin_count", vin_count, Some(1), Some(10))
+    == InvalidValueRange(vin_count, Some(1), Some(10))
 
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, Inputs, AtField("vin_count")]
@@ -357,12 +358,7 @@ pub fn validate_vin_count_large_value_invalid_range_erlang_test() {
   assert btc_tx.parse_error_offset(parse_err) == 13
 
   assert btc_tx.parse_error_kind(parse_err)
-    == btc_tx.InvalidValueRange(
-      "vin_count",
-      18_446_744_073_709_551_615,
-      Some(1),
-      Some(1),
-    )
+    == btc_tx.InvalidValueRange(18_446_744_073_709_551_615, Some(1), Some(1))
 
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, Inputs, AtField("vin_count")]
@@ -613,8 +609,7 @@ pub fn decode_rejects_scriptsig_exceeding_max_size_test() {
       input_bytes:bits,
     >>)
 
-  assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange("scriptSig_len", 10_001, Some(0), Some(10_000))
+  assert btc_tx.parse_error_kind(parse_err) == LengthTooLarge(10_001, 10_000)
 
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, Inputs, AtInput(0), AtField("scriptSig_len")]
@@ -714,7 +709,7 @@ pub fn decode_returns_invalid_value_range_when_vout_count_zero_test() {
   assert btc_tx.parse_error_offset(parse_err) == 47
 
   assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange("vout_count", vout_count, Some(1), Some(1))
+    == InvalidValueRange(vout_count, Some(1), Some(1))
 
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, Outputs, AtField("vout_count")]
@@ -804,7 +799,7 @@ pub fn validate_vout_count_exceeds_policy_error_test() {
     )
 
   assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange("vout_count", vout_count, Some(1), Some(2))
+    == InvalidValueRange(vout_count, Some(1), Some(2))
 
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, Outputs, AtField("vout_count")]
@@ -1051,7 +1046,7 @@ pub fn decode_rejects_output_value_negative_one_test() {
     >>)
 
   assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange("value", -1, Some(0), Some(2_100_000_000_000_000))
+    == InvalidValueRange(-1, Some(0), Some(2_100_000_000_000_000))
 
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, Outputs, btc_tx.AtOutput(0), AtField("value")]
@@ -1116,7 +1111,6 @@ pub fn decode_rejects_output_value_min_i64_erlang_test() {
 
   assert btc_tx.parse_error_kind(parse_err)
     == InvalidValueRange(
-      "value",
       -9_223_372_036_854_775_808,
       Some(0),
       Some(2_100_000_000_000_000),
@@ -1145,12 +1139,7 @@ pub fn decode_rejects_output_value_exceeding_max_money_test() {
     >>)
 
   assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(
-      "value",
-      value_satoshis,
-      Some(0),
-      Some(2_100_000_000_000_000),
-    )
+    == InvalidValueRange(value_satoshis, Some(0), Some(2_100_000_000_000_000))
 
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, Outputs, btc_tx.AtOutput(0), AtField("value")]
@@ -1176,8 +1165,7 @@ pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {
       output_bytes:bits,
     >>)
 
-  assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange("scriptPubKey_len", 10_001, Some(0), Some(10_000))
+  assert btc_tx.parse_error_kind(parse_err) == LengthTooLarge(10_001, 10_000)
 
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, Outputs, AtOutput(0), AtField("scriptPubKey_len")]
@@ -1601,17 +1589,15 @@ pub fn decode_witness_item_exceeds_custom_max_size_fails_test() {
       ),
     )
 
-  // Decode should fail with InvalidValueRange error
+  // Decode should fail with LengthTooLarge error
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode_with_policy(tx_bytes, policy)
 
-  // Verify the error kind indicates value exceeded the max_item_size
+  // Verify the error kind indicates length exceeded max_item_size
   assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(
-      "witnessItem_len",
+    == LengthTooLarge(
       max_witness_item_size + 1,
-      Some(0),
-      Some(policy.witness_policy.max_item_size),
+      policy.witness_policy.max_item_size,
     )
 
   // Verify the error context indicates witness item length validation
@@ -1694,17 +1680,15 @@ pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
       ),
     )
 
-  // Decode should fail with InvalidValueRange error
+  // Decode should fail with LengthTooLarge error
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode_with_policy(tx_bytes, policy)
 
-  // Verify the error kind indicates value exceeded max_items_per_input
+  // Verify the error kind indicates length exceeded max_items_per_input
   assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(
-      "witnessStack_len",
+    == LengthTooLarge(
       max_items_per_input + 1,
-      Some(0),
-      Some(policy.witness_policy.max_items_per_input),
+      policy.witness_policy.max_items_per_input,
     )
 
   // Verify the error context indicates witness stack length validation
@@ -1798,20 +1782,15 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
       ),
     )
 
-  // Decode should fail with InvalidValueRange error
+  // Decode should fail with PolicyLimitExceeded error
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode_with_policy(tx_bytes, policy)
 
-  // Verify the error kind indicates value exceeded max_payload_bytes
+  // Verify the error kind indicates policy limit was exceeded
   assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(
-      "witnessStack_total_payload_bytes",
-      51,
-      Some(0),
-      Some(max_payload_bytes),
-    )
+    == PolicyLimitExceeded(51, max_payload_bytes)
 
-  // Verify the error context indicates witness stack total payload bytes validation
+  // Verify the error context indicates witness stack validation
   assert btc_tx.parse_error_ctx(parse_err)
     == [
       InTransaction,

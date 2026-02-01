@@ -369,21 +369,40 @@ pub type ParseErrorKind {
   /// integer type. The original value is preserved as a string for diagnostics.
   IntegerOutOfRange(String)
 
+  /// A length-prefixed field's claimed size exceeds a parser-defined policy limit.
+  ///
+  /// This occurs when a length field specifies a byte count or item count
+  /// that exceeds the corresponding policy limit,
+  /// even though the specified bytes may be available in the input.
+  ///
+  /// `length` is the claimed size from the length field, `max` is the policy limit.
+  /// This is distinct from `InsufficientBytes` (which means there aren't enough bytes)
+  /// and from `PolicyLimitExceeded` (which tracks aggregate metrics across multiple fields).
+  LengthTooLarge(length: Int, max: Int)
+
+  /// A cumulative or aggregate metric exceeded a parser-defined policy limit.
+  ///
+  /// Unlike `LengthTooLarge` (which validates individual length-prefixed fields)
+  /// and `InvalidValueRange` (which validates semantic constraints on specific field values),
+  /// this error applies to aggregate metrics computed across multiple fields,
+  /// such as total witness payload bytes or cumulative script size.
+  ///
+  /// `value` is the computed aggregate, and `max` is the policy limit that was exceeded.
+  PolicyLimitExceeded(value: Int, max: Int)
+
   /// A decoded numeric value fell outside the allowed range for the given field.
   ///
   /// The value was successfully decoded from well-formed input, but is rejected
-  /// because it violates constraints implied by the field’s meaning or by
-  /// parser-defined limits (for example, unreasonable counts or lengths, invalid flag values,
-  /// or values outside an expected range for the field), even when the serialized data itself is valid.
+  /// because it violates semantic constraints implied by the field's meaning
+  /// (for example, invalid flag values, satoshi amounts outside consensus limits,
+  /// or transaction counts outside structural bounds).
   ///
-  /// `field` identifies the logical field being validated, `value` is the decoded
-  /// value, and `min` / `max` define the permitted inclusive range.
-  InvalidValueRange(
-    field: String,
-    value: Int,
-    min: Option(Int),
-    max: Option(Int),
-  )
+  /// This is distinct from `LengthTooLarge` (which validates individual length-prefixed
+  /// field sizes) and `PolicyLimitExceeded` (which validates aggregate metrics across
+  /// multiple fields).
+  ///
+  /// `value` is the decoded value, and `min` / `max` define the permitted inclusive range.
+  InvalidValueRange(value: Int, min: Option(Int), max: Option(Int))
 
   /// A catch-all error for unexpected or internal parsing failures that do not
   /// fit any of the structured error categories.
@@ -797,7 +816,7 @@ fn read_and_validate_vin_count(max_vin_count_policy: Int) -> Parser(Int) {
 
     case vin_count_int < 1 || vin_count_int > max_inputs {
       True ->
-        InvalidValueRange("vin_count", vin_count_int, Some(1), Some(max_inputs))
+        InvalidValueRange(vin_count_int, Some(1), Some(max_inputs))
         |> vin_count_err
         |> Error
 
@@ -904,12 +923,7 @@ fn read_and_validate_vout_count(max_vout_count_policy: Int) -> Parser(Int) {
 
     case vout_count_int < 1 || vout_count_int > max_outputs {
       True ->
-        InvalidValueRange(
-          "vout_count",
-          vout_count_int,
-          Some(1),
-          Some(max_outputs),
-        )
+        InvalidValueRange(vout_count_int, Some(1), Some(max_outputs))
         |> vout_count_err
         |> Error
 
@@ -981,7 +995,7 @@ fn read_satoshis() -> Parser(Satoshis) {
 
     case value_int < 0 || value_int > max_satoshis {
       True ->
-        InvalidValueRange("value", value_int, Some(0), Some(max_satoshis))
+        InvalidValueRange(value_int, Some(0), Some(max_satoshis))
         |> value_err
         |> Error
 
@@ -1031,12 +1045,7 @@ fn read_and_validate_script_length(
     let field_err = make_field_error(field_name, reader, ctx)
 
     use <- bool.lazy_guard(script_len_int > max_script_size_policy, fn() {
-      InvalidValueRange(
-        field_name,
-        script_len_int,
-        Some(0),
-        Some(max_script_size_policy),
-      )
+      LengthTooLarge(script_len_int, max_script_size_policy)
       |> field_err
       |> Error
     })
@@ -1105,59 +1114,45 @@ fn read_witness_items_with_byte_tracking(
     let indices = list.range(0, count - 1)
     let init = Ok(#(reader, [], 0))
 
-    let result =
-      indices
-      |> list.fold_until(init, fn(acc, index) {
-        case acc {
-          Ok(#(current_reader, items, cumulative_bytes)) -> {
-            let item_parser =
-              in_context(AtWitnessItem(index), read_witness_item(max_item_size))
+    indices
+    |> list.fold_until(init, fn(acc, index) {
+      case acc {
+        Ok(#(current_reader, items, cumulative_bytes)) -> {
+          let item_parser =
+            in_context(AtWitnessItem(index), read_witness_item(max_item_size))
 
-            case item_parser(current_reader, ctx) {
-              Ok(#(next_reader, item)) -> {
-                let WitnessItem(bytes) = item
-                let item_byte_size = bit_array.byte_size(bytes)
-                let new_cumulative = cumulative_bytes + item_byte_size
+          case item_parser(current_reader, ctx) {
+            Ok(#(next_reader, item)) -> {
+              let WitnessItem(bytes) = item
+              let item_byte_size = bit_array.byte_size(bytes)
+              let new_cumulative = cumulative_bytes + item_byte_size
 
-                // Check if we've exceeded the total byte limit
-                case new_cumulative > max_total_bytes {
-                  True -> {
-                    let err =
-                      InvalidValueRange(
-                        "witnessStack_total_payload_bytes",
-                        new_cumulative,
-                        Some(0),
-                        Some(max_total_bytes),
-                      )
-                      |> make_field_error(
-                        "witnessStack_total_payload_bytes",
-                        next_reader,
-                        ctx,
-                      )
-                    Stop(Error(err))
-                  }
-
-                  False ->
-                    Continue(
-                      Ok(#(next_reader, [item, ..items], new_cumulative)),
+              // Check if we've exceeded the total byte limit
+              case new_cumulative > max_total_bytes {
+                True -> {
+                  let err =
+                    PolicyLimitExceeded(new_cumulative, max_total_bytes)
+                    |> make_field_error(
+                      "witnessStack_total_payload_bytes",
+                      next_reader,
+                      ctx,
                     )
+                  Stop(Error(err))
                 }
+
+                False ->
+                  Continue(Ok(#(next_reader, [item, ..items], new_cumulative)))
               }
-
-              Error(err) -> Stop(Error(err))
             }
+
+            Error(err) -> Stop(Error(err))
           }
-
-          Error(_) -> Stop(acc)
         }
-      })
 
-    case result {
-      Ok(#(final_reader, items, _cumulative)) ->
-        Ok(#(final_reader, list.reverse(items)))
-
-      Error(err) -> Error(err)
-    }
+        Error(_) -> Stop(acc)
+      }
+    })
+    |> result.map(fn(acc) { #(acc.0, list.reverse(acc.1)) })
   }
 }
 
@@ -1193,12 +1188,7 @@ fn read_and_validate_witness_stack_length(
     )
 
     use <- bool.lazy_guard(stack_len > max_items_per_input_policy, fn() {
-      InvalidValueRange(
-        "witnessStack_len",
-        stack_len,
-        Some(0),
-        Some(max_items_per_input_policy),
-      )
+      LengthTooLarge(stack_len, max_items_per_input_policy)
       |> make_field_error("witnessStack_len", reader, ctx)
       |> Error
     })
@@ -1220,12 +1210,7 @@ fn read_and_validate_witness_item_length(
     let field_err = make_field_error("witnessItem_len", reader, ctx)
 
     use <- bool.lazy_guard(length > max_item_size_policy, fn() {
-      InvalidValueRange(
-        "witnessItem_len",
-        length,
-        Some(0),
-        Some(max_item_size_policy),
-      )
+      LengthTooLarge(length, max_item_size_policy)
       |> field_err
       |> Error
     })
