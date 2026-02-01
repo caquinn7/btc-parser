@@ -519,7 +519,7 @@ fn run_parse(
 /// Add a context layer to a parsing computation.
 ///
 /// Combinator: wraps a Parser to prepend context to its context list.
-fn in_context(ctx: ParseContext, parser: Parser(a)) -> Parser(a) {
+fn in_context(parser: Parser(a), ctx: ParseContext) -> Parser(a) {
   fn(reader, outer_ctx) { parser(reader, [ctx, ..outer_ctx]) }
 }
 
@@ -892,7 +892,9 @@ fn read_tx_ins(
   // │    ├─ ...
   // └─ TxIn #(vin_count - 1)
   read_vec(vin_count, fn(index) {
-    in_context(AtInput(index), read_tx_in(max_script_size_policy))
+    max_script_size_policy
+    |> read_tx_in
+    |> in_context(AtInput(index))
   })
 }
 
@@ -997,7 +999,9 @@ fn read_tx_outs(
   // │    ├─ ...
   // └─ TxOut #(vout_count - 1)
   read_vec(vout_count, fn(index) {
-    in_context(AtOutput(index), read_tx_out(max_script_size_policy))
+    max_script_size_policy
+    |> read_tx_out
+    |> in_context(AtOutput(index))
   })
 }
 
@@ -1118,7 +1122,9 @@ fn read_witness_stacks(
   policy: WitnessPolicy,
 ) -> Parser(List(WitnessStack)) {
   read_vec(vin_count, fn(index) {
-    in_context(AtWitnessStack(index), read_witness_stack(policy))
+    policy
+    |> read_witness_stack
+    |> in_context(AtWitnessStack(index))
   })
 }
 
@@ -1165,20 +1171,25 @@ fn read_witness_items_with_byte_tracking(
     max_total_bytes,
     "witnessStack_total_payload_bytes",
     fn(index) {
-      in_context(AtWitnessItem(index), fn(reader, ctx) {
-        use reader, item <- run_parse(
-          reader,
-          ctx,
-          read_witness_item(max_item_size),
-        )
-
-        let WitnessItem(bytes) = item
-        let byte_size = bit_array.byte_size(bytes)
-
-        Ok(#(reader, #(item, byte_size)))
-      })
+      max_item_size
+      |> read_witness_item_with_size
+      |> in_context(AtWitnessItem(index))
     },
   )
+}
+
+/// Read a witness item and return it along with its byte size.
+fn read_witness_item_with_size(
+  max_item_size: Int,
+) -> Parser(#(WitnessItem, Int)) {
+  fn(reader, ctx) {
+    use reader, item <- run_parse(reader, ctx, read_witness_item(max_item_size))
+
+    let WitnessItem(bytes) = item
+    let byte_size = bit_array.byte_size(bytes)
+
+    Ok(#(reader, #(item, byte_size)))
+  }
 }
 
 fn read_witness_item(max_item_size_policy: Int) -> Parser(WitnessItem) {
@@ -1186,7 +1197,7 @@ fn read_witness_item(max_item_size_policy: Int) -> Parser(WitnessItem) {
     use reader, length <- run_parse(
       reader,
       ctx,
-      read_and_validate_witness_item_length(max_item_size_policy),
+      read_and_validate_witness_item_size(max_item_size_policy),
     )
     use reader, item_bytes <- run_parse(
       reader,
@@ -1222,9 +1233,7 @@ fn read_and_validate_witness_stack_length(
   }
 }
 
-fn read_and_validate_witness_item_length(
-  max_item_size_policy: Int,
-) -> Parser(Int) {
+fn read_and_validate_witness_item_size(max_item_size_policy: Int) -> Parser(Int) {
   fn(reader, ctx) {
     use reader, length <- run_parse(
       reader,
