@@ -1145,6 +1145,129 @@ pub fn decode_rejects_output_value_exceeding_max_money_test() {
     == [InTransaction, Outputs, btc_tx.AtOutput(0), AtField("value")]
 }
 
+// total output value validation
+
+pub fn decode_rejects_outputs_total_value_exceeding_max_money_test() {
+  // Create a transaction with 2 outputs whose values sum to more than max_satoshis
+  // max_satoshis = 21_000_000 * 100_000_000 = 2_100_000_000_000_000
+  // output1 = 1_500_000_000_000_000, output2 = 700_000_000_000_000
+  // total = 2_200_000_000_000_000 > 2_100_000_000_000_000
+
+  let vout_count = compact_size(2)
+  let value1 = 1_500_000_000_000_000
+  let value2 = 700_000_000_000_000
+  let script_pubkey = <<>>
+
+  let output1 = build_output(<<value1:little-size(64)>>, script_pubkey)
+  let output2 = build_output(<<value2:little-size(64)>>, script_pubkey)
+
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode(<<
+      version1:bits,
+      build_minimal_input():bits,
+      vout_count:bits,
+      output1:bits,
+      output2:bits,
+    >>)
+
+  assert btc_tx.parse_error_kind(parse_err)
+    == PolicyLimitExceeded(2_200_000_000_000_000, 2_100_000_000_000_000)
+
+  assert btc_tx.parse_error_ctx(parse_err)
+    == [InTransaction, Outputs, AtField("outputs_total_value")]
+}
+
+pub fn decode_rejects_outputs_total_value_at_second_output_test() {
+  // Create a transaction where the sum of output values exceeds max_satoshis
+  // exactly when the second output is parsed (fail fast test)
+  // output1 = 1_000_000_000_000_000 (valid alone)
+  // output2 = 1_100_000_000_000_001 (when added to output1, exceeds max)
+
+  let vout_count = compact_size(2)
+  let value1 = 1_000_000_000_000_000
+  let value2 = 1_100_000_000_000_001
+  let script_pubkey = <<>>
+
+  let output1 = build_output(<<value1:little-size(64)>>, script_pubkey)
+  let output2 = build_output(<<value2:little-size(64)>>, script_pubkey)
+
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode(<<
+      version1:bits,
+      build_minimal_input():bits,
+      vout_count:bits,
+      output1:bits,
+      output2:bits,
+    >>)
+
+  assert btc_tx.parse_error_kind(parse_err)
+    == PolicyLimitExceeded(2_100_000_000_000_001, 2_100_000_000_000_000)
+
+  assert btc_tx.parse_error_ctx(parse_err)
+    == [InTransaction, Outputs, AtField("outputs_total_value")]
+}
+
+pub fn decode_rejects_outputs_total_value_at_third_output_test() {
+  // Create a transaction with 3 outputs where the sum exceeds max_satoshis
+  // when the third output is parsed
+  // output1 = 700_000_000_000_000 (valid alone)
+  // output2 = 700_000_000_000_000 (cumulative = 1_400_000_000_000_000, still valid)
+  // output3 = 700_000_000_000_001 (cumulative = 2_100_000_000_000_001, exceeds max)
+
+  let vout_count = compact_size(3)
+  let value1 = 700_000_000_000_000
+  let value2 = 700_000_000_000_000
+  let value3 = 700_000_000_000_001
+  let script_pubkey = <<>>
+
+  let output1 = build_output(<<value1:little-size(64)>>, script_pubkey)
+  let output2 = build_output(<<value2:little-size(64)>>, script_pubkey)
+  let output3 = build_output(<<value3:little-size(64)>>, script_pubkey)
+
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode(<<
+      version1:bits,
+      build_minimal_input():bits,
+      vout_count:bits,
+      output1:bits,
+      output2:bits,
+      output3:bits,
+    >>)
+
+  assert btc_tx.parse_error_kind(parse_err)
+    == PolicyLimitExceeded(2_100_000_000_000_001, 2_100_000_000_000_000)
+
+  assert btc_tx.parse_error_ctx(parse_err)
+    == [InTransaction, Outputs, AtField("outputs_total_value")]
+}
+
+pub fn decode_accepts_outputs_total_value_exactly_at_max_money_test() {
+  // Create a transaction with outputs totaling exactly max_satoshis (should succeed)
+  // max_satoshis = 2_100_000_000_000_000
+  // output1 = 1_050_000_000_000_000
+  // output2 = 1_050_000_000_000_000
+  // total = 2_100_000_000_000_000 (exactly at limit)
+
+  let vout_count = compact_size(2)
+  let value1 = 1_050_000_000_000_000
+  let value2 = 1_050_000_000_000_000
+  let script_pubkey = <<>>
+
+  let output1 = build_output(<<value1:little-size(64)>>, script_pubkey)
+  let output2 = build_output(<<value2:little-size(64)>>, script_pubkey)
+  let lock_time = <<0:little-size(32)>>
+
+  let assert Ok(_) =
+    btc_tx.decode(<<
+      version1:bits,
+      build_minimal_input():bits,
+      vout_count:bits,
+      output1:bits,
+      output2:bits,
+      lock_time:bits,
+    >>)
+}
+
 // scriptPubKey validation
 
 pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {

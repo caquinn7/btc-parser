@@ -590,11 +590,11 @@ fn read_compact_size_as_int(field_name: String) -> Parser(Int) {
 /// Read a vector of items by repeatedly calling a parser for each index.
 ///
 /// Returns items in the order they appear in the binary stream.
-fn read_vec(count: Int, create_parser: fn(Int) -> Parser(a)) -> Parser(List(a)) {
+fn read_vec(length: Int, create_parser: fn(Int) -> Parser(a)) -> Parser(List(a)) {
   fn(reader, ctx) {
-    use <- bool.guard(count <= 0, Ok(#(reader, [])))
+    use <- bool.guard(length <= 0, Ok(#(reader, [])))
 
-    let indices = list.range(0, count - 1)
+    let indices = list.range(0, length - 1)
     let init = Ok(#(reader, []))
 
     indices
@@ -618,39 +618,41 @@ fn read_vec(count: Int, create_parser: fn(Int) -> Parser(a)) -> Parser(List(a)) 
   }
 }
 
-/// Read a vector of items while tracking cumulative payload bytes.
+/// Read a vector of items while tracking a cumulative metric.
 ///
-/// Similar to `read_vec`, but each parsed item must provide its byte size,
-/// and parsing fails if the cumulative total exceeds `max_total_bytes`.
+/// This is a generic combinator that accumulates a metric across items and
+/// validates it doesn't exceed a maximum value. The `create_parser` function
+/// receives the index and returns a parser that produces both the item and
+/// its contribution to the metric as a tuple `#(item, metric_value)`.
 ///
-/// The `create_parser` function receives the index and returns a parser that
-/// produces both the item and its byte size as a tuple `#(item, byte_size)`.
-fn read_vec_with_byte_tracking(
-  count: Int,
-  max_total_bytes: Int,
-  total_bytes_field_name: String,
+/// The metric values are summed together, and parsing fails fast with a
+/// `PolicyLimitExceeded` error if the cumulative sum exceeds `max_metric`.
+fn read_vec_with_policy_check(
+  length: Int,
+  max_metric: Int,
+  metric_field_name: String,
   create_parser: fn(Int) -> Parser(#(a, Int)),
 ) -> Parser(List(a)) {
   fn(reader, ctx) {
-    use <- bool.guard(count <= 0, Ok(#(reader, [])))
+    use <- bool.guard(length <= 0, Ok(#(reader, [])))
 
-    let indices = list.range(0, count - 1)
+    let indices = list.range(0, length - 1)
     let init = Ok(#(reader, [], 0))
 
     indices
     |> list.fold_until(init, fn(acc, index) {
       case acc {
-        Ok(#(current_reader, items, cumulative_bytes)) -> {
+        Ok(#(current_reader, items, cumulative_metric)) -> {
           let item_parser = create_parser(index)
 
           case item_parser(current_reader, ctx) {
-            Ok(#(next_reader, #(item, item_byte_size))) -> {
-              let new_cumulative = cumulative_bytes + item_byte_size
+            Ok(#(next_reader, #(item, item_metric))) -> {
+              let new_cumulative = cumulative_metric + item_metric
 
-              case new_cumulative > max_total_bytes {
+              case new_cumulative > max_metric {
                 True ->
-                  PolicyLimitExceeded(new_cumulative, max_total_bytes)
-                  |> make_field_error(total_bytes_field_name, next_reader, ctx)
+                  PolicyLimitExceeded(new_cumulative, max_metric)
+                  |> make_field_error(metric_field_name, next_reader, ctx)
                   |> Error
                   |> Stop
 
@@ -701,6 +703,9 @@ pub const default_policy = DecodePolicy(
   max_script_size: 10_000,
   witness_policy: default_witness_policy,
 )
+
+// 21_000_000 bitcoins * 100_000_000 satoshis in a bitcoin
+const max_satoshis = 2_100_000_000_000_000
 
 pub fn decode(bytes: BitArray) -> Result(Transaction, DecodeError) {
   decode_with_policy(bytes, default_policy)
@@ -998,14 +1003,19 @@ fn read_tx_outs(
   // ├─ TxOut #1
   // │    ├─ ...
   // └─ TxOut #(vout_count - 1)
-  read_vec(vout_count, fn(index) {
-    max_script_size_policy
-    |> read_tx_out
-    |> in_context(AtOutput(index))
-  })
+  read_vec_with_policy_check(
+    vout_count,
+    max_satoshis,
+    "outputs_total_value",
+    fn(index) {
+      max_script_size_policy
+      |> read_tx_out_with_value
+      |> in_context(AtOutput(index))
+    },
+  )
 }
 
-fn read_tx_out(max_script_size_policy: Int) -> Parser(TxOut) {
+fn read_tx_out_with_value(max_script_size_policy: Int) -> Parser(#(TxOut, Int)) {
   // | value (8 bytes)
   // | scriptPubKey_len (CompactSize)
   // | scriptPubKey bytes
@@ -1017,7 +1027,10 @@ fn read_tx_out(max_script_size_policy: Int) -> Parser(TxOut) {
       read_script("scriptPubKey", max_script_size_policy),
     )
 
-    Ok(#(reader, TxOut(value:, script_pubkey:)))
+    let output = TxOut(value:, script_pubkey:)
+    let Satoshis(value_int) = value
+
+    Ok(#(reader, #(output, value_int)))
   }
 }
 
@@ -1034,7 +1047,7 @@ fn read_satoshis() -> Parser(Satoshis) {
     let value_err = make_field_error("value", reader, ctx)
 
     // This should never happen.
-    // The max possible amount of satoshis 2_100_000_000_000_000 (21_000_000 * 100_000_000) (2.1 quadrillion)
+    // The max possible amount of satoshis 2_100_000_000_000_000 (2.1 quadrillion)
     // is less than JavaScript's Number.MAX_SAFE_INTEGER 
     use value_int <- result.try(
       value_i64
@@ -1046,8 +1059,6 @@ fn read_satoshis() -> Parser(Satoshis) {
         |> value_err
       }),
     )
-
-    let max_satoshis = 21_000_000 * 100_000_000
 
     case value_int < 0 || value_int > max_satoshis {
       True ->
@@ -1166,7 +1177,7 @@ fn read_witness_items_with_byte_tracking(
   max_item_size: Int,
   max_total_bytes: Int,
 ) -> Parser(List(WitnessItem)) {
-  read_vec_with_byte_tracking(
+  read_vec_with_policy_check(
     count,
     max_total_bytes,
     "witnessStack_total_payload_bytes",
