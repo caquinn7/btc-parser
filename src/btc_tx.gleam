@@ -727,7 +727,7 @@ pub fn decode_with_policy(
   use reader, vin_count <- run_parse(
     reader,
     inputs_ctx,
-    read_and_validate_vin_count(policy.max_vin_count),
+    read_vin_count(policy.max_vin_count),
   )
   use reader, inputs <- run_parse(
     reader,
@@ -740,7 +740,7 @@ pub fn decode_with_policy(
   use reader, vout_count <- run_parse(
     reader,
     outputs_ctx,
-    read_and_validate_vout_count(policy.max_vout_count),
+    read_vout_count(policy.max_vout_count),
   )
   use reader, outputs <- run_parse(
     reader,
@@ -848,7 +848,7 @@ fn peek_segwit() -> Parser(Bool) {
 }
 
 /// Validate and convert the vin_count from Uint64 to Int, checking structural and policy limits.
-fn read_and_validate_vin_count(max_vin_count_policy: Int) -> Parser(Int) {
+fn read_vin_count(max_vin_count_policy: Int) -> Parser(Int) {
   fn(reader, ctx) {
     use reader, vin_count_int <- run_parse(
       reader,
@@ -862,27 +862,28 @@ fn read_and_validate_vin_count(max_vin_count_policy: Int) -> Parser(Int) {
     // Upper bound implied by remaining bytes (each input is at least 41 bytes)
     let max_inputs_by_bytes = remaining / min_txin_size
 
-    let vin_count_err = make_field_error("vin_count", reader, ctx)
+    let vin_count_err = fn(parse_error_kind) {
+      parse_error_kind
+      |> make_field_error("vin_count", reader, ctx)
+      |> Error
+    }
 
     // Minimum count validation
     use <- bool.lazy_guard(vin_count_int < 1, fn() {
       InvalidValueRange(vin_count_int, Some(1), None)
       |> vin_count_err
-      |> Error
     })
 
     // Structural limit: count exceeds what remaining bytes can accommodate
     use <- bool.lazy_guard(vin_count_int > max_inputs_by_bytes, fn() {
       InsufficientBytes(claimed: remaining + 1, remaining:)
       |> vin_count_err
-      |> Error
     })
 
     // Policy limit: count exceeds configured maximum
     use <- bool.lazy_guard(vin_count_int > max_vin_count_policy, fn() {
       PolicyLimitExceeded(vin_count_int, max_vin_count_policy)
       |> vin_count_err
-      |> Error
     })
 
     Ok(#(reader, vin_count_int))
@@ -962,7 +963,7 @@ fn read_prev_out() -> Parser(PrevOut) {
 }
 
 /// Validate and convert the vout_count from Uint64 to Int, checking structural and policy limits.
-fn read_and_validate_vout_count(max_vout_count_policy: Int) -> Parser(Int) {
+fn read_vout_count(max_vout_count_policy: Int) -> Parser(Int) {
   fn(reader, ctx) {
     use reader, vout_count_int <- run_parse(
       reader,
@@ -976,27 +977,28 @@ fn read_and_validate_vout_count(max_vout_count_policy: Int) -> Parser(Int) {
     // Upper bound implied by remaining bytes (each output is at least 9 bytes)
     let max_outputs_by_bytes = remaining / min_txout_size
 
-    let vout_count_err = make_field_error("vout_count", reader, ctx)
+    let vout_count_err = fn(parse_error_kind) {
+      parse_error_kind
+      |> make_field_error("vout_count", reader, ctx)
+      |> Error
+    }
 
     // Minimum count validation
     use <- bool.lazy_guard(vout_count_int < 1, fn() {
       InvalidValueRange(vout_count_int, Some(1), None)
       |> vout_count_err
-      |> Error
     })
 
     // Structural limit: count exceeds what remaining bytes can accommodate
     use <- bool.lazy_guard(vout_count_int > max_outputs_by_bytes, fn() {
       InsufficientBytes(claimed: remaining + 1, remaining:)
       |> vout_count_err
-      |> Error
     })
 
     // Policy limit: count exceeds configured maximum
     use <- bool.lazy_guard(vout_count_int > max_vout_count_policy, fn() {
       PolicyLimitExceeded(vout_count_int, max_vout_count_policy)
       |> vout_count_err
-      |> Error
     })
 
     Ok(#(reader, vout_count_int))
@@ -1092,10 +1094,7 @@ fn read_script(
     use reader, script_len <- run_parse(
       reader,
       ctx,
-      read_and_validate_script_length(
-        field_name <> "_len",
-        max_script_size_policy,
-      ),
+      read_script_length(field_name <> "_len", max_script_size_policy),
     )
     use reader, script_bytes <- run_parse(
       reader,
@@ -1111,7 +1110,7 @@ fn read_script(
 ///
 /// Reads a CompactSize length, converts it to Int, validates it against
 /// max_script_size_policy, and ensures sufficient bytes remain.
-fn read_and_validate_script_length(
+fn read_script_length(
   field_name: String,
   max_script_size_policy: Int,
 ) -> Parser(Int) {
@@ -1122,19 +1121,21 @@ fn read_and_validate_script_length(
       read_compact_size_as_int(field_name),
     )
 
-    let field_err = make_field_error(field_name, reader, ctx)
+    let script_len_err = fn(parse_error_kind) {
+      parse_error_kind
+      |> make_field_error(field_name, reader, ctx)
+      |> Error
+    }
 
     let remaining = reader.bytes_remaining(reader)
     use <- bool.lazy_guard(script_len_int > remaining, fn() {
       InsufficientBytes(claimed: script_len_int, remaining:)
-      |> field_err
-      |> Error
+      |> script_len_err
     })
 
     use <- bool.lazy_guard(script_len_int > max_script_size_policy, fn() {
       PolicyLimitExceeded(script_len_int, max_script_size_policy)
-      |> field_err
-      |> Error
+      |> script_len_err
     })
 
     Ok(#(reader, script_len_int))
@@ -1165,7 +1166,7 @@ fn read_witness_stack(policy: WitnessPolicy) -> Parser(WitnessStack) {
     use reader, stack_len <- run_parse(
       reader,
       ctx,
-      read_and_validate_witness_stack_length(policy.max_items_per_input),
+      read_witness_stack_length(policy.max_items_per_input),
     )
 
     // Parse witness items while tracking cumulative byte size
@@ -1222,7 +1223,7 @@ fn read_witness_item(max_item_size_policy: Int) -> Parser(WitnessItem) {
     use reader, length <- run_parse(
       reader,
       ctx,
-      read_and_validate_witness_item_size(max_item_size_policy),
+      read_witness_item_size(max_item_size_policy),
     )
     use reader, item_bytes <- run_parse(
       reader,
@@ -1238,9 +1239,7 @@ fn read_witness_item(max_item_size_policy: Int) -> Parser(WitnessItem) {
 ///
 /// Reads a CompactSize length, converts it to Int, and validates it against
 /// max_items_per_input policy.
-fn read_and_validate_witness_stack_length(
-  max_items_per_input_policy: Int,
-) -> Parser(Int) {
+fn read_witness_stack_length(max_items_per_input_policy: Int) -> Parser(Int) {
   fn(reader, ctx) {
     use reader, stack_len <- run_parse(
       reader,
@@ -1258,7 +1257,7 @@ fn read_and_validate_witness_stack_length(
   }
 }
 
-fn read_and_validate_witness_item_size(max_item_size_policy: Int) -> Parser(Int) {
+fn read_witness_item_size(max_item_size_policy: Int) -> Parser(Int) {
   fn(reader, ctx) {
     use reader, length <- run_parse(
       reader,
@@ -1266,19 +1265,21 @@ fn read_and_validate_witness_item_size(max_item_size_policy: Int) -> Parser(Int)
       read_compact_size_as_int("witnessItem_len"),
     )
 
-    let field_err = make_field_error("witnessItem_len", reader, ctx)
+    let witness_item_len_err = fn(parse_error_kind) {
+      parse_error_kind
+      |> make_field_error("witnessItem_len", reader, ctx)
+      |> Error
+    }
 
     let remaining = reader.bytes_remaining(reader)
     use <- bool.lazy_guard(length > remaining, fn() {
       InsufficientBytes(claimed: length, remaining:)
-      |> field_err
-      |> Error
+      |> witness_item_len_err
     })
 
     use <- bool.lazy_guard(length > max_item_size_policy, fn() {
       PolicyLimitExceeded(length, max_item_size_policy)
-      |> field_err
-      |> Error
+      |> witness_item_len_err
     })
 
     Ok(#(reader, length))
