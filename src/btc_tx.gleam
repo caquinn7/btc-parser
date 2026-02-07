@@ -748,36 +748,33 @@ pub fn decode_with_policy(
     read_tx_outs(vout_count, policy.max_script_size),
   )
 
-  use #(reader, tx) <- result.try(case is_segwit {
+  // Parse witnesses if segwit
+  use #(reader, witnesses) <- result.try(case is_segwit {
     True -> {
-      // witnesses
       use reader, witnesses <- run_parse(
         reader,
         tx_ctx,
         read_witness_stacks(vin_count, policy.witness_policy),
       )
-
-      // lock_time
-      use reader, lock_time <- run_parse(
-        reader,
-        tx_ctx,
-        read_field("lock_time", reader.read_u32_le),
-      )
-
-      Ok(#(reader, Segwit(version:, inputs:, outputs:, lock_time:, witnesses:)))
+      Ok(#(reader, Some(witnesses)))
     }
 
-    False -> {
-      // lock_time
-      use reader, lock_time <- run_parse(
-        reader,
-        tx_ctx,
-        read_field("lock_time", reader.read_u32_le),
-      )
-
-      Ok(#(reader, Legacy(version:, inputs:, outputs:, lock_time:)))
-    }
+    False -> Ok(#(reader, None))
   })
+
+  // lock_time (common to both paths)
+  use reader, lock_time <- run_parse(
+    reader,
+    tx_ctx,
+    read_field("lock_time", reader.read_u32_le),
+  )
+
+  let tx = case witnesses {
+    Some(witnesses) ->
+      Segwit(version:, inputs:, outputs:, lock_time:, witnesses:)
+
+    None -> Legacy(version:, inputs:, outputs:, lock_time:)
+  }
 
   case reader.bytes_remaining(reader) {
     0 -> Ok(tx)
