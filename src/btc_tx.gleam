@@ -3,9 +3,8 @@
 
 import gleam/bit_array
 import gleam/bool
-import gleam/int
 import gleam/list.{Continue, Stop}
-import gleam/option.{type Option, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/pair
 import gleam/result
 import internal/compact_size
@@ -354,52 +353,41 @@ pub type ParseErrorKind {
   /// that violates Bitcoin's canonical serialization rules.
   CompactSizeError(compact_size.CompactSizeError)
 
-  /// The claimed or minimum required length exceeds the remaining bytes.
+  /// A claimed or required length exceeds structural limits.
   ///
-  /// This occurs when:
-  /// - A length-prefixed field (script, witness item) claims more bytes than remain
-  /// - A count field implies more items than could fit in remaining bytes
+  /// This error occurs when a length field or count field implies more bytes or items
+  /// than are structurally available in the input buffer. This is distinct from
+  /// `PolicyLimitExceeded`, which enforces parser-defined limits for protection.
   ///
-  /// `claimed` is the number of bytes needed, `remaining` is what's available.
+  /// Examples:
+  /// - A script length field claims 1000 bytes, but only 100 bytes remain
+  /// - An item count implies at least 500 bytes needed, but only 200 remain
+  ///
+  /// `claimed` represents bytes needed, `remaining` is what's available.
+  /// `claimed` may be a conservative estimate (e.g., `remaining + 1`) rather than
+  /// the exact number of bytes to avoid integer overflow on the JavaScript target.
   InsufficientBytes(claimed: Int, remaining: Int)
 
-  /// A decoded integer value exceeds the range representable by the runtime.
+  /// A decoded 64-bit integer value exceeds the range representable by the runtime.
   ///
-  /// This typically occurs when converting a 64-bit unsigned value to a host
-  /// integer type. The original value is preserved as a string for diagnostics.
+  /// The original value is preserved as a string for diagnostics.
   IntegerOutOfRange(String)
 
-  /// A length-prefixed field's claimed size exceeds a parser-defined policy limit.
+  /// A policy limit was exceeded.
   ///
-  /// This occurs when a length field specifies a byte count or item count
-  /// that exceeds the corresponding policy limit,
-  /// even though the specified bytes may be available in the input.
+  /// This occurs when either an individual field value or cumulative metric exceeds
+  /// a policy-defined limit, such as maximum script size, witness item count, or
+  /// total witness payload bytes.
   ///
-  /// `length` is the claimed size from the length field, `max` is the policy limit.
-  /// This is distinct from `InsufficientBytes` (which means there aren't enough bytes)
-  /// and from `PolicyLimitExceeded` (which tracks aggregate metrics across multiple fields).
-  LengthTooLarge(length: Int, max: Int)
-
-  /// A cumulative or aggregate metric exceeded a parser-defined policy limit.
-  ///
-  /// Unlike `LengthTooLarge` (which validates individual length-prefixed fields)
-  /// and `InvalidValueRange` (which validates semantic constraints on specific field values),
-  /// this error applies to aggregate metrics computed across multiple fields,
-  /// such as total witness payload bytes or cumulative script size.
-  ///
-  /// `value` is the computed aggregate, and `max` is the policy limit that was exceeded.
+  /// `value` is the exceeded value, and `max` is the policy limit.
   PolicyLimitExceeded(value: Int, max: Int)
 
   /// A decoded numeric value fell outside the allowed range for the given field.
   ///
   /// The value was successfully decoded from well-formed input, but is rejected
-  /// because it violates semantic constraints implied by the field's meaning
-  /// (for example, invalid flag values, satoshi amounts outside consensus limits,
-  /// or transaction counts outside structural bounds).
-  ///
-  /// This is distinct from `LengthTooLarge` (which validates individual length-prefixed
-  /// field sizes) and `PolicyLimitExceeded` (which validates aggregate metrics across
-  /// multiple fields).
+  /// because it violates semantic constraints or consensus rules implied by the
+  /// field's meaning (for example, negative satoshi amounts, satoshi values exceeding
+  /// the maximum money supply, or counts below their required minimum).
   ///
   /// `value` is the decoded value, and `min` / `max` define the permitted inclusive range.
   InvalidValueRange(value: Int, min: Option(Int), max: Option(Int))
@@ -564,13 +552,13 @@ fn read_compact_size(field_name: String) -> Parser(Uint64) {
 /// the `Uint64` result to `Int`, mapping conversion failures to `IntegerOutOfRange` errors.
 fn read_compact_size_as_int(field_name: String) -> Parser(Int) {
   fn(reader, ctx) {
+    let start_reader = reader
+
     use reader, value_u64 <- run_parse(
       reader,
       ctx,
       read_compact_size(field_name),
     )
-
-    let field_err = make_field_error(field_name, reader, ctx)
 
     use value_int <- result.try(
       value_u64
@@ -579,7 +567,7 @@ fn read_compact_size_as_int(field_name: String) -> Parser(Int) {
         value_u64
         |> uint64.to_string
         |> IntegerOutOfRange
-        |> field_err
+        |> make_field_error(field_name, start_reader, ctx)
       }),
     )
 
@@ -625,13 +613,15 @@ fn read_vec(length: Int, create_parser: fn(Int) -> Parser(a)) -> Parser(List(a))
 /// receives the index and returns a parser that produces both the item and
 /// its contribution to the metric as a tuple `#(item, metric_value)`.
 ///
-/// The metric values are summed together, and parsing fails fast with a
-/// `PolicyLimitExceeded` error if the cumulative sum exceeds `max_metric`.
-fn read_vec_with_policy_check(
+/// The metric values are summed together, and parsing fails fast if the 
+/// cumulative sum exceeds `limit`. The error is created by calling 
+/// `limit_exceeded_err` with the exceeded value and contextualized with `field_name`.
+fn read_vec_with_cumulative_limit(
   length: Int,
-  max_metric: Int,
-  metric_field_name: String,
+  limit: Int,
+  field_name: String,
   create_parser: fn(Int) -> Parser(#(a, Int)),
+  limit_exceeded_err: fn(Int) -> ParseErrorKind,
 ) -> Parser(List(a)) {
   fn(reader, ctx) {
     use <- bool.guard(length <= 0, Ok(#(reader, [])))
@@ -642,22 +632,20 @@ fn read_vec_with_policy_check(
     indices
     |> list.fold_until(init, fn(acc, index) {
       case acc {
-        Ok(#(current_reader, items, cumulative_metric)) -> {
+        Ok(#(reader, items, acc_val)) -> {
           let item_parser = create_parser(index)
 
-          case item_parser(current_reader, ctx) {
-            Ok(#(next_reader, #(item, item_metric))) -> {
-              let new_cumulative = cumulative_metric + item_metric
-
-              case new_cumulative > max_metric {
+          case item_parser(reader, ctx) {
+            Ok(#(reader, #(item, item_val))) -> {
+              let acc_val = acc_val + item_val
+              case acc_val > limit {
                 True ->
-                  PolicyLimitExceeded(new_cumulative, max_metric)
-                  |> make_field_error(metric_field_name, next_reader, ctx)
+                  limit_exceeded_err(acc_val)
+                  |> make_field_error(field_name, reader, ctx)
                   |> Error
                   |> Stop
 
-                False ->
-                  Continue(Ok(#(next_reader, [item, ..items], new_cumulative)))
+                False -> Continue(Ok(#(reader, [item, ..items], acc_val)))
               }
             }
 
@@ -753,7 +741,6 @@ pub fn decode_with_policy(
     outputs_ctx,
     read_tx_outs(vout_count, policy.max_script_size),
   )
-  // todo: validate that sum of outputs is not greater than 21_000_000 * 100_000_000
 
   case is_segwit {
     True -> {
@@ -859,26 +846,31 @@ fn read_and_validate_vin_count(max_vin_count_policy: Int) -> Parser(Int) {
 
     // Upper bound implied by remaining bytes (each input is at least 41 bytes)
     let max_inputs_by_bytes = remaining / min_txin_size
-    // Final max is the stricter of policy vs structural
-    let max_inputs = int.min(max_inputs_by_bytes, max_vin_count_policy)
 
     let vin_count_err = make_field_error("vin_count", reader, ctx)
 
-    // There aren't enough remaining bytes to parse even one input
-    use <- bool.lazy_guard(remaining < min_txin_size, fn() {
-      InsufficientBytes(remaining:, claimed: min_txin_size)
+    // Minimum count validation
+    use <- bool.lazy_guard(vin_count_int < 1, fn() {
+      InvalidValueRange(vin_count_int, Some(1), None)
       |> vin_count_err
       |> Error
     })
 
-    case vin_count_int < 1 || vin_count_int > max_inputs {
-      True ->
-        InvalidValueRange(vin_count_int, Some(1), Some(max_inputs))
-        |> vin_count_err
-        |> Error
+    // Structural limit: count exceeds what remaining bytes can accommodate
+    use <- bool.lazy_guard(vin_count_int > max_inputs_by_bytes, fn() {
+      InsufficientBytes(claimed: remaining + 1, remaining:)
+      |> vin_count_err
+      |> Error
+    })
 
-      False -> Ok(#(reader, vin_count_int))
-    }
+    // Policy limit: count exceeds configured maximum
+    use <- bool.lazy_guard(vin_count_int > max_vin_count_policy, fn() {
+      PolicyLimitExceeded(vin_count_int, max_vin_count_policy)
+      |> vin_count_err
+      |> Error
+    })
+
+    Ok(#(reader, vin_count_int))
   }
 }
 
@@ -968,26 +960,31 @@ fn read_and_validate_vout_count(max_vout_count_policy: Int) -> Parser(Int) {
 
     // Upper bound implied by remaining bytes (each output is at least 9 bytes)
     let max_outputs_by_bytes = remaining / min_txout_size
-    // Final max is the stricter of policy vs structural
-    let max_outputs = int.min(max_outputs_by_bytes, max_vout_count_policy)
 
     let vout_count_err = make_field_error("vout_count", reader, ctx)
 
-    // There aren't enough remaining bytes to parse even one output
-    use <- bool.lazy_guard(remaining < min_txout_size, fn() {
-      InsufficientBytes(remaining:, claimed: min_txout_size)
+    // Minimum count validation
+    use <- bool.lazy_guard(vout_count_int < 1, fn() {
+      InvalidValueRange(vout_count_int, Some(1), None)
       |> vout_count_err
       |> Error
     })
 
-    case vout_count_int < 1 || vout_count_int > max_outputs {
-      True ->
-        InvalidValueRange(vout_count_int, Some(1), Some(max_outputs))
-        |> vout_count_err
-        |> Error
+    // Structural limit: count exceeds what remaining bytes can accommodate
+    use <- bool.lazy_guard(vout_count_int > max_outputs_by_bytes, fn() {
+      InsufficientBytes(claimed: remaining + 1, remaining:)
+      |> vout_count_err
+      |> Error
+    })
 
-      False -> Ok(#(reader, vout_count_int))
-    }
+    // Policy limit: count exceeds configured maximum
+    use <- bool.lazy_guard(vout_count_int > max_vout_count_policy, fn() {
+      PolicyLimitExceeded(vout_count_int, max_vout_count_policy)
+      |> vout_count_err
+      |> Error
+    })
+
+    Ok(#(reader, vout_count_int))
   }
 }
 
@@ -1003,7 +1000,7 @@ fn read_tx_outs(
   // ├─ TxOut #1
   // │    ├─ ...
   // └─ TxOut #(vout_count - 1)
-  read_vec_with_policy_check(
+  read_vec_with_cumulative_limit(
     vout_count,
     max_satoshis,
     "outputs_total_value",
@@ -1012,6 +1009,7 @@ fn read_tx_outs(
       |> read_tx_out_with_value
       |> in_context(AtOutput(index))
     },
+    InvalidValueRange(_, Some(0), Some(max_satoshis)),
   )
 }
 
@@ -1111,15 +1109,15 @@ fn read_and_validate_script_length(
 
     let field_err = make_field_error(field_name, reader, ctx)
 
-    use <- bool.lazy_guard(script_len_int > max_script_size_policy, fn() {
-      LengthTooLarge(script_len_int, max_script_size_policy)
+    let remaining = reader.bytes_remaining(reader)
+    use <- bool.lazy_guard(script_len_int > remaining, fn() {
+      InsufficientBytes(claimed: script_len_int, remaining:)
       |> field_err
       |> Error
     })
 
-    let remaining = reader.bytes_remaining(reader)
-    use <- bool.lazy_guard(script_len_int > remaining, fn() {
-      InsufficientBytes(claimed: script_len_int, remaining:)
+    use <- bool.lazy_guard(script_len_int > max_script_size_policy, fn() {
+      PolicyLimitExceeded(script_len_int, max_script_size_policy)
       |> field_err
       |> Error
     })
@@ -1177,7 +1175,7 @@ fn read_witness_items_with_byte_tracking(
   max_item_size: Int,
   max_total_bytes: Int,
 ) -> Parser(List(WitnessItem)) {
-  read_vec_with_policy_check(
+  read_vec_with_cumulative_limit(
     count,
     max_total_bytes,
     "witnessStack_total_payload_bytes",
@@ -1186,6 +1184,7 @@ fn read_witness_items_with_byte_tracking(
       |> read_witness_item_with_size
       |> in_context(AtWitnessItem(index))
     },
+    PolicyLimitExceeded(_, max_total_bytes),
   )
 }
 
@@ -1235,7 +1234,7 @@ fn read_and_validate_witness_stack_length(
     )
 
     use <- bool.lazy_guard(stack_len > max_items_per_input_policy, fn() {
-      LengthTooLarge(stack_len, max_items_per_input_policy)
+      PolicyLimitExceeded(stack_len, max_items_per_input_policy)
       |> make_field_error("witnessStack_len", reader, ctx)
       |> Error
     })
@@ -1254,15 +1253,15 @@ fn read_and_validate_witness_item_size(max_item_size_policy: Int) -> Parser(Int)
 
     let field_err = make_field_error("witnessItem_len", reader, ctx)
 
-    use <- bool.lazy_guard(length > max_item_size_policy, fn() {
-      LengthTooLarge(length, max_item_size_policy)
+    let remaining = reader.bytes_remaining(reader)
+    use <- bool.lazy_guard(length > remaining, fn() {
+      InsufficientBytes(claimed: length, remaining:)
       |> field_err
       |> Error
     })
 
-    let remaining = reader.bytes_remaining(reader)
-    use <- bool.lazy_guard(length > remaining, fn() {
-      InsufficientBytes(claimed: length, remaining:)
+    use <- bool.lazy_guard(length > max_item_size_policy, fn() {
+      PolicyLimitExceeded(length, max_item_size_policy)
       |> field_err
       |> Error
     })
