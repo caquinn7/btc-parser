@@ -390,3 +390,4 @@ pub fn read_i32_le_returns_eof_when_not_enough_bytes_test() {
   assert reader.read_i32_le(reader.new(<<0xFF, 0xFF>>))
     == Error(UnexpectedEof(bytes_needed: 4, remaining: 2))
 }
+// read_i64_le 

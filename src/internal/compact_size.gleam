@@ -1,6 +1,6 @@
 import gleam/result
+import internal/fixed_int/uint64.{type Uint64}
 import internal/reader.{type Reader}
-import internal/u64.{type U64}
 
 /// Read a CompactSize-encoded integer from the reader.
 ///
@@ -25,7 +25,7 @@ import internal/u64.{type U64}
 /// - `Ok(#(reader, value))` - The updated reader and the decoded U64 value
 /// - `Error(ReaderError(_))` - Not enough bytes available to read the encoded value
 /// - `Error(NonMinimalCompactSize(_, _))` - The value used non-minimal encoding
-pub fn read(reader: Reader) -> Result(#(Reader, U64), CompactSizeError) {
+pub fn read(reader: Reader) -> Result(#(Reader, Uint64), CompactSizeError) {
   use #(reader, prefix) <- result.try(read_from(reader, reader.read_u8))
 
   case prefix {
@@ -35,7 +35,7 @@ pub fn read(reader: Reader) -> Result(#(Reader, U64), CompactSizeError) {
       case value < 253 {
         True -> Error(NonMinimalCompactSize(encoded: 3, value: value))
         False -> {
-          let assert Ok(u) = u64.from_bytes_le(<<value:little-size(64)>>)
+          let assert Ok(u) = uint64.from_bytes_le(<<value:little-size(64)>>)
           Ok(#(reader, u))
         }
       }
@@ -47,7 +47,7 @@ pub fn read(reader: Reader) -> Result(#(Reader, U64), CompactSizeError) {
       case value < 65_536 {
         True -> Error(NonMinimalCompactSize(encoded: 5, value:))
         False -> {
-          let assert Ok(u) = u64.from_bytes_le(<<value:little-size(64)>>)
+          let assert Ok(u) = uint64.from_bytes_le(<<value:little-size(64)>>)
           Ok(#(reader, u))
         }
       }
@@ -68,14 +68,16 @@ pub fn read(reader: Reader) -> Result(#(Reader, U64), CompactSizeError) {
       case upper == 0 {
         True -> Error(NonMinimalCompactSize(encoded: 9, value: lower))
         False -> {
-          let assert Ok(u) = u64.from_bytes_le(bytes)
+          let assert Ok(u) = uint64.from_bytes_le(bytes)
           Ok(#(reader, u))
         }
       }
     }
 
     _ -> {
-      let assert Ok(value) = u64.from_bytes_le(<<prefix, 0, 0, 0, 0, 0, 0, 0>>)
+      let assert Ok(value) =
+        uint64.from_bytes_le(<<prefix, 0, 0, 0, 0, 0, 0, 0>>)
+
       Ok(#(reader, value))
     }
   }

@@ -18,7 +18,7 @@ pub type Hash32Error {
 /// ## Examples
 ///
 /// ```gleam
-/// from_bytes_le(<<0:bytes-size(32)>>)
+/// from_bytes_le(<<0:size(32)>>)
 /// // -> Ok(Hash32) representing an all-zero hash
 ///
 /// from_bytes_le(<<1, 2, 3>>)
@@ -29,4 +29,11 @@ pub fn from_bytes_le(bytes: BitArray) -> Result(Hash32, Hash32Error) {
     <<_:bytes-size(32)>> -> Ok(Hash32(bytes))
     _ -> Error(InvalidByteCount(bit_array.byte_size(bytes)))
   }
+}
+
+/// Returns the raw little-endian byte representation of the value.
+///
+/// The returned `BitArray` is always exactly 32 bytes long.
+pub fn to_bytes_le(x: Hash32) -> BitArray {
+  x.bytes_le
 }

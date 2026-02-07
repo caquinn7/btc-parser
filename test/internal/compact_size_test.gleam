@@ -1,13 +1,13 @@
 import internal/compact_size.{NonMinimalCompactSize}
+import internal/fixed_int/uint64
 import internal/reader
-import internal/u64
 
 // Single-byte encoding (values 0-252)
 
 pub fn read_returns_single_byte_value_test() {
   let initial_reader = reader.new(<<0xFC, 0xAA>>)
   let assert Ok(#(reader, value)) = compact_size.read(initial_reader)
-  let assert Ok(expected) = u64.from_bytes_le(<<0xFC, 0, 0, 0, 0, 0, 0, 0>>)
+  let assert Ok(expected) = uint64.from_bytes_le(<<0xFC, 0, 0, 0, 0, 0, 0, 0>>)
 
   assert value == expected
   assert reader.get_offset(reader) == 1
@@ -20,7 +20,7 @@ pub fn read_accepts_minimal_fd_threshold_value_test() {
   // Value 253 is the minimum that requires 0xfd prefix
   let initial_reader = reader.new(<<0xFD, 0xFD, 0x00>>)
   let assert Ok(#(reader, value)) = compact_size.read(initial_reader)
-  let assert Ok(expected) = u64.from_bytes_le(<<0xFD, 0, 0, 0, 0, 0, 0, 0>>)
+  let assert Ok(expected) = uint64.from_bytes_le(<<0xFD, 0, 0, 0, 0, 0, 0, 0>>)
 
   assert value == expected
   assert reader.get_offset(reader) == 3
@@ -30,7 +30,7 @@ pub fn read_reads_fd_prefixed_value_test() {
   // 0xfd prefix with 0x00fd (253) little-endian payload
   let initial_reader = reader.new(<<0xFD, 0xFD, 0x00, 0x99>>)
   let assert Ok(#(reader, value)) = compact_size.read(initial_reader)
-  let assert Ok(expected) = u64.from_bytes_le(<<0xFD, 0, 0, 0, 0, 0, 0, 0>>)
+  let assert Ok(expected) = uint64.from_bytes_le(<<0xFD, 0, 0, 0, 0, 0, 0, 0>>)
 
   assert value == expected
   assert reader.get_offset(reader) == 3
@@ -65,7 +65,7 @@ pub fn read_accepts_minimal_fe_threshold_value_test() {
   let initial_reader = reader.new(<<0xFE, 0x00, 0x00, 0x01, 0x00>>)
   let assert Ok(#(reader, value)) = compact_size.read(initial_reader)
   let assert Ok(expected) =
-    u64.from_bytes_le(<<0x00, 0x00, 0x01, 0x00, 0, 0, 0, 0>>)
+    uint64.from_bytes_le(<<0x00, 0x00, 0x01, 0x00, 0, 0, 0, 0>>)
 
   assert value == expected
   assert reader.get_offset(reader) == 5
@@ -76,7 +76,7 @@ pub fn read_reads_fe_prefixed_value_test() {
   let initial_reader = reader.new(<<0xFE, 0x00, 0x00, 0x01, 0x00, 0x01>>)
   let assert Ok(#(reader, value)) = compact_size.read(initial_reader)
   let assert Ok(expected) =
-    u64.from_bytes_le(<<0x00, 0x00, 0x01, 0x00, 0, 0, 0, 0>>)
+    uint64.from_bytes_le(<<0x00, 0x00, 0x01, 0x00, 0, 0, 0, 0>>)
 
   assert value == expected
   assert reader.get_offset(reader) == 5
@@ -111,7 +111,7 @@ pub fn read_accepts_minimal_ff_threshold_value_test() {
     reader.new(<<0xFF, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00>>)
   let assert Ok(#(reader, value)) = compact_size.read(initial_reader)
   let assert Ok(expected) =
-    u64.from_bytes_le(<<0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00>>)
+    uint64.from_bytes_le(<<0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00>>)
 
   assert value == expected
   assert reader.get_offset(reader) == 9
@@ -121,7 +121,7 @@ pub fn read_reads_ff_prefixed_value_test() {
   let max_value_bytes = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
   let initial_reader = reader.new(<<0xFF, max_value_bytes:bits>>)
   let assert Ok(#(reader, value)) = compact_size.read(initial_reader)
-  let assert Ok(expected) = u64.from_bytes_le(max_value_bytes)
+  let assert Ok(expected) = uint64.from_bytes_le(max_value_bytes)
 
   assert value == expected
   assert reader.get_offset(reader) == 9
