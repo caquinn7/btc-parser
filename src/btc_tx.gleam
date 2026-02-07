@@ -392,6 +392,12 @@ pub type ParseErrorKind {
   /// `value` is the decoded value, and `min` / `max` define the permitted inclusive range.
   InvalidValueRange(value: Int, min: Option(Int), max: Option(Int))
 
+  /// The transaction was successfully parsed, but extra bytes remain in the input.
+  ///
+  /// This indicates the input buffer contains more data than a single valid transaction.
+  /// The wrapped `Int` is the count of trailing bytes that were not consumed.
+  TrailingBytes(Int)
+
   /// A catch-all error for unexpected or internal parsing failures that do not
   /// fit any of the structured error categories.
   ///
@@ -742,7 +748,7 @@ pub fn decode_with_policy(
     read_tx_outs(vout_count, policy.max_script_size),
   )
 
-  case is_segwit {
+  use #(reader, tx) <- result.try(case is_segwit {
     True -> {
       // witnesses
       use reader, witnesses <- run_parse(
@@ -752,25 +758,37 @@ pub fn decode_with_policy(
       )
 
       // lock_time
-      use _, lock_time <- run_parse(
+      use reader, lock_time <- run_parse(
         reader,
         tx_ctx,
         read_field("lock_time", reader.read_u32_le),
       )
 
-      Ok(Segwit(version:, inputs:, outputs:, lock_time:, witnesses:))
+      Ok(#(reader, Segwit(version:, inputs:, outputs:, lock_time:, witnesses:)))
     }
 
     False -> {
       // lock_time
-      use _, lock_time <- run_parse(
+      use reader, lock_time <- run_parse(
         reader,
         tx_ctx,
         read_field("lock_time", reader.read_u32_le),
       )
 
-      Ok(Legacy(version:, inputs:, outputs:, lock_time:))
+      Ok(#(reader, Legacy(version:, inputs:, outputs:, lock_time:)))
     }
+  })
+
+  case reader.bytes_remaining(reader) {
+    0 -> Ok(tx)
+
+    byte_count ->
+      byte_count
+      |> TrailingBytes
+      |> new_parse_error(reader)
+      |> with_contexts(tx_ctx)
+      |> ParseFailed
+      |> Error
   }
 }
 

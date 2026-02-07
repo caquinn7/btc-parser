@@ -1,7 +1,8 @@
 import btc_tx.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack, CompactSizeError,
   DecodePolicy, InTransaction, Inputs, InsufficientBytes, InvalidValueRange,
-  Outputs, ParseFailed, PolicyLimitExceeded, ReaderError, WitnessPolicy,
+  Outputs, ParseFailed, PolicyLimitExceeded, ReaderError, TrailingBytes,
+  WitnessPolicy,
 }
 import gleam/bit_array
 import gleam/list
@@ -1873,6 +1874,46 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
       AtWitnessStack(0),
       AtField("witnessStack_total_payload_bytes"),
     ]
+}
+
+// ---- Trailing bytes detection tests ----
+
+pub fn decode_rejects_legacy_tx_with_trailing_byte_test() {
+  let lock_time = <<0:little-size(32)>>
+
+  // Build a valid legacy transaction
+  let valid_tx = <<
+    version1:bits,
+    build_minimal_input():bits,
+    build_minimal_output():bits,
+    lock_time:bits,
+  >>
+
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode(<<valid_tx:bits, 0x42:size(8)>>)
+
+  assert btc_tx.parse_error_kind(parse_err) == TrailingBytes(1)
+  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction]
+
+  let expected_offset = bit_array.byte_size(valid_tx)
+  assert btc_tx.parse_error_offset(parse_err) == expected_offset
+}
+
+pub fn decode_rejects_segwit_tx_with_trailing_byte_test() {
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let output = build_output(<<0:little-size(64)>>, <<>>)
+  let witness_stack = compact_size(0)
+
+  let valid_tx = build_segwit_tx([input], [output], [witness_stack])
+
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode(<<valid_tx:bits, 0xFF:size(8)>>)
+
+  assert btc_tx.parse_error_kind(parse_err) == TrailingBytes(1)
+  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction]
+
+  let expected_offset = bit_array.byte_size(valid_tx)
+  assert btc_tx.parse_error_offset(parse_err) == expected_offset
 }
 
 // helpers
