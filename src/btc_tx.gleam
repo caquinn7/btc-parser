@@ -551,7 +551,7 @@ fn read_compact_size_as_int(
         })
       })
 
-    parser.execute(reader, ctx, convert_parser)
+    parser.run(reader, ctx, convert_parser)
   })
 }
 
@@ -574,7 +574,7 @@ fn read_vec(
         Ok(#(current_reader, items)) -> {
           let item_parser = create_parser(index)
 
-          case parser.execute(current_reader, ctx, item_parser) {
+          case parser.run(current_reader, ctx, item_parser) {
             Ok(#(next_reader, item)) ->
               Continue(Ok(#(next_reader, [item, ..items])))
 
@@ -618,7 +618,7 @@ fn read_vec_with_cumulative_limit(
         Ok(#(reader, items, acc_val)) -> {
           let item_parser = create_parser(index)
 
-          case parser.execute(reader, ctx, item_parser) {
+          case parser.run(reader, ctx, item_parser) {
             Ok(#(reader, #(item, item_val))) -> {
               let acc_val = acc_val + item_val
               case acc_val > limit {
@@ -690,17 +690,17 @@ pub fn decode_with_policy(
   let tx_ctx = [InTransaction]
 
   // version
-  use reader, version <- parser.run(
+  use reader, version <- parser.run_then(
     reader,
     tx_ctx,
     read_field("version", reader.read_i32_le),
   )
 
   // segwit?
-  use reader, is_segwit <- parser.run(reader, tx_ctx, detect_segwit())
+  use reader, is_segwit <- parser.run_then(reader, tx_ctx, detect_segwit())
 
   // inputs
-  use reader, inputs <- parser.run(
+  use reader, inputs <- parser.run_then(
     reader,
     tx_ctx,
     parser.in_context(
@@ -710,7 +710,7 @@ pub fn decode_with_policy(
   )
 
   // outputs
-  use reader, outputs <- parser.run(
+  use reader, outputs <- parser.run_then(
     reader,
     tx_ctx,
     parser.in_context(
@@ -722,7 +722,7 @@ pub fn decode_with_policy(
   // Parse witnesses if segwit
   use #(reader, witnesses) <- result.try(case is_segwit {
     True -> {
-      use reader, witnesses <- parser.run(
+      use reader, witnesses <- parser.run_then(
         reader,
         tx_ctx,
         read_witness_stacks(list.length(inputs), policy.witness_policy),
@@ -734,7 +734,7 @@ pub fn decode_with_policy(
   })
 
   // lock_time (common to both paths)
-  use reader, lock_time <- parser.run(
+  use reader, lock_time <- parser.run_then(
     reader,
     tx_ctx,
     read_field("lock_time", reader.read_u32_le),
@@ -773,7 +773,7 @@ pub fn decode_hex(hex: String) -> Result(Transaction, DecodeError) {
 /// Side effect: consumes the marker/flag bytes if SegWit is detected.
 fn detect_segwit() -> Parser(ParseContext, Bool, DecodeError) {
   parser.new(fn(reader, ctx) {
-    use reader, is_segwit <- parser.run(reader, ctx, peek_segwit())
+    use reader, is_segwit <- parser.run_then(reader, ctx, peek_segwit())
 
     let reader = case is_segwit {
       True -> {
@@ -840,7 +840,7 @@ fn read_vin_count(
   max_vin_count_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
   parser.new(fn(reader, ctx) {
-    use reader, vin_count_int <- parser.run(
+    use reader, vin_count_int <- parser.run_then(
       reader,
       ctx,
       read_compact_size_as_int("vin_count"),
@@ -912,13 +912,13 @@ fn read_tx_in(
   // │ scriptSig bytes
   // │ sequence (4 bytes)
   parser.new(fn(reader, ctx) {
-    use reader, prev_out <- parser.run(reader, ctx, read_prev_out())
-    use reader, script_sig <- parser.run(
+    use reader, prev_out <- parser.run_then(reader, ctx, read_prev_out())
+    use reader, script_sig <- parser.run_then(
       reader,
       ctx,
       read_script("scriptSig", max_script_size_policy),
     )
-    use reader, sequence <- parser.run(
+    use reader, sequence <- parser.run_then(
       reader,
       ctx,
       read_field("sequence", reader.read_u32_le),
@@ -930,13 +930,13 @@ fn read_tx_in(
 
 fn read_prev_out() -> Parser(ParseContext, PrevOut, DecodeError) {
   parser.new(fn(reader, ctx) {
-    use reader, prev_txid_bytes <- parser.run(
+    use reader, prev_txid_bytes <- parser.run_then(
       reader,
       ctx,
       read_field("prev_txid", reader.read_bytes(_, 32)),
     )
 
-    use reader, vout <- parser.run(
+    use reader, vout <- parser.run_then(
       reader,
       ctx,
       read_field("vout", reader.read_u32_le),
@@ -970,7 +970,7 @@ fn read_vout_count(
   max_vout_count_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
   parser.new(fn(reader, ctx) {
-    use reader, vout_count_int <- parser.run(
+    use reader, vout_count_int <- parser.run_then(
       reader,
       ctx,
       read_compact_size_as_int("vout_count"),
@@ -1047,8 +1047,8 @@ fn read_tx_out_with_value(
   // | scriptPubKey_len (CompactSize)
   // | scriptPubKey bytes
   parser.new(fn(reader, ctx) {
-    use reader, value <- parser.run(reader, ctx, read_satoshis())
-    use reader, script_pubkey <- parser.run(
+    use reader, value <- parser.run_then(reader, ctx, read_satoshis())
+    use reader, script_pubkey <- parser.run_then(
       reader,
       ctx,
       read_script("scriptPubKey", max_script_size_policy),
@@ -1095,7 +1095,7 @@ fn read_satoshis() -> Parser(ParseContext, Satoshis, DecodeError) {
         }
       })
 
-    parser.execute(reader, ctx, satoshis_parser)
+    parser.run(reader, ctx, satoshis_parser)
   })
 }
 
@@ -1104,12 +1104,12 @@ fn read_script(
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, ScriptBytes, DecodeError) {
   parser.new(fn(reader, ctx) {
-    use reader, script_len <- parser.run(
+    use reader, script_len <- parser.run_then(
       reader,
       ctx,
       read_script_length(field_name <> "_len", max_script_size_policy),
     )
-    use reader, script_bytes <- parser.run(
+    use reader, script_bytes <- parser.run_then(
       reader,
       ctx,
       read_field(field_name, reader.read_bytes(_, script_len)),
@@ -1127,7 +1127,7 @@ fn read_script_length(
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
   parser.new(fn(reader, ctx) {
-    use reader, script_len_int <- parser.run(
+    use reader, script_len_int <- parser.run_then(
       reader,
       ctx,
       read_compact_size_as_int(field_name),
@@ -1179,14 +1179,14 @@ fn read_witness_stack(
   // │    ├─ ...
   // └─ WitnessItem #(stack_len - 1)
   parser.new(fn(reader, ctx) {
-    use reader, stack_len <- parser.run(
+    use reader, stack_len <- parser.run_then(
       reader,
       ctx,
       read_witness_stack_length(policy.max_items_per_input),
     )
 
     // Parse witness items while tracking cumulative byte size
-    use reader, witness_items <- parser.run(
+    use reader, witness_items <- parser.run_then(
       reader,
       ctx,
       read_witness_items_with_byte_tracking(
@@ -1238,12 +1238,12 @@ fn read_witness_item(
   max_item_size_policy: Int,
 ) -> Parser(ParseContext, WitnessItem, DecodeError) {
   parser.new(fn(reader, ctx) {
-    use reader, length <- parser.run(
+    use reader, length <- parser.run_then(
       reader,
       ctx,
       read_witness_item_size(max_item_size_policy),
     )
-    use reader, item_bytes <- parser.run(
+    use reader, item_bytes <- parser.run_then(
       reader,
       ctx,
       read_field("witnessItem", reader.read_bytes(_, length)),
@@ -1260,7 +1260,7 @@ fn read_witness_stack_length(
   max_items_per_input_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
   parser.new(fn(reader, ctx) {
-    use reader, stack_len <- parser.run(
+    use reader, stack_len <- parser.run_then(
       reader,
       ctx,
       read_compact_size_as_int("witnessStack_len"),
@@ -1280,7 +1280,7 @@ fn read_witness_item_size(
   max_item_size_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
   parser.new(fn(reader, ctx) {
-    use reader, length <- parser.run(
+    use reader, length <- parser.run_then(
       reader,
       ctx,
       read_compact_size_as_int("witnessItem_len"),
