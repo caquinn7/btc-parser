@@ -72,3 +72,26 @@ pub fn map_error(
     |> result.map_error(f)
   })
 }
+
+/// Chain a parser with a fallible transformation.
+///
+/// This function takes a parser's successful result and applies a transformation
+/// that can fail (returns `Result`). If the transformation fails, the parser fails
+/// with the resulting error. If it succeeds, the parser continues with the new value.
+///
+/// This is useful for validation, type conversion, and other operations that depend
+/// on the parsed value and can produce errors with the same error type.
+///
+/// Named `try` to align with Gleam standard library conventions (`result.try`, `option.try`).
+pub fn try(
+  parser: Parser(ctx, a, err),
+  f: fn(a) -> Result(b, err),
+) -> Parser(ctx, b, err) {
+  let Parser(parse) = parser
+
+  Parser(fn(reader, ctx) {
+    use #(reader, value) <- result.try(parse(reader, ctx))
+    use new_value <- result.try(f(value))
+    Ok(#(reader, new_value))
+  })
+}

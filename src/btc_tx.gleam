@@ -537,24 +537,21 @@ fn read_compact_size_as_int(
   parser.new(fn(reader, ctx) {
     let start_reader = reader
 
-    use reader, value_u64 <- parser.run(
-      reader,
-      ctx,
-      read_compact_size(field_name),
-    )
-
-    use value_int <- result.try(
-      value_u64
-      |> uint64.to_int
-      |> result.map_error(fn(_) {
+    let convert_parser =
+      field_name
+      |> read_compact_size
+      |> parser.try(fn(value_u64) {
         value_u64
-        |> uint64.to_string
-        |> IntegerOutOfRange
-        |> make_field_error(field_name, start_reader, ctx)
-      }),
-    )
+        |> uint64.to_int
+        |> result.map_error(fn(_) {
+          value_u64
+          |> uint64.to_string
+          |> IntegerOutOfRange
+          |> make_field_error(field_name, start_reader, ctx)
+        })
+      })
 
-    Ok(#(reader, value_int))
+    parser.execute(reader, ctx, convert_parser)
   })
 }
 
@@ -1086,38 +1083,39 @@ fn read_tx_out_with_value(
 
 fn read_satoshis() -> Parser(ParseContext, Satoshis, DecodeError) {
   parser.new(fn(reader, ctx) {
-    use reader, value_bytes <- parser.run(
-      reader,
-      ctx,
-      read_field("value", reader.read_bytes(_, 8)),
-    )
-
-    let assert Ok(value_i64) = int64.from_bytes_le(value_bytes)
-
     let value_err = make_field_error("value", reader, ctx)
 
-    // This should never happen.
-    // The max possible amount of satoshis 2_100_000_000_000_000 (2.1 quadrillion)
-    // is less than JavaScript's Number.MAX_SAFE_INTEGER 
-    use value_int <- result.try(
-      value_i64
-      |> int64.to_int
-      |> result.map_error(fn(_) {
+    let satoshis_parser =
+      read_field("value", reader.read_bytes(_, 8))
+      |> parser.map(fn(value_bytes) {
+        let assert Ok(value_i64) = int64.from_bytes_le(value_bytes)
         value_i64
-        |> int64.to_string
-        |> IntegerOutOfRange
-        |> value_err
-      }),
-    )
+      })
+      |> parser.try(fn(value_i64) {
+        // This should never happen.
+        // The max possible amount of satoshis 2_100_000_000_000_000 (2.1 quadrillion)
+        // is less than JavaScript's Number.MAX_SAFE_INTEGER
+        value_i64
+        |> int64.to_int
+        |> result.map_error(fn(_) {
+          value_i64
+          |> int64.to_string
+          |> IntegerOutOfRange
+          |> value_err
+        })
+      })
+      |> parser.try(fn(value_int) {
+        case value_int < 0 || value_int > max_satoshis {
+          True ->
+            InvalidValueRange(value_int, Some(0), Some(max_satoshis))
+            |> value_err
+            |> Error
 
-    case value_int < 0 || value_int > max_satoshis {
-      True ->
-        InvalidValueRange(value_int, Some(0), Some(max_satoshis))
-        |> value_err
-        |> Error
+          False -> Ok(Satoshis(value_int))
+        }
+      })
 
-      False -> Ok(#(reader, Satoshis(value_int)))
-    }
+    parser.execute(reader, ctx, satoshis_parser)
   })
 }
 
