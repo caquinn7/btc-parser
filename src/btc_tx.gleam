@@ -830,19 +830,9 @@ fn read_inputs(
   max_vin_count_policy: Int,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, List(TxIn), DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use reader, vin_count <- parser.run(
-      reader,
-      ctx,
-      read_vin_count(max_vin_count_policy),
-    )
-    use reader, inputs <- parser.run(
-      reader,
-      ctx,
-      read_tx_ins(vin_count, max_script_size_policy),
-    )
-    Ok(#(reader, inputs))
-  })
+  max_vin_count_policy
+  |> read_vin_count
+  |> parser.then(read_tx_ins(_, max_script_size_policy))
 }
 
 /// Validate and convert the vin_count from Uint64 to Int, checking structural and policy limits.
@@ -970,19 +960,9 @@ fn read_outputs(
   max_vout_count_policy: Int,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, List(TxOut), DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use reader, vout_count <- parser.run(
-      reader,
-      ctx,
-      read_vout_count(max_vout_count_policy),
-    )
-    use reader, outputs <- parser.run(
-      reader,
-      ctx,
-      read_tx_outs(vout_count, max_script_size_policy),
-    )
-    Ok(#(reader, outputs))
-  })
+  max_vout_count_policy
+  |> read_vout_count
+  |> parser.then(read_tx_outs(_, max_script_size_policy))
 }
 
 /// Validate and convert the vout_count from Uint64 to Int, checking structural and policy limits.
