@@ -729,29 +729,23 @@ pub fn decode_with_policy(
   use reader, is_segwit <- run_parse(reader, tx_ctx, detect_segwit())
 
   // inputs
-  let inputs_ctx = [Inputs, ..tx_ctx]
-  use reader, vin_count <- run_parse(
-    reader,
-    inputs_ctx,
-    read_vin_count(policy.max_vin_count),
-  )
   use reader, inputs <- run_parse(
     reader,
-    inputs_ctx,
-    read_tx_ins(vin_count, policy.max_script_size),
+    tx_ctx,
+    in_context(
+      read_inputs(policy.max_vin_count, policy.max_script_size),
+      Inputs,
+    ),
   )
 
   // outputs
-  let outputs_ctx = [Outputs, ..tx_ctx]
-  use reader, vout_count <- run_parse(
-    reader,
-    outputs_ctx,
-    read_vout_count(policy.max_vout_count),
-  )
   use reader, outputs <- run_parse(
     reader,
-    outputs_ctx,
-    read_tx_outs(vout_count, policy.max_script_size),
+    tx_ctx,
+    in_context(
+      read_outputs(policy.max_vout_count, policy.max_script_size),
+      Outputs,
+    ),
   )
 
   // Parse witnesses if segwit
@@ -760,7 +754,7 @@ pub fn decode_with_policy(
       use reader, witnesses <- run_parse(
         reader,
         tx_ctx,
-        read_witness_stacks(vin_count, policy.witness_policy),
+        read_witness_stacks(list.length(inputs), policy.witness_policy),
       )
       Ok(#(reader, Some(witnesses)))
     }
@@ -858,6 +852,25 @@ fn peek_segwit() -> Parser(Bool) {
             |> Error
         }
     }
+  }
+}
+
+fn read_inputs(
+  max_vin_count_policy: Int,
+  max_script_size_policy: Int,
+) -> Parser(List(TxIn)) {
+  fn(reader, ctx) {
+    use reader, vin_count <- run_parse(
+      reader,
+      ctx,
+      read_vin_count(max_vin_count_policy),
+    )
+    use reader, inputs <- run_parse(
+      reader,
+      ctx,
+      read_tx_ins(vin_count, max_script_size_policy),
+    )
+    Ok(#(reader, inputs))
   }
 }
 
@@ -977,6 +990,25 @@ fn read_prev_out() -> Parser(PrevOut) {
     }
 
     Ok(#(reader, prev_out))
+  }
+}
+
+fn read_outputs(
+  max_vout_count_policy: Int,
+  max_script_size_policy: Int,
+) -> Parser(List(TxOut)) {
+  fn(reader, ctx) {
+    use reader, vout_count <- run_parse(
+      reader,
+      ctx,
+      read_vout_count(max_vout_count_policy),
+    )
+    use reader, outputs <- run_parse(
+      reader,
+      ctx,
+      read_tx_outs(vout_count, max_script_size_policy),
+    )
+    Ok(#(reader, outputs))
   }
 }
 
@@ -1123,7 +1155,6 @@ fn read_script(
       ctx,
       read_field(field_name, reader.read_bytes(_, script_len)),
     )
-
     Ok(#(reader, ScriptBytes(script_bytes)))
   }
 }
@@ -1256,7 +1287,6 @@ fn read_witness_item(max_item_size_policy: Int) -> Parser(WitnessItem) {
       ctx,
       read_field("witnessItem", reader.read_bytes(_, length)),
     )
-
     Ok(#(reader, WitnessItem(item_bytes)))
   }
 }
