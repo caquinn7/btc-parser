@@ -353,6 +353,12 @@ pub type ParseErrorKind {
   /// that violates Bitcoin's canonical serialization rules.
   CompactSizeError(compact_size.CompactSizeError)
 
+  /// An error variant indicating that an invalid Segwit marker flag was encountered.
+  ///
+  /// - `marker`: The marker byte that was found
+  /// - `flag`: The flag byte that was found
+  InvalidSegwitMarkerFlag(marker: Int, flag: Int)
+
   /// A claimed or required length exceeds structural limits.
   ///
   /// This error occurs when a length field or count field implies more bytes or items
@@ -413,8 +419,8 @@ pub type ParseContext {
   InTransaction
 
   /// The error occurred while parsing the transaction’s input vector
-  /// (the `vin` field).
-  Inputs
+  /// (the `vin_count`, `vin` fields).
+  InInputs
 
   /// The error occurred while parsing a specific input within the input vector.
   ///
@@ -422,8 +428,8 @@ pub type ParseContext {
   AtInput(Int)
 
   /// The error occurred while parsing the transaction’s output vector
-  /// (the `vout` field).
-  Outputs
+  /// (the `vout_count`, `vout` fields).
+  InOutputs
 
   /// The error occurred while parsing a specific output within the output vector.
   ///
@@ -513,7 +519,7 @@ fn run_parse(
 /// Add a context layer to a parsing computation.
 ///
 /// Combinator: wraps a Parser to prepend context to its context list.
-fn in_context(parser: Parser(a), ctx: ParseContext) -> Parser(a) {
+fn in_context(ctx: ParseContext, parser: Parser(a)) -> Parser(a) {
   fn(reader, outer_ctx) { parser(reader, [ctx, ..outer_ctx]) }
 }
 
@@ -723,29 +729,23 @@ pub fn decode_with_policy(
   use reader, is_segwit <- run_parse(reader, tx_ctx, detect_segwit())
 
   // inputs
-  let inputs_ctx = [Inputs, ..tx_ctx]
-  use reader, vin_count <- run_parse(
-    reader,
-    inputs_ctx,
-    read_vin_count(policy.max_vin_count),
-  )
   use reader, inputs <- run_parse(
     reader,
-    inputs_ctx,
-    read_tx_ins(vin_count, policy.max_script_size),
+    tx_ctx,
+    in_context(
+      InInputs,
+      read_inputs(policy.max_vin_count, policy.max_script_size),
+    ),
   )
 
   // outputs
-  let outputs_ctx = [Outputs, ..tx_ctx]
-  use reader, vout_count <- run_parse(
-    reader,
-    outputs_ctx,
-    read_vout_count(policy.max_vout_count),
-  )
   use reader, outputs <- run_parse(
     reader,
-    outputs_ctx,
-    read_tx_outs(vout_count, policy.max_script_size),
+    tx_ctx,
+    in_context(
+      InOutputs,
+      read_outputs(policy.max_vout_count, policy.max_script_size),
+    ),
   )
 
   // Parse witnesses if segwit
@@ -754,7 +754,7 @@ pub fn decode_with_policy(
       use reader, witnesses <- run_parse(
         reader,
         tx_ctx,
-        read_witness_stacks(vin_count, policy.witness_policy),
+        read_witness_stacks(list.length(inputs), policy.witness_policy),
       )
       Ok(#(reader, Some(witnesses)))
     }
@@ -819,14 +819,23 @@ fn detect_segwit() -> Parser(Bool) {
 
 /// Peek ahead at the next two bytes to check for SegWit marker/flag.
 ///
-/// Returns `True` if next bytes are 0x00 0x01, `False` on EOF or otherwise.
+/// Returns `True` if next bytes are 0x00 0x01, `False` if they don't start with 0x00
+/// or on EOF. Returns an error if marker is 0x00 but flag is invalid.
 fn peek_segwit() -> Parser(Bool) {
   fn(reader, ctx) {
     case reader.peek_bytes(reader, 2) {
       Ok(bytes) -> {
         let assert <<marker, flag>> = bytes
-        let is_segwit = marker == 0x00 && flag == 0x01
-        Ok(#(reader, is_segwit))
+        case marker, flag {
+          0x00, 0x01 -> Ok(#(reader, True))
+          0x00, _ ->
+            InvalidSegwitMarkerFlag(marker, flag)
+            |> new_parse_error(reader)
+            |> with_contexts([AtField("segwit_discriminator"), ..ctx])
+            |> ParseFailed
+            |> Error
+          _, _ -> Ok(#(reader, False))
+        }
       }
 
       Error(err) ->
@@ -834,7 +843,6 @@ fn peek_segwit() -> Parser(Bool) {
           // Ambiguity-aware: do not fail the whole decode just because we couldn't look ahead.
           // Let the later parsing produce a better contextual EOF.
           reader.UnexpectedEof(..) -> Ok(#(reader, False))
-
           _ ->
             err
             |> ReaderError
@@ -844,6 +852,25 @@ fn peek_segwit() -> Parser(Bool) {
             |> Error
         }
     }
+  }
+}
+
+fn read_inputs(
+  max_vin_count_policy: Int,
+  max_script_size_policy: Int,
+) -> Parser(List(TxIn)) {
+  fn(reader, ctx) {
+    use reader, vin_count <- run_parse(
+      reader,
+      ctx,
+      read_vin_count(max_vin_count_policy),
+    )
+    use reader, inputs <- run_parse(
+      reader,
+      ctx,
+      read_tx_ins(vin_count, max_script_size_policy),
+    )
+    Ok(#(reader, inputs))
   }
 }
 
@@ -868,25 +895,29 @@ fn read_vin_count(max_vin_count_policy: Int) -> Parser(Int) {
       |> Error
     }
 
-    // Minimum count validation
-    use <- bool.lazy_guard(vin_count_int < 1, fn() {
-      InvalidValueRange(vin_count_int, Some(1), None)
-      |> vin_count_err
-    })
+    case
+      vin_count_int < 1,
+      vin_count_int > max_inputs_by_bytes,
+      vin_count_int > max_vin_count_policy
+    {
+      // Minimum count validation
+      True, _, _ ->
+        InvalidValueRange(vin_count_int, Some(1), None)
+        |> vin_count_err
 
-    // Structural limit: count exceeds what remaining bytes can accommodate
-    use <- bool.lazy_guard(vin_count_int > max_inputs_by_bytes, fn() {
-      InsufficientBytes(claimed: remaining + 1, remaining:)
-      |> vin_count_err
-    })
+      // Structural limit: count exceeds what remaining bytes can accommodate
+      False, True, _ ->
+        InsufficientBytes(claimed: remaining + 1, remaining:)
+        |> vin_count_err
 
-    // Policy limit: count exceeds configured maximum
-    use <- bool.lazy_guard(vin_count_int > max_vin_count_policy, fn() {
-      PolicyLimitExceeded(vin_count_int, max_vin_count_policy)
-      |> vin_count_err
-    })
+      // Policy limit: count exceeds configured maximum
+      False, False, True ->
+        PolicyLimitExceeded(vin_count_int, max_vin_count_policy)
+        |> vin_count_err
 
-    Ok(#(reader, vin_count_int))
+      // All validations passed
+      False, False, False -> Ok(#(reader, vin_count_int))
+    }
   }
 }
 
@@ -905,9 +936,7 @@ fn read_tx_ins(
   // │    ├─ ...
   // └─ TxIn #(vin_count - 1)
   read_vec(vin_count, fn(index) {
-    max_script_size_policy
-    |> read_tx_in
-    |> in_context(AtInput(index))
+    in_context(AtInput(index), read_tx_in(max_script_size_policy))
   })
 }
 
@@ -962,6 +991,25 @@ fn read_prev_out() -> Parser(PrevOut) {
   }
 }
 
+fn read_outputs(
+  max_vout_count_policy: Int,
+  max_script_size_policy: Int,
+) -> Parser(List(TxOut)) {
+  fn(reader, ctx) {
+    use reader, vout_count <- run_parse(
+      reader,
+      ctx,
+      read_vout_count(max_vout_count_policy),
+    )
+    use reader, outputs <- run_parse(
+      reader,
+      ctx,
+      read_tx_outs(vout_count, max_script_size_policy),
+    )
+    Ok(#(reader, outputs))
+  }
+}
+
 /// Validate and convert the vout_count from Uint64 to Int, checking structural and policy limits.
 fn read_vout_count(max_vout_count_policy: Int) -> Parser(Int) {
   fn(reader, ctx) {
@@ -983,25 +1031,29 @@ fn read_vout_count(max_vout_count_policy: Int) -> Parser(Int) {
       |> Error
     }
 
-    // Minimum count validation
-    use <- bool.lazy_guard(vout_count_int < 1, fn() {
-      InvalidValueRange(vout_count_int, Some(1), None)
-      |> vout_count_err
-    })
+    case
+      vout_count_int < 1,
+      vout_count_int > max_outputs_by_bytes,
+      vout_count_int > max_vout_count_policy
+    {
+      // Minimum count validation
+      True, _, _ ->
+        InvalidValueRange(vout_count_int, Some(1), None)
+        |> vout_count_err
 
-    // Structural limit: count exceeds what remaining bytes can accommodate
-    use <- bool.lazy_guard(vout_count_int > max_outputs_by_bytes, fn() {
-      InsufficientBytes(claimed: remaining + 1, remaining:)
-      |> vout_count_err
-    })
+      // Structural limit: count exceeds what remaining bytes can accommodate
+      False, True, _ ->
+        InsufficientBytes(claimed: remaining + 1, remaining:)
+        |> vout_count_err
 
-    // Policy limit: count exceeds configured maximum
-    use <- bool.lazy_guard(vout_count_int > max_vout_count_policy, fn() {
-      PolicyLimitExceeded(vout_count_int, max_vout_count_policy)
-      |> vout_count_err
-    })
+      // Policy limit: count exceeds configured maximum
+      False, False, True ->
+        PolicyLimitExceeded(vout_count_int, max_vout_count_policy)
+        |> vout_count_err
 
-    Ok(#(reader, vout_count_int))
+      // All validations passed
+      False, False, False -> Ok(#(reader, vout_count_int))
+    }
   }
 }
 
@@ -1022,9 +1074,10 @@ fn read_tx_outs(
     max_satoshis,
     "outputs_total_value",
     fn(index) {
-      max_script_size_policy
-      |> read_tx_out_with_value
-      |> in_context(AtOutput(index))
+      in_context(
+        AtOutput(index),
+        read_tx_out_with_value(max_script_size_policy),
+      )
     },
     InvalidValueRange(_, Some(0), Some(max_satoshis)),
   )
@@ -1101,7 +1154,6 @@ fn read_script(
       ctx,
       read_field(field_name, reader.read_bytes(_, script_len)),
     )
-
     Ok(#(reader, ScriptBytes(script_bytes)))
   }
 }
@@ -1128,17 +1180,21 @@ fn read_script_length(
     }
 
     let remaining = reader.bytes_remaining(reader)
-    use <- bool.lazy_guard(script_len_int > remaining, fn() {
-      InsufficientBytes(claimed: script_len_int, remaining:)
-      |> script_len_err
-    })
 
-    use <- bool.lazy_guard(script_len_int > max_script_size_policy, fn() {
-      PolicyLimitExceeded(script_len_int, max_script_size_policy)
-      |> script_len_err
-    })
+    case script_len_int > remaining, script_len_int > max_script_size_policy {
+      // Structural limit: length exceeds remaining bytes
+      True, _ ->
+        InsufficientBytes(claimed: script_len_int, remaining:)
+        |> script_len_err
 
-    Ok(#(reader, script_len_int))
+      // Policy limit: length exceeds configured maximum
+      False, True ->
+        PolicyLimitExceeded(script_len_int, max_script_size_policy)
+        |> script_len_err
+
+      // All validations passed
+      False, False -> Ok(#(reader, script_len_int))
+    }
   }
 }
 
@@ -1147,9 +1203,7 @@ fn read_witness_stacks(
   policy: WitnessPolicy,
 ) -> Parser(List(WitnessStack)) {
   read_vec(vin_count, fn(index) {
-    policy
-    |> read_witness_stack
-    |> in_context(AtWitnessStack(index))
+    in_context(AtWitnessStack(index), read_witness_stack(policy))
   })
 }
 
@@ -1196,9 +1250,10 @@ fn read_witness_items_with_byte_tracking(
     max_total_bytes,
     "witnessStack_total_payload_bytes",
     fn(index) {
-      max_item_size
-      |> read_witness_item_with_size
-      |> in_context(AtWitnessItem(index))
+      in_context(
+        AtWitnessItem(index),
+        read_witness_item_with_size(max_item_size),
+      )
     },
     PolicyLimitExceeded(_, max_total_bytes),
   )
@@ -1230,7 +1285,6 @@ fn read_witness_item(max_item_size_policy: Int) -> Parser(WitnessItem) {
       ctx,
       read_field("witnessItem", reader.read_bytes(_, length)),
     )
-
     Ok(#(reader, WitnessItem(item_bytes)))
   }
 }
@@ -1272,16 +1326,20 @@ fn read_witness_item_size(max_item_size_policy: Int) -> Parser(Int) {
     }
 
     let remaining = reader.bytes_remaining(reader)
-    use <- bool.lazy_guard(length > remaining, fn() {
-      InsufficientBytes(claimed: length, remaining:)
-      |> witness_item_len_err
-    })
 
-    use <- bool.lazy_guard(length > max_item_size_policy, fn() {
-      PolicyLimitExceeded(length, max_item_size_policy)
-      |> witness_item_len_err
-    })
+    case length > remaining, length > max_item_size_policy {
+      // Structural limit: length exceeds remaining bytes
+      True, _ ->
+        InsufficientBytes(claimed: length, remaining:)
+        |> witness_item_len_err
 
-    Ok(#(reader, length))
+      // Policy limit: length exceeds configured maximum
+      False, True ->
+        PolicyLimitExceeded(length, max_item_size_policy)
+        |> witness_item_len_err
+
+      // All validations passed
+      False, False -> Ok(#(reader, length))
+    }
   }
 }
