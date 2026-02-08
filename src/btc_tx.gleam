@@ -825,7 +825,8 @@ fn detect_segwit() -> Parser(Bool) {
 
 /// Peek ahead at the next two bytes to check for SegWit marker/flag.
 ///
-/// Returns `True` if next bytes are 0x00 0x01, `False` on EOF or otherwise.
+/// Returns `True` if next bytes are 0x00 0x01, `False` if they don't start with 0x00
+/// or on EOF. Returns an error if marker is 0x00 but flag is invalid.
 fn peek_segwit() -> Parser(Bool) {
   fn(reader, ctx) {
     case reader.peek_bytes(reader, 2) {
