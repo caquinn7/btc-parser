@@ -1,8 +1,8 @@
 import btc_tx.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack, CompactSizeError,
-  DecodePolicy, InTransaction, Inputs, InsufficientBytes, InvalidValueRange,
-  Outputs, ParseFailed, PolicyLimitExceeded, ReaderError, TrailingBytes,
-  WitnessPolicy,
+  DecodePolicy, InTransaction, Inputs, InsufficientBytes,
+  InvalidSegwitMarkerFlag, InvalidValueRange, Outputs, ParseFailed,
+  PolicyLimitExceeded, ReaderError, TrailingBytes, WitnessPolicy,
 }
 import gleam/bit_array
 import gleam/list
@@ -103,28 +103,33 @@ pub fn decode_does_not_misclassify_segwit_when_discriminator_is_truncated_test()
     == [InTransaction, Inputs, AtField("vin_count")]
 }
 
-pub fn decode_does_not_misclassify_segwit_when_flag_is_not_01_test() {
+pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
   let marker = <<0:size(8)>>
   let flag = <<2:little-size(8)>>
 
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode(<<version1:bits, marker:bits, flag:bits>>)
 
-  assert btc_tx.parse_error_offset(parse_err) == 5
-
-  assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(0, Some(1), None)
-
+  assert btc_tx.parse_error_offset(parse_err) == 4
+  assert btc_tx.parse_error_kind(parse_err) == InvalidSegwitMarkerFlag(0, 2)
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, Inputs, AtField("vin_count")]
+    == [InTransaction, AtField("segwit_discriminator")]
 }
 
 // vin_count parsing and validation
+//
+// Note: The vin_count=0 validation case is covered by the InvalidSegwitMarkerFlag
+// tests above. Since compact_size(0) encodes to 0x00, any transaction with vin_count=0
+// will have 0x00 as the first byte after version, triggering the segwit marker check.
+// The marker validator will fail with InvalidSegwitMarkerFlag before vin_count
+// validation runs, making the InvalidValueRange(0, Some(1), None) check for
+// vin_count=0 effectively unreachable.
 
-pub fn decode_returns_invalid_value_range_when_vin_count_zero_test() {
-  // Construct: version (4 bytes) + vin_count (CompactSize = 0x00) + 41 bytes
-  // of padding so that `remaining >= min_txin_size` and the validator
-  // produces an InvalidValueRange for vin_count == 0.
+pub fn decode_rejects_segwit_marker_with_zero_flag_test() {
+  // Construct: version (4 bytes) + 0x00 + 0x00 which triggers the
+  // InvalidSegwitMarkerFlag error because marker=0x00 but flag=0x00 (not 0x01).
+  // This validates that transactions attempting to use the SegWit marker
+  // with an invalid flag are properly rejected.
 
   let vin_count = 0
   let input_padding = <<0:little-size({ 1 * min_txin_size_bytes * 8 })>>
@@ -136,13 +141,10 @@ pub fn decode_returns_invalid_value_range_when_vin_count_zero_test() {
       input_padding:bits,
     >>)
 
-  assert btc_tx.parse_error_offset(parse_err) == 5
-
-  assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(vin_count, Some(1), None)
-
+  assert btc_tx.parse_error_offset(parse_err) == 4
+  assert btc_tx.parse_error_kind(parse_err) == InvalidSegwitMarkerFlag(0, 0)
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, Inputs, AtField("vin_count")]
+    == [InTransaction, AtField("segwit_discriminator")]
 }
 
 pub fn validate_vin_count_minimum_succeeds_test() {

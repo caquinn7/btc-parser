@@ -353,6 +353,12 @@ pub type ParseErrorKind {
   /// that violates Bitcoin's canonical serialization rules.
   CompactSizeError(compact_size.CompactSizeError)
 
+  /// An error variant indicating that an invalid Segwit marker flag was encountered.
+  ///
+  /// - `marker`: The marker byte that was found
+  /// - `flag`: The flag byte that was found
+  InvalidSegwitMarkerFlag(marker: Int, flag: Int)
+
   /// A claimed or required length exceeds structural limits.
   ///
   /// This error occurs when a length field or count field implies more bytes or items
@@ -825,8 +831,16 @@ fn peek_segwit() -> Parser(Bool) {
     case reader.peek_bytes(reader, 2) {
       Ok(bytes) -> {
         let assert <<marker, flag>> = bytes
-        let is_segwit = marker == 0x00 && flag == 0x01
-        Ok(#(reader, is_segwit))
+        case marker, flag {
+          0x00, 0x01 -> Ok(#(reader, True))
+          0x00, _ ->
+            InvalidSegwitMarkerFlag(marker, flag)
+            |> new_parse_error(reader)
+            |> with_contexts([AtField("segwit_discriminator"), ..ctx])
+            |> ParseFailed
+            |> Error
+          _, _ -> Ok(#(reader, False))
+        }
       }
 
       Error(err) ->
@@ -834,7 +848,6 @@ fn peek_segwit() -> Parser(Bool) {
           // Ambiguity-aware: do not fail the whole decode just because we couldn't look ahead.
           // Let the later parsing produce a better contextual EOF.
           reader.UnexpectedEof(..) -> Ok(#(reader, False))
-
           _ ->
             err
             |> ReaderError
@@ -868,25 +881,29 @@ fn read_vin_count(max_vin_count_policy: Int) -> Parser(Int) {
       |> Error
     }
 
-    // Minimum count validation
-    use <- bool.lazy_guard(vin_count_int < 1, fn() {
-      InvalidValueRange(vin_count_int, Some(1), None)
-      |> vin_count_err
-    })
+    case
+      vin_count_int < 1,
+      vin_count_int > max_inputs_by_bytes,
+      vin_count_int > max_vin_count_policy
+    {
+      // Minimum count validation
+      True, _, _ ->
+        InvalidValueRange(vin_count_int, Some(1), None)
+        |> vin_count_err
 
-    // Structural limit: count exceeds what remaining bytes can accommodate
-    use <- bool.lazy_guard(vin_count_int > max_inputs_by_bytes, fn() {
-      InsufficientBytes(claimed: remaining + 1, remaining:)
-      |> vin_count_err
-    })
+      // Structural limit: count exceeds what remaining bytes can accommodate
+      False, True, _ ->
+        InsufficientBytes(claimed: remaining + 1, remaining:)
+        |> vin_count_err
 
-    // Policy limit: count exceeds configured maximum
-    use <- bool.lazy_guard(vin_count_int > max_vin_count_policy, fn() {
-      PolicyLimitExceeded(vin_count_int, max_vin_count_policy)
-      |> vin_count_err
-    })
+      // Policy limit: count exceeds configured maximum
+      False, False, True ->
+        PolicyLimitExceeded(vin_count_int, max_vin_count_policy)
+        |> vin_count_err
 
-    Ok(#(reader, vin_count_int))
+      // All validations passed
+      False, False, False -> Ok(#(reader, vin_count_int))
+    }
   }
 }
 
@@ -983,25 +1000,29 @@ fn read_vout_count(max_vout_count_policy: Int) -> Parser(Int) {
       |> Error
     }
 
-    // Minimum count validation
-    use <- bool.lazy_guard(vout_count_int < 1, fn() {
-      InvalidValueRange(vout_count_int, Some(1), None)
-      |> vout_count_err
-    })
+    case
+      vout_count_int < 1,
+      vout_count_int > max_outputs_by_bytes,
+      vout_count_int > max_vout_count_policy
+    {
+      // Minimum count validation
+      True, _, _ ->
+        InvalidValueRange(vout_count_int, Some(1), None)
+        |> vout_count_err
 
-    // Structural limit: count exceeds what remaining bytes can accommodate
-    use <- bool.lazy_guard(vout_count_int > max_outputs_by_bytes, fn() {
-      InsufficientBytes(claimed: remaining + 1, remaining:)
-      |> vout_count_err
-    })
+      // Structural limit: count exceeds what remaining bytes can accommodate
+      False, True, _ ->
+        InsufficientBytes(claimed: remaining + 1, remaining:)
+        |> vout_count_err
 
-    // Policy limit: count exceeds configured maximum
-    use <- bool.lazy_guard(vout_count_int > max_vout_count_policy, fn() {
-      PolicyLimitExceeded(vout_count_int, max_vout_count_policy)
-      |> vout_count_err
-    })
+      // Policy limit: count exceeds configured maximum
+      False, False, True ->
+        PolicyLimitExceeded(vout_count_int, max_vout_count_policy)
+        |> vout_count_err
 
-    Ok(#(reader, vout_count_int))
+      // All validations passed
+      False, False, False -> Ok(#(reader, vout_count_int))
+    }
   }
 }
 
@@ -1128,17 +1149,21 @@ fn read_script_length(
     }
 
     let remaining = reader.bytes_remaining(reader)
-    use <- bool.lazy_guard(script_len_int > remaining, fn() {
-      InsufficientBytes(claimed: script_len_int, remaining:)
-      |> script_len_err
-    })
 
-    use <- bool.lazy_guard(script_len_int > max_script_size_policy, fn() {
-      PolicyLimitExceeded(script_len_int, max_script_size_policy)
-      |> script_len_err
-    })
+    case script_len_int > remaining, script_len_int > max_script_size_policy {
+      // Structural limit: length exceeds remaining bytes
+      True, _ ->
+        InsufficientBytes(claimed: script_len_int, remaining:)
+        |> script_len_err
 
-    Ok(#(reader, script_len_int))
+      // Policy limit: length exceeds configured maximum
+      False, True ->
+        PolicyLimitExceeded(script_len_int, max_script_size_policy)
+        |> script_len_err
+
+      // All validations passed
+      False, False -> Ok(#(reader, script_len_int))
+    }
   }
 }
 
@@ -1272,16 +1297,20 @@ fn read_witness_item_size(max_item_size_policy: Int) -> Parser(Int) {
     }
 
     let remaining = reader.bytes_remaining(reader)
-    use <- bool.lazy_guard(length > remaining, fn() {
-      InsufficientBytes(claimed: length, remaining:)
-      |> witness_item_len_err
-    })
 
-    use <- bool.lazy_guard(length > max_item_size_policy, fn() {
-      PolicyLimitExceeded(length, max_item_size_policy)
-      |> witness_item_len_err
-    })
+    case length > remaining, length > max_item_size_policy {
+      // Structural limit: length exceeds remaining bytes
+      True, _ ->
+        InsufficientBytes(claimed: length, remaining:)
+        |> witness_item_len_err
 
-    Ok(#(reader, length))
+      // Policy limit: length exceeds configured maximum
+      False, True ->
+        PolicyLimitExceeded(length, max_item_size_policy)
+        |> witness_item_len_err
+
+      // All validations passed
+      False, False -> Ok(#(reader, length))
+    }
   }
 }
