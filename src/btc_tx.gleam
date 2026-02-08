@@ -703,9 +703,9 @@ pub fn decode_with_policy(
   use reader, inputs <- parser.run_then(
     reader,
     tx_ctx,
-    parser.in_context(
-      InInputs,
+    parser.with_context(
       read_inputs(policy.max_vin_count, policy.max_script_size),
+      InInputs,
     ),
   )
 
@@ -713,9 +713,9 @@ pub fn decode_with_policy(
   use reader, outputs <- parser.run_then(
     reader,
     tx_ctx,
-    parser.in_context(
-      InOutputs,
+    parser.with_context(
       read_outputs(policy.max_vout_count, policy.max_script_size),
+      InOutputs,
     ),
   )
 
@@ -899,7 +899,7 @@ fn read_tx_ins(
   // │    ├─ ...
   // └─ TxIn #(vin_count - 1)
   read_vec(vin_count, fn(index) {
-    parser.in_context(AtInput(index), read_tx_in(max_script_size_policy))
+    parser.with_context(read_tx_in(max_script_size_policy), AtInput(index))
   })
 }
 
@@ -1031,9 +1031,9 @@ fn read_tx_outs(
     max_satoshis,
     "outputs_total_value",
     fn(index) {
-      parser.in_context(
-        AtOutput(index),
+      parser.with_context(
         read_tx_out_with_value(max_script_size_policy),
+        AtOutput(index),
       )
     },
     InvalidValueRange(_, Some(0), Some(max_satoshis)),
@@ -1163,7 +1163,7 @@ fn read_witness_stacks(
   policy: WitnessPolicy,
 ) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
   read_vec(vin_count, fn(index) {
-    parser.in_context(AtWitnessStack(index), read_witness_stack(policy))
+    parser.with_context(read_witness_stack(policy), AtWitnessStack(index))
   })
 }
 
@@ -1212,9 +1212,9 @@ fn read_witness_items_with_byte_tracking(
     max_total_bytes,
     "witnessStack_total_payload_bytes",
     fn(index) {
-      parser.in_context(
-        AtWitnessItem(index),
+      parser.with_context(
         read_witness_item_with_size(max_item_size),
+        AtWitnessItem(index),
       )
     },
     PolicyLimitExceeded(_, max_total_bytes),

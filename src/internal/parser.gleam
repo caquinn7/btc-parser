@@ -52,7 +52,10 @@ pub fn run(
 ///
 /// Common uses include tracking array indices, field names, or structural locations
 /// to provide better error messages when parsing fails.
-pub fn in_context(ctx: ctx, parser: Parser(ctx, a, err)) -> Parser(ctx, a, err) {
+pub fn with_context(
+  parser: Parser(ctx, a, err),
+  ctx: ctx,
+) -> Parser(ctx, a, err) {
   let Parser(parse) = parser
   Parser(fn(reader, outer_ctx) { parse(reader, [ctx, ..outer_ctx]) })
 }
