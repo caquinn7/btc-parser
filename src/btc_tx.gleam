@@ -419,8 +419,8 @@ pub type ParseContext {
   InTransaction
 
   /// The error occurred while parsing the transaction’s input vector
-  /// (the `vin` field).
-  Inputs
+  /// (the `vin_count`, `vin` fields).
+  InInputs
 
   /// The error occurred while parsing a specific input within the input vector.
   ///
@@ -428,8 +428,8 @@ pub type ParseContext {
   AtInput(Int)
 
   /// The error occurred while parsing the transaction’s output vector
-  /// (the `vout` field).
-  Outputs
+  /// (the `vout_count`, `vout` fields).
+  InOutputs
 
   /// The error occurred while parsing a specific output within the output vector.
   ///
@@ -733,7 +733,7 @@ pub fn decode_with_policy(
     reader,
     tx_ctx,
     in_context(
-      Inputs,
+      InInputs,
       read_inputs(policy.max_vin_count, policy.max_script_size),
     ),
   )
@@ -743,7 +743,7 @@ pub fn decode_with_policy(
     reader,
     tx_ctx,
     in_context(
-      Outputs,
+      InOutputs,
       read_outputs(policy.max_vout_count, policy.max_script_size),
     ),
   )
