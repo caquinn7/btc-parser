@@ -116,15 +116,6 @@ pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
     == [InTransaction, AtField("segwit_discriminator")]
 }
 
-// vin_count parsing and validation
-//
-// Note: The vin_count=0 validation case is covered by the InvalidSegwitMarkerFlag
-// tests above. Since compact_size(0) encodes to 0x00, any transaction with vin_count=0
-// will have 0x00 as the first byte after version, triggering the segwit marker check.
-// The marker validator will fail with InvalidSegwitMarkerFlag before vin_count
-// validation runs, making the InvalidValueRange(0, Some(1), None) check for
-// vin_count=0 effectively unreachable.
-
 pub fn decode_rejects_segwit_marker_with_zero_flag_test() {
   // Construct: version (4 bytes) + 0x00 + 0x00 which triggers the
   // InvalidSegwitMarkerFlag error because marker=0x00 but flag=0x00 (not 0x01).
@@ -146,6 +137,18 @@ pub fn decode_rejects_segwit_marker_with_zero_flag_test() {
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, AtField("segwit_discriminator")]
 }
+
+// vin_count parsing and validation
+
+// Note: vin_count=0 is validated in two different ways, depending on how many
+// bytes follow the version field:
+// - If there is at least one more byte after the 0x00 (for example, a flag byte),
+//   the segwit discriminator logic runs and the InvalidSegwitMarkerFlag tests
+//   above cover those vin_count=0 cases.
+// - If the input ends immediately after the 0x00 (or peek_segwit/0 hits EOF),
+//   decoding proceeds down the legacy path and vin_count=0 is rejected by the
+//   usual vin_count validation with InvalidValueRange(0, Some(1), None), as
+//   exercised by the discriminator_is_truncated test.
 
 pub fn validate_vin_count_minimum_succeeds_test() {
   // version (4 bytes) + vin_count (CompactSize = 0x01) + 41 bytes padding
