@@ -46,7 +46,7 @@ pub opaque type Transaction {
   /// SegWit transactions separate witness data from the main transaction
   /// serialization and compute both a txid (non-witness data) and a wtxid
   /// (full serialization including witness data).
-  Segwit(
+  SegWit(
     /// The transaction version number.
     /// 
     /// Unknown or future version values are permitted by Bitcoin consensus
@@ -70,7 +70,7 @@ pub fn get_version(tx: Transaction) -> Int {
 pub fn is_segwit(tx: Transaction) -> Bool {
   case tx {
     Legacy(..) -> False
-    Segwit(..) -> True
+    SegWit(..) -> True
   }
 }
 
@@ -100,7 +100,7 @@ pub fn get_lock_time(tx: Transaction) -> Int {
 /// it's a `Legacy` transaction (which has no witness data).
 pub fn get_witnesses(tx: Transaction) -> Result(List(WitnessStack), Nil) {
   case tx {
-    Segwit(witnesses:, ..) -> Ok(witnesses)
+    SegWit(witnesses:, ..) -> Ok(witnesses)
     Legacy(..) -> Error(Nil)
   }
 }
@@ -353,11 +353,8 @@ pub type ParseErrorKind {
   /// that violates Bitcoin's canonical serialization rules.
   CompactSizeError(compact_size.CompactSizeError)
 
-  /// An error variant indicating that an invalid Segwit marker flag was encountered.
-  ///
-  /// - `marker`: The marker byte that was found
-  /// - `flag`: The flag byte that was found
-  InvalidSegwitMarkerFlag(marker: Int, flag: Int)
+  /// An error variant indicating that an invalid SegWit marker flag was encountered.
+  InvalidSegWitMarkerFlag(marker: Int, flag: Int)
 
   /// A claimed or required length exceeds structural limits.
   ///
@@ -385,7 +382,7 @@ pub type ParseErrorKind {
   /// a policy-defined limit, such as maximum script size, witness item count, or
   /// total witness payload bytes.
   ///
-  /// `value` is the exceeded value, and `max` is the policy limit.
+  /// `value` is the offending value, and `max` is the policy limit.
   PolicyLimitExceeded(value: Int, max: Int)
 
   /// A decoded numeric value fell outside the allowed range for the given field.
@@ -771,7 +768,7 @@ pub fn decode_with_policy(
 
   let tx = case witnesses {
     Some(witnesses) ->
-      Segwit(version:, inputs:, outputs:, lock_time:, witnesses:)
+      SegWit(version:, inputs:, outputs:, lock_time:, witnesses:)
 
     None -> Legacy(version:, inputs:, outputs:, lock_time:)
   }
@@ -829,7 +826,7 @@ fn peek_segwit() -> Parser(Bool) {
         case marker, flag {
           0x00, 0x01 -> Ok(#(reader, True))
           0x00, _ ->
-            InvalidSegwitMarkerFlag(marker, flag)
+            InvalidSegWitMarkerFlag(marker, flag)
             |> new_parse_error(reader)
             |> with_contexts([AtField("segwit_discriminator"), ..ctx])
             |> ParseFailed

@@ -1,7 +1,7 @@
 import btc_tx.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack, CompactSizeError,
   DecodePolicy, InInputs, InOutputs, InTransaction, InsufficientBytes,
-  InvalidSegwitMarkerFlag, InvalidValueRange, ParseFailed, PolicyLimitExceeded,
+  InvalidSegWitMarkerFlag, InvalidValueRange, ParseFailed, PolicyLimitExceeded,
   ReaderError, TrailingBytes, WitnessPolicy,
 }
 import gleam/bit_array
@@ -111,7 +111,7 @@ pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
     btc_tx.decode(<<version1:bits, marker:bits, flag:bits>>)
 
   assert btc_tx.parse_error_offset(parse_err) == 4
-  assert btc_tx.parse_error_kind(parse_err) == InvalidSegwitMarkerFlag(0, 2)
+  assert btc_tx.parse_error_kind(parse_err) == InvalidSegWitMarkerFlag(0, 2)
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, AtField("segwit_discriminator")]
 }
@@ -133,7 +133,7 @@ pub fn decode_rejects_segwit_marker_with_zero_flag_test() {
     >>)
 
   assert btc_tx.parse_error_offset(parse_err) == 4
-  assert btc_tx.parse_error_kind(parse_err) == InvalidSegwitMarkerFlag(0, 0)
+  assert btc_tx.parse_error_kind(parse_err) == InvalidSegWitMarkerFlag(0, 0)
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, AtField("segwit_discriminator")]
 }
