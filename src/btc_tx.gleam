@@ -519,7 +519,7 @@ fn run_parse(
 /// Add a context layer to a parsing computation.
 ///
 /// Combinator: wraps a Parser to prepend context to its context list.
-fn in_context(parser: Parser(a), ctx: ParseContext) -> Parser(a) {
+fn in_context(ctx: ParseContext, parser: Parser(a)) -> Parser(a) {
   fn(reader, outer_ctx) { parser(reader, [ctx, ..outer_ctx]) }
 }
 
@@ -733,8 +733,8 @@ pub fn decode_with_policy(
     reader,
     tx_ctx,
     in_context(
-      read_inputs(policy.max_vin_count, policy.max_script_size),
       Inputs,
+      read_inputs(policy.max_vin_count, policy.max_script_size),
     ),
   )
 
@@ -743,8 +743,8 @@ pub fn decode_with_policy(
     reader,
     tx_ctx,
     in_context(
-      read_outputs(policy.max_vout_count, policy.max_script_size),
       Outputs,
+      read_outputs(policy.max_vout_count, policy.max_script_size),
     ),
   )
 
@@ -936,9 +936,7 @@ fn read_tx_ins(
   // │    ├─ ...
   // └─ TxIn #(vin_count - 1)
   read_vec(vin_count, fn(index) {
-    max_script_size_policy
-    |> read_tx_in
-    |> in_context(AtInput(index))
+    in_context(AtInput(index), read_tx_in(max_script_size_policy))
   })
 }
 
@@ -1076,9 +1074,10 @@ fn read_tx_outs(
     max_satoshis,
     "outputs_total_value",
     fn(index) {
-      max_script_size_policy
-      |> read_tx_out_with_value
-      |> in_context(AtOutput(index))
+      in_context(
+        AtOutput(index),
+        read_tx_out_with_value(max_script_size_policy),
+      )
     },
     InvalidValueRange(_, Some(0), Some(max_satoshis)),
   )
@@ -1204,9 +1203,7 @@ fn read_witness_stacks(
   policy: WitnessPolicy,
 ) -> Parser(List(WitnessStack)) {
   read_vec(vin_count, fn(index) {
-    policy
-    |> read_witness_stack
-    |> in_context(AtWitnessStack(index))
+    in_context(AtWitnessStack(index), read_witness_stack(policy))
   })
 }
 
@@ -1253,9 +1250,10 @@ fn read_witness_items_with_byte_tracking(
     max_total_bytes,
     "witnessStack_total_payload_bytes",
     fn(index) {
-      max_item_size
-      |> read_witness_item_with_size
-      |> in_context(AtWitnessItem(index))
+      in_context(
+        AtWitnessItem(index),
+        read_witness_item_with_size(max_item_size),
+      )
     },
     PolicyLimitExceeded(_, max_total_bytes),
   )
