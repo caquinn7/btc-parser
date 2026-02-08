@@ -1033,7 +1033,7 @@ pub fn decode_rejects_output_value_min_i64_js_test() {
     == btc_tx.IntegerOutOfRange("-9223372036854775808")
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, Outputs, AtOutput(0), AtField("value")]
+    == [InTransaction, InOutputs, AtOutput(0), AtField("value")]
 }
 
 @target(erlang)
