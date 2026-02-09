@@ -911,49 +911,30 @@ fn read_tx_in(
   // │ scriptSig_len (CompactSize)
   // │ scriptSig bytes
   // │ sequence (4 bytes)
-  parser.new(fn(reader, ctx) {
-    use reader, prev_out <- parser.run_then(reader, ctx, read_prev_out())
-    use reader, script_sig <- parser.run_then(
-      reader,
-      ctx,
-      read_script("scriptSig", max_script_size_policy),
-    )
-    use reader, sequence <- parser.run_then(
-      reader,
-      ctx,
-      read_field("sequence", reader.read_u32_le),
-    )
-
-    Ok(#(reader, TxIn(prev_out:, script_sig:, sequence:)))
-  })
+  parser.map3(
+    read_prev_out(),
+    read_script("scriptSig", max_script_size_policy),
+    read_field("sequence", reader.read_u32_le),
+    TxIn,
+  )
 }
 
 fn read_prev_out() -> Parser(ParseContext, PrevOut, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use reader, prev_txid_bytes <- parser.run_then(
-      reader,
-      ctx,
-      read_field("prev_txid", reader.read_bytes(_, 32)),
-    )
+  parser.map2(
+    read_field("prev_txid", reader.read_bytes(_, 32)),
+    read_field("vout", reader.read_u32_le),
+    fn(prev_txid_bytes, vout) {
+      case prev_txid_bytes, vout {
+        <<0:size(256)>>, 0xFFFFFFFF -> Coinbase
 
-    use reader, vout <- parser.run_then(
-      reader,
-      ctx,
-      read_field("vout", reader.read_u32_le),
-    )
-
-    let prev_out = case prev_txid_bytes, vout {
-      <<0:size(256)>>, 0xFFFFFFFF -> Coinbase
-
-      _, _ -> {
-        // Safe: read_bytes(_, 32) guarantees exactly 32 bytes on success
-        let assert Ok(hash32) = hash32.from_bytes_le(prev_txid_bytes)
-        OutPoint(TxId(hash32), vout)
+        _, _ -> {
+          // Safe: read_bytes(_, 32) guarantees exactly 32 bytes on success
+          let assert Ok(hash32) = hash32.from_bytes_le(prev_txid_bytes)
+          OutPoint(TxId(hash32), vout)
+        }
       }
-    }
-
-    Ok(#(reader, prev_out))
-  })
+    },
+  )
 }
 
 fn read_outputs(
@@ -1046,19 +1027,15 @@ fn read_tx_out_with_value(
   // | value (8 bytes)
   // | scriptPubKey_len (CompactSize)
   // | scriptPubKey bytes
-  parser.new(fn(reader, ctx) {
-    use reader, value <- parser.run_then(reader, ctx, read_satoshis())
-    use reader, script_pubkey <- parser.run_then(
-      reader,
-      ctx,
-      read_script("scriptPubKey", max_script_size_policy),
-    )
-
-    let output = TxOut(value:, script_pubkey:)
-    let Satoshis(value_int) = value
-
-    Ok(#(reader, #(output, value_int)))
-  })
+  parser.map2(
+    read_satoshis(),
+    read_script("scriptPubKey", max_script_size_policy),
+    fn(value, script_pubkey) {
+      let output = TxOut(value:, script_pubkey:)
+      let Satoshis(value_int) = value
+      #(output, value_int)
+    },
+  )
 }
 
 fn read_satoshis() -> Parser(ParseContext, Satoshis, DecodeError) {
