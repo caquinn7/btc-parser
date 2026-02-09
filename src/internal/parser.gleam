@@ -117,19 +117,6 @@ pub fn map3(
   })
 }
 
-/// Transform the error of a parser.
-pub fn map_error(
-  parser: Parser(ctx, a, err1),
-  f: fn(err1) -> err2,
-) -> Parser(ctx, a, err2) {
-  let Parser(parse) = parser
-
-  Parser(fn(reader, ctx) {
-    parse(reader, ctx)
-    |> result.map_error(f)
-  })
-}
-
 /// Chain a parser with a fallible transformation.
 ///
 /// This function takes a parser's successful result and applies a transformation
@@ -172,4 +159,9 @@ pub fn then(
     use #(reader, value) <- result.try(parse(reader, ctx))
     run(reader, ctx, f(value))
   })
+}
+
+/// Lift a value into a parser without consuming input.
+pub fn return(value: a) -> Parser(ctx, a, err) {
+  Parser(fn(reader, _ctx) { Ok(#(reader, value)) })
 }

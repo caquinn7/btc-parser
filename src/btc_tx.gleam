@@ -781,7 +781,7 @@ fn detect_segwit() -> Parser(ParseContext, Bool, DecodeError) {
           Ok(#(reader, is_segwit))
         })
 
-      False -> parser.new(fn(reader, _) { Ok(#(reader, is_segwit)) })
+      False -> parser.return(is_segwit)
     }
   })
 }
