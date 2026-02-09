@@ -772,19 +772,17 @@ pub fn decode_hex(hex: String) -> Result(Transaction, DecodeError) {
 /// Returns `True` if SegWit marker (0x00, 0x01) is present,`False` otherwise.
 /// Side effect: consumes the marker/flag bytes if SegWit is detected.
 fn detect_segwit() -> Parser(ParseContext, Bool, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use reader, is_segwit <- parser.run_then(reader, ctx, peek_segwit())
+  peek_segwit()
+  |> parser.then(fn(is_segwit) {
+    case is_segwit {
+      True ->
+        parser.new(fn(reader, _) {
+          let assert Ok(reader) = reader.skip_bytes(reader, 2)
+          Ok(#(reader, is_segwit))
+        })
 
-    let reader = case is_segwit {
-      True -> {
-        // safe to assert because we already peeked the next two bytes
-        let assert Ok(reader) = reader.skip_bytes(reader, 2)
-        reader
-      }
-      False -> reader
+      False -> parser.new(fn(reader, _) { Ok(#(reader, is_segwit)) })
     }
-
-    Ok(#(reader, is_segwit))
   })
 }
 
@@ -1080,19 +1078,12 @@ fn read_script(
   field_name: String,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, ScriptBytes, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use reader, script_len <- parser.run_then(
-      reader,
-      ctx,
-      read_script_length(field_name <> "_len", max_script_size_policy),
-    )
-    use reader, script_bytes <- parser.run_then(
-      reader,
-      ctx,
-      read_field(field_name, reader.read_bytes(_, script_len)),
-    )
-    Ok(#(reader, ScriptBytes(script_bytes)))
+  { field_name <> "_len" }
+  |> read_script_length(max_script_size_policy)
+  |> parser.then(fn(script_len) {
+    read_field(field_name, reader.read_bytes(_, script_len))
   })
+  |> parser.map(ScriptBytes)
 }
 
 /// Read and validate a script length field.
@@ -1155,26 +1146,16 @@ fn read_witness_stack(
   // ├─ WitnessItem #1
   // │    ├─ ...
   // └─ WitnessItem #(stack_len - 1)
-  parser.new(fn(reader, ctx) {
-    use reader, stack_len <- parser.run_then(
-      reader,
-      ctx,
-      read_witness_stack_length(policy.max_items_per_input),
+  policy.max_items_per_input
+  |> read_witness_stack_length
+  |> parser.then(fn(stack_len) {
+    read_witness_items_with_byte_tracking(
+      stack_len,
+      policy.max_item_size,
+      policy.max_stack_payload_bytes_per_input,
     )
-
-    // Parse witness items while tracking cumulative byte size
-    use reader, witness_items <- parser.run_then(
-      reader,
-      ctx,
-      read_witness_items_with_byte_tracking(
-        stack_len,
-        policy.max_item_size,
-        policy.max_stack_payload_bytes_per_input,
-      ),
-    )
-
-    Ok(#(reader, WitnessStack(witness_items)))
   })
+  |> parser.map(WitnessStack)
 }
 
 /// Read witness items while tracking cumulative payload bytes and failing fast
@@ -1214,19 +1195,12 @@ fn read_witness_item_with_size(
 fn read_witness_item(
   max_item_size_policy: Int,
 ) -> Parser(ParseContext, WitnessItem, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use reader, length <- parser.run_then(
-      reader,
-      ctx,
-      read_witness_item_size(max_item_size_policy),
-    )
-    use reader, item_bytes <- parser.run_then(
-      reader,
-      ctx,
-      read_field("witnessItem", reader.read_bytes(_, length)),
-    )
-    Ok(#(reader, WitnessItem(item_bytes)))
+  max_item_size_policy
+  |> read_witness_item_size
+  |> parser.then(fn(length) {
+    read_field("witnessItem", reader.read_bytes(_, length))
   })
+  |> parser.map(WitnessItem)
 }
 
 /// Read and validate a witness stack length field.
@@ -1243,13 +1217,14 @@ fn read_witness_stack_length(
       read_compact_size_as_int("witnessStack_len"),
     )
 
-    use <- bool.lazy_guard(stack_len > max_items_per_input_policy, fn() {
-      PolicyLimitExceeded(stack_len, max_items_per_input_policy)
-      |> make_field_error("witnessStack_len", reader, ctx)
-      |> Error
-    })
+    case stack_len > max_items_per_input_policy {
+      True ->
+        PolicyLimitExceeded(stack_len, max_items_per_input_policy)
+        |> make_field_error("witnessStack_len", reader, ctx)
+        |> Error
 
-    Ok(#(reader, stack_len))
+      False -> Ok(#(reader, stack_len))
+    }
   })
 }
 
