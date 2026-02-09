@@ -163,6 +163,21 @@ pub fn then(
   })
 }
 
+/// Run two parsers in sequence, keeping only the first result.
+///
+/// Useful when you need to parse something followed by a delimiter or 
+/// separator that you want to discard.
+pub fn keep_left(
+  parser1: Parser(ctx, a, err),
+  parser2: Parser(ctx, b, err),
+) -> Parser(ctx, a, err) {
+  Parser(fn(reader, ctx) {
+    use #(reader, value) <- result.try(run(reader, ctx, parser1))
+    use #(reader, _) <- result.try(run(reader, ctx, parser2))
+    Ok(#(reader, value))
+  })
+}
+
 /// Lift a value into a parser without consuming input.
 pub fn return(value: a) -> Parser(ctx, a, err) {
   Parser(fn(reader, _) { Ok(#(reader, value)) })

@@ -4,6 +4,7 @@
 import gleam/bit_array
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/pair
 import gleam/result
 import internal/compact_size
 import internal/fixed_int/int64
@@ -686,10 +687,9 @@ fn detect_segwit() -> Parser(ParseContext, Bool, DecodeError) {
   |> parser.then(fn(is_segwit) {
     case is_segwit {
       True ->
-        parser.new(fn(reader, _) {
-          let assert Ok(reader) = reader.skip_bytes(reader, 2)
-          Ok(#(reader, is_segwit))
-        })
+        is_segwit
+        |> parser.return
+        |> parser.keep_left(skip_marker_bytes())
 
       False -> parser.return(is_segwit)
     }
@@ -732,6 +732,17 @@ fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
         }
     }
   })
+}
+
+// Helper parser that consumes the 2-byte segwit marker
+fn skip_marker_bytes() -> Parser(ParseContext, Nil, DecodeError) {
+  "segwit_marker"
+  |> read_field(fn(reader) {
+    reader
+    |> reader.skip_bytes(2)
+    |> result.map(pair.new(_, Nil))
+  })
+  |> parser.map(fn(_) { Nil })
 }
 
 fn read_inputs(
