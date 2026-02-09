@@ -1,3 +1,5 @@
+import gleam/bool
+import gleam/list
 import gleam/result
 import internal/reader.{type Reader}
 
@@ -163,5 +165,72 @@ pub fn then(
 
 /// Lift a value into a parser without consuming input.
 pub fn return(value: a) -> Parser(ctx, a, err) {
-  Parser(fn(reader, _ctx) { Ok(#(reader, value)) })
+  Parser(fn(reader, _) { Ok(#(reader, value)) })
+}
+
+/// Parse something exactly n times with indexed context.
+pub fn indexed_repeat(
+  count: Int,
+  item_parser: Parser(ctx, a, err),
+  index_to_context: fn(Int) -> ctx,
+) -> Parser(ctx, List(a), err) {
+  Parser(fn(reader, ctx) {
+    use <- bool.guard(count <= 0, Ok(#(reader, [])))
+
+    let indices = list.range(0, count - 1)
+    let init = #(reader, [])
+
+    indices
+    |> list.try_fold(init, fn(acc, index) {
+      let #(reader, items) = acc
+      let contextualized = with_context(item_parser, index_to_context(index))
+      use #(reader, item) <- result.try(run(reader, ctx, contextualized))
+      Ok(#(reader, [item, ..items]))
+    })
+    |> result.map(fn(acc) { #(acc.0, list.reverse(acc.1)) })
+  })
+}
+
+/// Parse items n times with indexed context and cumulative metric tracking.
+///
+/// Each item parser returns `#(item, metric_value)`. The metric values are
+/// summed, and parsing fails fast if the cumulative sum exceeds `limit`.
+///
+/// The `on_limit_exceeded` callback receives the exceeded value, the reader
+/// (after the item that caused the limit to be exceeded was parsed), and the
+/// context stack, allowing for proper error construction with byte offsets.
+///
+/// Returns only the items (metric values are discarded after validation).
+pub fn indexed_repeat_with_limit(
+  count: Int,
+  item_parser: Parser(ctx, #(a, Int), err),
+  index_to_context: fn(Int) -> ctx,
+  limit: Int,
+  on_limit_exceeded: fn(Int, Reader, List(ctx)) -> err,
+) -> Parser(ctx, List(a), err) {
+  Parser(fn(reader, ctx) {
+    use <- bool.guard(count <= 0, Ok(#(reader, [])))
+
+    let indices = list.range(0, count - 1)
+    let init = #(reader, [], 0)
+
+    indices
+    |> list.try_fold(init, fn(acc, index) {
+      let #(reader, items, acc_val) = acc
+      let contextualized = with_context(item_parser, index_to_context(index))
+
+      use #(reader, #(item, item_val)) <- result.try(run(
+        reader,
+        ctx,
+        contextualized,
+      ))
+
+      let acc_val = acc_val + item_val
+      case acc_val > limit {
+        True -> Error(on_limit_exceeded(acc_val, reader, ctx))
+        False -> Ok(#(reader, [item, ..items], acc_val))
+      }
+    })
+    |> result.map(fn(acc) { #(acc.0, list.reverse(acc.1)) })
+  })
 }

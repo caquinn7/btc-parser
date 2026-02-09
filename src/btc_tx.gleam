@@ -555,94 +555,6 @@ fn read_compact_size_as_int(
   })
 }
 
-/// Read a vector of items by repeatedly calling a parser for each index.
-///
-/// Returns items in the order they appear in the binary stream.
-fn read_vec(
-  length: Int,
-  create_parser: fn(Int) -> Parser(ParseContext, a, DecodeError),
-) -> Parser(ParseContext, List(a), DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use <- bool.guard(length <= 0, Ok(#(reader, [])))
-
-    let indices = list.range(0, length - 1)
-    let init = Ok(#(reader, []))
-
-    indices
-    |> list.fold_until(init, fn(acc, index) {
-      case acc {
-        Ok(#(current_reader, items)) -> {
-          let item_parser = create_parser(index)
-
-          case parser.run(current_reader, ctx, item_parser) {
-            Ok(#(next_reader, item)) ->
-              Continue(Ok(#(next_reader, [item, ..items])))
-
-            Error(err) -> Stop(Error(err))
-          }
-        }
-
-        Error(_) -> Stop(acc)
-      }
-    })
-    |> result.map(pair.map_second(_, list.reverse))
-  })
-}
-
-/// Read a vector of items while tracking a cumulative metric.
-///
-/// This is a generic combinator that accumulates a metric across items and
-/// validates it doesn't exceed a maximum value. The `create_parser` function
-/// receives the index and returns a parser that produces both the item and
-/// its contribution to the metric as a tuple `#(item, metric_value)`.
-///
-/// The metric values are summed together, and parsing fails fast if the 
-/// cumulative sum exceeds `limit`. The error is created by calling 
-/// `limit_exceeded_err` with the exceeded value and contextualized with `field_name`.
-fn read_vec_with_cumulative_limit(
-  length: Int,
-  limit: Int,
-  field_name: String,
-  create_parser: fn(Int) -> Parser(ParseContext, #(a, Int), DecodeError),
-  limit_exceeded_err: fn(Int) -> ParseErrorKind,
-) -> Parser(ParseContext, List(a), DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use <- bool.guard(length <= 0, Ok(#(reader, [])))
-
-    let indices = list.range(0, length - 1)
-    let init = Ok(#(reader, [], 0))
-
-    indices
-    |> list.fold_until(init, fn(acc, index) {
-      case acc {
-        Ok(#(reader, items, acc_val)) -> {
-          let item_parser = create_parser(index)
-
-          case parser.run(reader, ctx, item_parser) {
-            Ok(#(reader, #(item, item_val))) -> {
-              let acc_val = acc_val + item_val
-              case acc_val > limit {
-                True ->
-                  limit_exceeded_err(acc_val)
-                  |> make_field_error(field_name, reader, ctx)
-                  |> Error
-                  |> Stop
-
-                False -> Continue(Ok(#(reader, [item, ..items], acc_val)))
-              }
-            }
-
-            Error(err) -> Stop(Error(err))
-          }
-        }
-
-        Error(_) -> Stop(acc)
-      }
-    })
-    |> result.map(fn(acc) { #(acc.0, list.reverse(acc.1)) })
-  })
-}
-
 // ---- Decoding functions ----
 
 pub type DecodePolicy {
@@ -896,9 +808,7 @@ fn read_tx_ins(
   // ├─ TxIn #1
   // │    ├─ ...
   // └─ TxIn #(vin_count - 1)
-  read_vec(vin_count, fn(index) {
-    parser.with_context(read_tx_in(max_script_size_policy), AtInput(index))
-  })
+  parser.indexed_repeat(vin_count, read_tx_in(max_script_size_policy), AtInput)
 }
 
 fn read_tx_in(
@@ -1005,17 +915,15 @@ fn read_tx_outs(
   // ├─ TxOut #1
   // │    ├─ ...
   // └─ TxOut #(vout_count - 1)
-  read_vec_with_cumulative_limit(
+  parser.indexed_repeat_with_limit(
     vout_count,
+    read_tx_out_with_value(max_script_size_policy),
+    AtOutput,
     max_satoshis,
-    "outputs_total_value",
-    fn(index) {
-      parser.with_context(
-        read_tx_out_with_value(max_script_size_policy),
-        AtOutput(index),
-      )
+    fn(exceeded_val, reader, ctx) {
+      InvalidValueRange(exceeded_val, Some(0), Some(max_satoshis))
+      |> make_field_error("outputs_total_value", reader, ctx)
     },
-    InvalidValueRange(_, Some(0), Some(max_satoshis)),
   )
 }
 
@@ -1130,9 +1038,7 @@ fn read_witness_stacks(
   vin_count: Int,
   policy: WitnessPolicy,
 ) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
-  read_vec(vin_count, fn(index) {
-    parser.with_context(read_witness_stack(policy), AtWitnessStack(index))
-  })
+  parser.indexed_repeat(vin_count, read_witness_stack(policy), AtWitnessStack)
 }
 
 fn read_witness_stack(
@@ -1165,17 +1071,15 @@ fn read_witness_items_with_byte_tracking(
   max_item_size: Int,
   max_total_bytes: Int,
 ) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
-  read_vec_with_cumulative_limit(
+  parser.indexed_repeat_with_limit(
     count,
+    read_witness_item_with_size(max_item_size),
+    AtWitnessItem,
     max_total_bytes,
-    "witnessStack_total_payload_bytes",
-    fn(index) {
-      parser.with_context(
-        read_witness_item_with_size(max_item_size),
-        AtWitnessItem(index),
-      )
+    fn(exceeded_val, reader, ctx) {
+      PolicyLimitExceeded(exceeded_val, max_total_bytes)
+      |> make_field_error("witnessStack_total_payload_bytes", reader, ctx)
     },
-    PolicyLimitExceeded(_, max_total_bytes),
   )
 }
 
