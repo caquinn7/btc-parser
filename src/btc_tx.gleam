@@ -2,10 +2,8 @@
 //// in a form suitable for inspection, analysis, and reference.
 
 import gleam/bit_array
-import gleam/bool
-import gleam/list.{Continue, Stop}
+import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/pair
 import gleam/result
 import internal/compact_size
 import internal/fixed_int/int64
