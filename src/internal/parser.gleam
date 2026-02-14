@@ -276,18 +276,43 @@ pub fn indexed_repeat(
   Parser(fn(reader, ctx) {
     use <- bool.guard(count <= 0, Ok(#(reader, [])))
 
-    let indices = list.range(0, count - 1)
-    let init = #(reader, [])
+    indexed_repeat_loop(
+      0,
+      count,
+      reader,
+      [],
+      ctx,
+      item_parser,
+      index_to_context,
+    )
+  })
+}
 
-    indices
-    |> list.try_fold(init, fn(acc, index) {
-      let #(reader, items) = acc
+fn indexed_repeat_loop(
+  index: Int,
+  count: Int,
+  reader: Reader,
+  items: List(a),
+  ctx: List(ctx),
+  item_parser: Parser(ctx, a, err),
+  index_to_context: fn(Int) -> ctx,
+) -> Result(#(Reader, List(a)), err) {
+  case index >= count {
+    True -> Ok(#(reader, list.reverse(items)))
+    False -> {
       let contextualized = with_context(item_parser, index_to_context(index))
       use #(reader, item) <- result.try(run(contextualized, reader, ctx))
-      Ok(#(reader, [item, ..items]))
-    })
-    |> result.map(fn(acc) { #(acc.0, list.reverse(acc.1)) })
-  })
+      indexed_repeat_loop(
+        index + 1,
+        count,
+        reader,
+        [item, ..items],
+        ctx,
+        item_parser,
+        index_to_context,
+      )
+    }
+  }
 }
 
 /// Parse items n times with indexed context and cumulative metric tracking.
@@ -310,14 +335,37 @@ pub fn indexed_repeat_with_limit(
   Parser(fn(reader, ctx) {
     use <- bool.guard(count <= 0, Ok(#(reader, [])))
 
-    let indices = list.range(0, count - 1)
-    let init = #(reader, [], 0)
+    indexed_repeat_with_limit_loop(
+      0,
+      count,
+      reader,
+      [],
+      0,
+      ctx,
+      item_parser,
+      index_to_context,
+      limit,
+      on_limit_exceeded,
+    )
+  })
+}
 
-    indices
-    |> list.try_fold(init, fn(acc, index) {
-      let #(reader, items, acc_val) = acc
+fn indexed_repeat_with_limit_loop(
+  index: Int,
+  count: Int,
+  reader: Reader,
+  items: List(a),
+  acc_val: Int,
+  ctx: List(ctx),
+  item_parser: Parser(ctx, #(a, Int), err),
+  index_to_context: fn(Int) -> ctx,
+  limit: Int,
+  on_limit_exceeded: fn(Int, Reader, List(ctx)) -> err,
+) -> Result(#(Reader, List(a)), err) {
+  case index >= count {
+    True -> Ok(#(reader, list.reverse(items)))
+    False -> {
       let contextualized = with_context(item_parser, index_to_context(index))
-
       use #(reader, #(item, item_val)) <- result.try(run(
         contextualized,
         reader,
@@ -330,9 +378,20 @@ pub fn indexed_repeat_with_limit(
           let ctx = [index_to_context(index), ..ctx]
           Error(on_limit_exceeded(acc_val, reader, ctx))
         }
-        False -> Ok(#(reader, [item, ..items], acc_val))
+        False ->
+          indexed_repeat_with_limit_loop(
+            index + 1,
+            count,
+            reader,
+            [item, ..items],
+            acc_val,
+            ctx,
+            item_parser,
+            index_to_context,
+            limit,
+            on_limit_exceeded,
+          )
       }
-    })
-    |> result.map(fn(acc) { #(acc.0, list.reverse(acc.1)) })
-  })
+    }
+  }
 }
