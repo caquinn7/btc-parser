@@ -710,7 +710,7 @@ fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
   })
 }
 
-// Helper parser that consumes the 2-byte segwit marker
+/// Helper parser that consumes the 2-byte segwit discriminator
 fn skip_marker_bytes() -> Parser(ParseContext, Nil, DecodeError) {
   "segwit_marker"
   |> read_field(fn(reader) {
