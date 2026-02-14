@@ -7,23 +7,19 @@ pub opaque type Parser(ctx, a, err) {
   Parser(fn(Reader, List(ctx)) -> Result(#(Reader, a), err))
 }
 
-/// Execute a parser and continue with its result.
+// ============================================================================
+// Core Construction & Execution
+// ============================================================================
+
+/// Create a parser from a function.
 ///
-/// Runs the parser with the given reader and context, then passes the updated
-/// reader and parsed value to a continuation function.
-///
-/// This is useful when you need to sequence parsing steps imperatively while
-/// retaining access to intermediate results.
-/// 
-/// Use `run` instead if you only need the parser’s raw result.
-pub fn run_then(
-  reader: Reader,
-  ctx: List(ctx),
-  parser: Parser(ctx, a, err),
-  next: fn(Reader, a) -> Result(b, err),
-) -> Result(b, err) {
-  use #(reader, value) <- result.try(run(reader, ctx, parser))
-  next(reader, value)
+/// This is the low-level constructor used when you need full control over parsing
+/// logic. Most of the time you'll use higher-level combinators like `map`, `then`,
+/// or `try` instead.
+pub fn new(
+  f: fn(Reader, List(ctx)) -> Result(#(Reader, a), err),
+) -> Parser(ctx, a, err) {
+  Parser(f)
 }
 
 /// Execute a parser and return its raw result.
@@ -45,32 +41,32 @@ pub fn run(
   parse(reader, ctx)
 }
 
-/// Run a parser with additional context information.
+/// Execute a parser and continue with its result.
 ///
-/// This adds a context value to the context stack when executing the parser, which 
-/// is useful for error reporting and tracking where in a nested structure parsing 
-/// occurs. The context is implemented as a stack (list) so nested parsers can add 
-/// their own context while preserving parent context.
+/// Runs the parser with the given reader and context, then passes the updated
+/// reader and parsed value to a continuation function.
 ///
-/// Common uses include tracking array indices, field names, or structural locations
-/// to provide better error messages when parsing fails.
-pub fn with_context(
+/// This is useful when you need to sequence parsing steps imperatively while
+/// retaining access to intermediate results.
+/// 
+/// Use `run` instead if you only need the parser's raw result.
+pub fn run_then(
+  reader: Reader,
+  ctx: List(ctx),
   parser: Parser(ctx, a, err),
-  ctx: ctx,
-) -> Parser(ctx, a, err) {
-  let Parser(parse) = parser
-  Parser(fn(reader, outer_ctx) { parse(reader, [ctx, ..outer_ctx]) })
+  next: fn(Reader, a) -> Result(b, err),
+) -> Result(b, err) {
+  use #(reader, value) <- result.try(run(reader, ctx, parser))
+  next(reader, value)
 }
 
-/// Create a parser from a function.
-///
-/// This is the low-level constructor used when you need full control over parsing
-/// logic. Most of the time you'll use higher-level combinators like `map`, `then`,
-/// or `try` instead.
-pub fn new(
-  f: fn(Reader, List(ctx)) -> Result(#(Reader, a), err),
-) -> Parser(ctx, a, err) {
-  Parser(f)
+// ============================================================================
+// Basic Building Blocks
+// ============================================================================
+
+/// Lift a value into a parser without consuming input.
+pub fn return(value: a) -> Parser(ctx, a, err) {
+  Parser(fn(reader, _) { Ok(#(reader, value)) })
 }
 
 /// Transform the successful result of a parser.
@@ -82,6 +78,10 @@ pub fn map(parser: Parser(ctx, a, err), f: fn(a) -> b) -> Parser(ctx, b, err) {
     Ok(#(reader, f(value)))
   })
 }
+
+// ============================================================================
+// Combining Parsers
+// ============================================================================
 
 /// Combine two independent parsers and transform their results.
 ///
@@ -118,6 +118,77 @@ pub fn map3(
     Ok(#(reader, f(val1, val2, val3)))
   })
 }
+
+// ============================================================================
+// Sequencing & Chaining
+// ============================================================================
+
+/// Chain two parsers where the second depends on the first's result.
+///
+/// This is the monadic bind operation for parsers. It runs the first parser,
+/// then uses its result to determine which parser to run next.
+///
+/// This is useful when you need to parse something based on a previously parsed value,
+/// such as reading a count then reading that many items.
+///
+/// Use `try` instead if your transformation returns a `Result` rather than a `Parser`.
+pub fn then(
+  parser: Parser(ctx, a, err),
+  f: fn(a) -> Parser(ctx, b, err),
+) -> Parser(ctx, b, err) {
+  let Parser(parse) = parser
+
+  Parser(fn(reader, ctx) {
+    use #(reader, value) <- result.try(parse(reader, ctx))
+    run(reader, ctx, f(value))
+  })
+}
+
+/// Run two parsers in sequence, keeping only the first result.
+///
+/// Useful when you need to parse something followed by a delimiter or 
+/// separator that you want to discard.
+pub fn keep_left(
+  parser1: Parser(ctx, a, err),
+  parser2: Parser(ctx, b, err),
+) -> Parser(ctx, a, err) {
+  Parser(fn(reader, ctx) {
+    use #(reader, value) <- result.try(run(reader, ctx, parser1))
+    use #(reader, _) <- result.try(run(reader, ctx, parser2))
+    Ok(#(reader, value))
+  })
+}
+
+/// Chain two parsers where the second depends on the first's result and reader state.
+///
+/// Like `then`, but the function that produces the next parser also receives the
+/// current reader state and context stack. This is useful when you need to make
+/// parsing decisions based on:
+/// - How many bytes have been consumed
+/// - The current position for conditional logic
+/// - The context stack for error handling
+///
+/// This is the monadic bind operation with access to reader context. Most of the
+/// time you'll use `then` instead, but this is valuable when parsing decisions
+/// depend on the state of the input stream.
+///
+/// Use `try_with_reader` instead if your transformation returns a `Result` rather
+/// than a `Parser`.
+pub fn then_with_reader(
+  parser: Parser(ctx, a, err),
+  f: fn(a, Reader, List(ctx)) -> Parser(ctx, b, err),
+) -> Parser(ctx, b, err) {
+  let Parser(parse) = parser
+
+  Parser(fn(reader, ctx) {
+    use #(reader, value) <- result.try(parse(reader, ctx))
+    run(reader, ctx, f(value, reader, ctx))
+  })
+}
+
+// ============================================================================
+// Error Handling & Validation
+// ============================================================================
 
 /// Chain a parser with a fallible transformation.
 ///
@@ -194,48 +265,36 @@ pub fn try_with_start_offset(
   })
 }
 
-/// Chain two parsers where the second depends on the first's result.
+// ============================================================================
+// Context Management
+// ============================================================================
+
+/// Run a parser with additional context information.
 ///
-/// This is the monadic bind operation for parsers. It runs the first parser,
-/// then uses its result to determine which parser to run next.
+/// This adds a context value to the context stack when executing the parser, which 
+/// is useful for error reporting and tracking where in a nested structure parsing 
+/// occurs. The context is implemented as a stack (list) so nested parsers can add 
+/// their own context while preserving parent context.
 ///
-/// This is useful when you need to parse something based on a previously parsed value,
-/// such as reading a count then reading that many items.
-///
-/// Use `try` instead if your transformation returns a `Result` rather than a `Parser`.
-pub fn then(
+/// Common uses include tracking array indices, field names, or structural locations
+/// to provide better error messages when parsing fails.
+pub fn with_context(
   parser: Parser(ctx, a, err),
-  f: fn(a) -> Parser(ctx, b, err),
-) -> Parser(ctx, b, err) {
-  let Parser(parse) = parser
-
-  Parser(fn(reader, ctx) {
-    use #(reader, value) <- result.try(parse(reader, ctx))
-    run(reader, ctx, f(value))
-  })
-}
-
-/// Run two parsers in sequence, keeping only the first result.
-///
-/// Useful when you need to parse something followed by a delimiter or 
-/// separator that you want to discard.
-pub fn keep_left(
-  parser1: Parser(ctx, a, err),
-  parser2: Parser(ctx, b, err),
+  ctx: ctx,
 ) -> Parser(ctx, a, err) {
-  Parser(fn(reader, ctx) {
-    use #(reader, value) <- result.try(run(reader, ctx, parser1))
-    use #(reader, _) <- result.try(run(reader, ctx, parser2))
-    Ok(#(reader, value))
-  })
+  let Parser(parse) = parser
+  Parser(fn(reader, outer_ctx) { parse(reader, [ctx, ..outer_ctx]) })
 }
 
-/// Lift a value into a parser without consuming input.
-pub fn return(value: a) -> Parser(ctx, a, err) {
-  Parser(fn(reader, _) { Ok(#(reader, value)) })
-}
+// ============================================================================
+// List Parsing (Repeated Items)
+// ============================================================================
 
-/// Parse something exactly n times with indexed context.
+/// Parse items exactly n times with indexed context.
+/// 
+/// For each iteration from 0 to n-1, the item_parser is wrapped with context 
+/// derived from index_to_context(index), allowing each parsed item to be 
+/// associated with its index. Results are accumulated and returned as a List.
 pub fn indexed_repeat(
   count: Int,
   item_parser: Parser(ctx, a, err),
