@@ -33,9 +33,9 @@ pub fn new(
 /// 
 /// Use `run_then` to execute a parser and continue with its result.
 pub fn run(
+  parser: Parser(ctx, a, err),
   reader: Reader,
   ctx: List(ctx),
-  parser: Parser(ctx, a, err),
 ) -> Result(#(Reader, a), err) {
   let Parser(parse) = parser
   parse(reader, ctx)
@@ -51,12 +51,12 @@ pub fn run(
 /// 
 /// Use `run` instead if you only need the parser's raw result.
 pub fn run_then(
+  parser: Parser(ctx, a, err),
   reader: Reader,
   ctx: List(ctx),
-  parser: Parser(ctx, a, err),
   next: fn(Reader, a) -> Result(b, err),
 ) -> Result(b, err) {
-  use #(reader, value) <- result.try(run(reader, ctx, parser))
+  use #(reader, value) <- result.try(run(parser, reader, ctx))
   next(reader, value)
 }
 
@@ -94,8 +94,8 @@ pub fn map2(
   f: fn(a, b) -> c,
 ) -> Parser(ctx, c, err) {
   Parser(fn(reader, ctx) {
-    use #(reader, val1) <- result.try(run(reader, ctx, parser1))
-    use #(reader, val2) <- result.try(run(reader, ctx, parser2))
+    use #(reader, val1) <- result.try(run(parser1, reader, ctx))
+    use #(reader, val2) <- result.try(run(parser2, reader, ctx))
     Ok(#(reader, f(val1, val2)))
   })
 }
@@ -112,9 +112,9 @@ pub fn map3(
   f: fn(a, b, c) -> d,
 ) -> Parser(ctx, d, err) {
   Parser(fn(reader, ctx) {
-    use #(reader, val1) <- result.try(run(reader, ctx, parser1))
-    use #(reader, val2) <- result.try(run(reader, ctx, parser2))
-    use #(reader, val3) <- result.try(run(reader, ctx, parser3))
+    use #(reader, val1) <- result.try(run(parser1, reader, ctx))
+    use #(reader, val2) <- result.try(run(parser2, reader, ctx))
+    use #(reader, val3) <- result.try(run(parser3, reader, ctx))
     Ok(#(reader, f(val1, val2, val3)))
   })
 }
@@ -140,7 +140,7 @@ pub fn then(
 
   Parser(fn(reader, ctx) {
     use #(reader, value) <- result.try(parse(reader, ctx))
-    run(reader, ctx, f(value))
+    run(f(value), reader, ctx)
   })
 }
 
@@ -153,8 +153,8 @@ pub fn keep_left(
   parser2: Parser(ctx, b, err),
 ) -> Parser(ctx, a, err) {
   Parser(fn(reader, ctx) {
-    use #(reader, value) <- result.try(run(reader, ctx, parser1))
-    use #(reader, _) <- result.try(run(reader, ctx, parser2))
+    use #(reader, value) <- result.try(run(parser1, reader, ctx))
+    use #(reader, _) <- result.try(run(parser2, reader, ctx))
     Ok(#(reader, value))
   })
 }
@@ -283,7 +283,7 @@ pub fn indexed_repeat(
     |> list.try_fold(init, fn(acc, index) {
       let #(reader, items) = acc
       let contextualized = with_context(item_parser, index_to_context(index))
-      use #(reader, item) <- result.try(run(reader, ctx, contextualized))
+      use #(reader, item) <- result.try(run(contextualized, reader, ctx))
       Ok(#(reader, [item, ..items]))
     })
     |> result.map(fn(acc) { #(acc.0, list.reverse(acc.1)) })
@@ -319,9 +319,9 @@ pub fn indexed_repeat_with_limit(
       let contextualized = with_context(item_parser, index_to_context(index))
 
       use #(reader, #(item, item_val)) <- result.try(run(
+        contextualized,
         reader,
         ctx,
-        contextualized,
       ))
 
       let acc_val = acc_val + item_val

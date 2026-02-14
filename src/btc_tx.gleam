@@ -642,7 +642,7 @@ pub fn decode_with_policy(
 
   bytes
   |> reader.new
-  |> parser.run([InTransaction], tx_parser)
+  |> parser.run(tx_parser, _, [InTransaction])
   |> result.map(pair.second)
 }
 
