@@ -700,8 +700,13 @@ fn detect_segwit() -> Parser(ParseContext, Bool, DecodeError) {
 ///
 /// Returns `True` if next bytes are 0x00 0x01, `False` if they don't start with 0x00
 /// or on EOF. Returns an error if marker is 0x00 but flag is invalid.
+///
 fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
+  // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
   parser.new(fn(reader, ctx) {
+    let field_name = "segwit_discriminator"
+    let field_err = make_field_error(field_name, reader, ctx)
+
     case reader.peek_bytes(reader, 2) {
       Ok(bytes) -> {
         let assert <<marker, flag>> = bytes
@@ -709,9 +714,7 @@ fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
           0x00, 0x01 -> Ok(#(reader, True))
           0x00, _ ->
             InvalidSegWitMarkerFlag(marker, flag)
-            |> new_parse_error(reader)
-            |> with_contexts([AtField("segwit_discriminator"), ..ctx])
-            |> ParseFailed
+            |> field_err
             |> Error
           _, _ -> Ok(#(reader, False))
         }
@@ -725,9 +728,7 @@ fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
           _ ->
             err
             |> ReaderError
-            |> new_parse_error(reader)
-            |> with_contexts([AtField("segwit_discriminator"), ..ctx])
-            |> ParseFailed
+            |> field_err
             |> Error
         }
     }
@@ -742,7 +743,6 @@ fn skip_marker_bytes() -> Parser(ParseContext, Nil, DecodeError) {
     |> reader.skip_bytes(2)
     |> result.map(pair.new(_, Nil))
   })
-  |> parser.map(fn(_) { Nil })
 }
 
 fn read_inputs(
@@ -758,49 +758,55 @@ fn read_inputs(
 fn read_vin_count(
   max_vin_count_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use reader, vin_count_int <- parser.run_then(
-      reader,
-      ctx,
-      read_compact_size_as_int("vin_count"),
-    )
+  let field_name = "vin_count"
 
-    let min_txin_size = 41
-    let remaining = reader.bytes_remaining(reader)
-
-    // Upper bound implied by remaining bytes (each input is at least 41 bytes)
-    let max_inputs_by_bytes = remaining / min_txin_size
-
-    let vin_count_err = fn(parse_error_kind) {
-      parse_error_kind
-      |> make_field_error("vin_count", reader, ctx)
+  field_name
+  |> read_compact_size_as_int
+  |> parser.try_with_reader(fn(vin_count_int, reader, ctx) {
+    let on_invalid = fn(kind) {
+      kind
+      |> make_field_error(field_name, reader, ctx)
       |> Error
     }
-
-    case
-      vin_count_int < 1,
-      vin_count_int > max_inputs_by_bytes,
-      vin_count_int > max_vin_count_policy
-    {
-      // Minimum count validation
-      True, _, _ ->
-        InvalidValueRange(vin_count_int, Some(1), None)
-        |> vin_count_err
-
-      // Structural limit: count exceeds what remaining bytes can accommodate
-      False, True, _ ->
-        InsufficientBytes(claimed: remaining + 1, remaining:)
-        |> vin_count_err
-
-      // Policy limit: count exceeds configured maximum
-      False, False, True ->
-        PolicyLimitExceeded(vin_count_int, max_vin_count_policy)
-        |> vin_count_err
-
-      // All validations passed
-      False, False, False -> Ok(#(reader, vin_count_int))
-    }
+    validate_vin_count(vin_count_int, reader, max_vin_count_policy, on_invalid)
   })
+}
+
+fn validate_vin_count(
+  vin_count_int: Int,
+  reader: Reader,
+  max_vin_count_policy: Int,
+  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
+) -> Result(Int, DecodeError) {
+  let min_txin_size = 41
+  let remaining = reader.bytes_remaining(reader)
+
+  // Upper bound implied by remaining bytes (each input is at least 41 bytes)
+  let max_inputs_by_bytes = remaining / min_txin_size
+
+  case
+    vin_count_int < 1,
+    vin_count_int > max_inputs_by_bytes,
+    vin_count_int > max_vin_count_policy
+  {
+    // Minimum count validation
+    True, _, _ ->
+      InvalidValueRange(vin_count_int, Some(1), None)
+      |> on_invalid
+
+    // Structural limit: count exceeds what remaining bytes can accommodate
+    False, True, _ ->
+      InsufficientBytes(claimed: remaining + 1, remaining:)
+      |> on_invalid
+
+    // Policy limit: count exceeds configured maximum
+    False, False, True ->
+      PolicyLimitExceeded(vin_count_int, max_vin_count_policy)
+      |> on_invalid
+
+    // All validations passed
+    False, False, False -> Ok(vin_count_int)
+  }
 }
 
 fn read_tx_ins(
@@ -867,49 +873,60 @@ fn read_outputs(
 fn read_vout_count(
   max_vout_count_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use reader, vout_count_int <- parser.run_then(
-      reader,
-      ctx,
-      read_compact_size_as_int("vout_count"),
-    )
+  let field_name = "vout_count"
 
-    let min_txout_size = 9
-    let remaining = reader.bytes_remaining(reader)
-
-    // Upper bound implied by remaining bytes (each output is at least 9 bytes)
-    let max_outputs_by_bytes = remaining / min_txout_size
-
-    let vout_count_err = fn(parse_error_kind) {
-      parse_error_kind
-      |> make_field_error("vout_count", reader, ctx)
+  field_name
+  |> read_compact_size_as_int
+  |> parser.try_with_reader(fn(vout_count_int, reader, ctx) {
+    let on_invalid = fn(kind) {
+      kind
+      |> make_field_error(field_name, reader, ctx)
       |> Error
     }
-
-    case
-      vout_count_int < 1,
-      vout_count_int > max_outputs_by_bytes,
-      vout_count_int > max_vout_count_policy
-    {
-      // Minimum count validation
-      True, _, _ ->
-        InvalidValueRange(vout_count_int, Some(1), None)
-        |> vout_count_err
-
-      // Structural limit: count exceeds what remaining bytes can accommodate
-      False, True, _ ->
-        InsufficientBytes(claimed: remaining + 1, remaining:)
-        |> vout_count_err
-
-      // Policy limit: count exceeds configured maximum
-      False, False, True ->
-        PolicyLimitExceeded(vout_count_int, max_vout_count_policy)
-        |> vout_count_err
-
-      // All validations passed
-      False, False, False -> Ok(#(reader, vout_count_int))
-    }
+    validate_vout_count(
+      vout_count_int,
+      reader,
+      max_vout_count_policy,
+      on_invalid,
+    )
   })
+}
+
+fn validate_vout_count(
+  vout_count_int: Int,
+  reader: Reader,
+  max_vout_count_policy: Int,
+  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
+) -> Result(Int, DecodeError) {
+  let min_txout_size = 9
+  let remaining = reader.bytes_remaining(reader)
+
+  // Upper bound implied by remaining bytes (each output is at least 9 bytes)
+  let max_outputs_by_bytes = remaining / min_txout_size
+
+  case
+    vout_count_int < 1,
+    vout_count_int > max_outputs_by_bytes,
+    vout_count_int > max_vout_count_policy
+  {
+    // Minimum count validation
+    True, _, _ ->
+      InvalidValueRange(vout_count_int, Some(1), None)
+      |> on_invalid
+
+    // Structural limit: count exceeds what remaining bytes can accommodate
+    False, True, _ ->
+      InsufficientBytes(claimed: remaining + 1, remaining:)
+      |> on_invalid
+
+    // Policy limit: count exceeds configured maximum
+    False, False, True ->
+      PolicyLimitExceeded(vout_count_int, max_vout_count_policy)
+      |> on_invalid
+
+    // All validations passed
+    False, False, False -> Ok(vout_count_int)
+  }
 }
 
 fn read_tx_outs(
@@ -954,41 +971,44 @@ fn read_tx_out_with_value(
 }
 
 fn read_satoshis() -> Parser(ParseContext, Satoshis, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    let value_err = make_field_error("value", reader, ctx)
+  let field_name = "value"
 
-    let satoshis_parser =
-      read_field("value", reader.read_bytes(_, 8))
-      |> parser.map(fn(value_bytes) {
-        let assert Ok(value_i64) = int64.from_bytes_le(value_bytes)
-        value_i64
-      })
-      |> parser.try(fn(value_i64) {
-        // This should never happen.
-        // The max possible amount of satoshis 2_100_000_000_000_000 (2.1 quadrillion)
-        // is less than JavaScript's Number.MAX_SAFE_INTEGER
-        value_i64
-        |> int64.to_int
-        |> result.map_error(fn(_) {
-          value_i64
-          |> int64.to_string
-          |> IntegerOutOfRange
-          |> value_err
-        })
-      })
-      |> parser.try(fn(value_int) {
-        case value_int < 0 || value_int > max_satoshis {
-          True ->
-            InvalidValueRange(value_int, Some(0), Some(max_satoshis))
-            |> value_err
-            |> Error
-
-          False -> Ok(Satoshis(value_int))
-        }
-      })
-
-    parser.run(reader, ctx, satoshis_parser)
+  field_name
+  |> read_field(reader.read_bytes(_, 8))
+  |> parser.map(fn(value_bytes) {
+    let assert Ok(value_i64) = int64.from_bytes_le(value_bytes)
+    value_i64
   })
+  |> parser.try_with_reader(fn(value_i64, reader, ctx) {
+    // This should never happen.
+    // The max possible amount of satoshis 2_100_000_000_000_000 (2.1 quadrillion)
+    // is less than JavaScript's Number.MAX_SAFE_INTEGER
+    value_i64
+    |> int64.to_int
+    |> result.map_error(fn(_) {
+      value_i64
+      |> int64.to_string
+      |> IntegerOutOfRange
+      |> make_field_error(field_name, reader, ctx)
+    })
+  })
+  |> parser.try_with_reader(fn(value_int, reader, ctx) {
+    validate_satoshis(value_int, make_field_error(field_name, reader, ctx))
+  })
+}
+
+fn validate_satoshis(
+  value_int: Int,
+  on_invalid: fn(ParseErrorKind) -> DecodeError,
+) -> Result(Satoshis, DecodeError) {
+  case value_int < 0 || value_int > max_satoshis {
+    True ->
+      InvalidValueRange(value_int, Some(0), Some(max_satoshis))
+      |> on_invalid
+      |> Error
+
+    False -> Ok(Satoshis(value_int))
+  }
 }
 
 fn read_script(
@@ -1011,36 +1031,45 @@ fn read_script_length(
   field_name: String,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use reader, script_len_int <- parser.run_then(
-      reader,
-      ctx,
-      read_compact_size_as_int(field_name),
-    )
-
-    let script_len_err = fn(parse_error_kind) {
-      parse_error_kind
+  field_name
+  |> read_compact_size_as_int
+  |> parser.try_with_reader(fn(script_len_int, reader, ctx) {
+    let on_invalid = fn(kind) {
+      kind
       |> make_field_error(field_name, reader, ctx)
       |> Error
     }
-
-    let remaining = reader.bytes_remaining(reader)
-
-    case script_len_int > remaining, script_len_int > max_script_size_policy {
-      // Structural limit: length exceeds remaining bytes
-      True, _ ->
-        InsufficientBytes(claimed: script_len_int, remaining:)
-        |> script_len_err
-
-      // Policy limit: length exceeds configured maximum
-      False, True ->
-        PolicyLimitExceeded(script_len_int, max_script_size_policy)
-        |> script_len_err
-
-      // All validations passed
-      False, False -> Ok(#(reader, script_len_int))
-    }
+    validate_script_length(
+      script_len_int,
+      reader,
+      max_script_size_policy,
+      on_invalid,
+    )
   })
+}
+
+fn validate_script_length(
+  script_len_int: Int,
+  reader: Reader,
+  max_script_size_policy: Int,
+  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
+) -> Result(Int, DecodeError) {
+  let remaining = reader.bytes_remaining(reader)
+
+  case script_len_int > remaining, script_len_int > max_script_size_policy {
+    // Structural limit: length exceeds remaining bytes
+    True, _ ->
+      InsufficientBytes(claimed: script_len_int, remaining:)
+      |> on_invalid
+
+    // Policy limit: length exceeds configured maximum
+    False, True ->
+      PolicyLimitExceeded(script_len_int, max_script_size_policy)
+      |> on_invalid
+
+    // All validations passed
+    False, False -> Ok(script_len_int)
+  }
 }
 
 fn read_witness_stacks(
@@ -1123,55 +1152,75 @@ fn read_witness_item(
 fn read_witness_stack_length(
   max_items_per_input_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use reader, stack_len <- parser.run_then(
-      reader,
-      ctx,
-      read_compact_size_as_int("witnessStack_len"),
-    )
+  let field_name = "witnessStack_len"
 
-    case stack_len > max_items_per_input_policy {
-      True ->
-        PolicyLimitExceeded(stack_len, max_items_per_input_policy)
-        |> make_field_error("witnessStack_len", reader, ctx)
-        |> Error
-
-      False -> Ok(#(reader, stack_len))
+  field_name
+  |> read_compact_size_as_int
+  |> parser.try_with_reader(fn(stack_len, reader, ctx) {
+    let on_invalid = fn(kind) {
+      kind
+      |> make_field_error(field_name, reader, ctx)
+      |> Error
     }
+    validate_witness_stack_length(
+      stack_len,
+      max_items_per_input_policy,
+      on_invalid,
+    )
   })
+}
+
+fn validate_witness_stack_length(
+  stack_len: Int,
+  max_items_per_input_policy: Int,
+  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
+) -> Result(Int, DecodeError) {
+  case stack_len > max_items_per_input_policy {
+    True ->
+      PolicyLimitExceeded(stack_len, max_items_per_input_policy)
+      |> on_invalid
+
+    False -> Ok(stack_len)
+  }
 }
 
 fn read_witness_item_size(
   max_item_size_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    use reader, length <- parser.run_then(
-      reader,
-      ctx,
-      read_compact_size_as_int("witnessItem_len"),
-    )
+  let field_name = "witnessItem_len"
 
-    let witness_item_len_err = fn(parse_error_kind) {
-      parse_error_kind
-      |> make_field_error("witnessItem_len", reader, ctx)
+  field_name
+  |> read_compact_size_as_int
+  |> parser.try_with_reader(fn(length, reader, ctx) {
+    let on_invalid = fn(kind) {
+      kind
+      |> make_field_error(field_name, reader, ctx)
       |> Error
     }
-
-    let remaining = reader.bytes_remaining(reader)
-
-    case length > remaining, length > max_item_size_policy {
-      // Structural limit: length exceeds remaining bytes
-      True, _ ->
-        InsufficientBytes(claimed: length, remaining:)
-        |> witness_item_len_err
-
-      // Policy limit: length exceeds configured maximum
-      False, True ->
-        PolicyLimitExceeded(length, max_item_size_policy)
-        |> witness_item_len_err
-
-      // All validations passed
-      False, False -> Ok(#(reader, length))
-    }
+    validate_witness_item_size(length, reader, max_item_size_policy, on_invalid)
   })
+}
+
+fn validate_witness_item_size(
+  length: Int,
+  reader: Reader,
+  max_item_size_policy: Int,
+  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
+) -> Result(Int, DecodeError) {
+  let remaining = reader.bytes_remaining(reader)
+
+  case length > remaining, length > max_item_size_policy {
+    // Structural limit: length exceeds remaining bytes
+    True, _ ->
+      InsufficientBytes(claimed: length, remaining:)
+      |> on_invalid
+
+    // Policy limit: length exceeds configured maximum
+    False, True ->
+      PolicyLimitExceeded(length, max_item_size_policy)
+      |> on_invalid
+
+    // All validations passed
+    False, False -> Ok(length)
+  }
 }

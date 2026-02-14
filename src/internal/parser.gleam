@@ -142,6 +142,30 @@ pub fn try(
   })
 }
 
+/// Chain a parser with a fallible transformation that needs reader context.
+///
+/// Like `try`, but the transformation function receives the current reader state
+/// and context stack in addition to the parsed value. This is useful for validation
+/// that depends on:
+/// - Remaining bytes in the input
+/// - Position information for error reporting
+/// - Context stack for creating properly located errors
+///
+/// The reader state passed to the function reflects the state *after* parsing
+/// the value, so you can check how many bytes remain or get the current offset.
+pub fn try_with_reader(
+  parser: Parser(ctx, a, err),
+  f: fn(a, Reader, List(ctx)) -> Result(b, err),
+) -> Parser(ctx, b, err) {
+  let Parser(parse) = parser
+
+  Parser(fn(reader, ctx) {
+    use #(reader, value) <- result.try(parse(reader, ctx))
+    use new_value <- result.try(f(value, reader, ctx))
+    Ok(#(reader, new_value))
+  })
+}
+
 /// Chain two parsers where the second depends on the first's result.
 ///
 /// This is the monadic bind operation for parsers. It runs the first parser,
