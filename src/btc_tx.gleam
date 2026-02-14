@@ -464,11 +464,7 @@ pub fn parse_error_ctx(err: ParseError) -> List(ParseContext) {
   err.ctx
 }
 
-fn new_parse_error(kind: ParseErrorKind, reader: Reader) -> ParseError {
-  ParseError(reader.get_offset(reader), kind:, ctx: [])
-}
-
-fn new_parse_error_at_offset(kind: ParseErrorKind, offset: Int) -> ParseError {
+fn new_parse_error(kind: ParseErrorKind, offset: Int) -> ParseError {
   ParseError(offset:, kind:, ctx: [])
 }
 
@@ -476,36 +472,20 @@ fn with_contexts(err: ParseError, ctx: List(ParseContext)) -> ParseError {
   list.fold(ctx, err, fn(err, ctx) { ParseError(..err, ctx: [ctx, ..err.ctx]) })
 }
 
-/// Build a DecodeError factory function for a specific field.
-///
-/// Returns a function that takes a ParseErrorKind and produces a DecodeError
-/// with the field context already applied.
-fn make_field_error(
-  field_name: String,
-  reader: Reader,
-  ctx: List(ParseContext),
-) -> fn(ParseErrorKind) -> DecodeError {
-  fn(kind) {
-    kind
-    |> new_parse_error(reader)
-    |> with_contexts([AtField(field_name), ..ctx])
-    |> ParseFailed
-  }
-}
-
 /// Build a DecodeError factory function for a specific field at a given offset.
 ///
-/// Like `make_field_error`, but uses an explicit byte offset instead of deriving
-/// it from the reader. This is useful when you want the error to point to the
-/// start of a field rather than the current reader position.
-fn make_field_error_at_offset(
+/// Returns a function that takes a ParseErrorKind and produces a DecodeError
+/// with the field context already applied. The offset parameter allows you to
+/// point the error to a specific byte location, such as the start of a field,
+/// rather than the current reader position.
+fn make_field_error(
   field_name: String,
   offset: Int,
   ctx: List(ParseContext),
 ) -> fn(ParseErrorKind) -> DecodeError {
   fn(kind) {
     kind
-    |> new_parse_error_at_offset(offset)
+    |> new_parse_error(offset)
     |> with_contexts([AtField(field_name), ..ctx])
     |> ParseFailed
   }
@@ -524,7 +504,7 @@ fn read_field(
     |> result.map_error(fn(err) {
       err
       |> ReaderError
-      |> new_parse_error(reader)
+      |> new_parse_error(reader.get_offset(reader))
       |> with_contexts([AtField(field_name), ..ctx])
       |> ParseFailed
     })
@@ -541,7 +521,7 @@ fn read_compact_size(
     |> result.map_error(fn(err) {
       err
       |> CompactSizeError
-      |> new_parse_error(reader)
+      |> new_parse_error(reader.get_offset(reader))
       |> with_contexts([AtField(field_name), ..ctx])
       |> ParseFailed
     })
@@ -564,7 +544,7 @@ fn read_compact_size_as_int(
       value_u64
       |> uint64.to_string
       |> IntegerOutOfRange
-      |> make_field_error_at_offset(field_name, start_offset, ctx)
+      |> make_field_error(field_name, start_offset, ctx)
     })
   })
 }
@@ -679,7 +659,7 @@ pub fn decode_with_policy(
     byte_count ->
       byte_count
       |> TrailingBytes
-      |> new_parse_error(reader)
+      |> new_parse_error(reader.get_offset(reader))
       |> with_contexts(tx_ctx)
       |> ParseFailed
       |> Error
@@ -720,7 +700,7 @@ fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
   // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
   parser.new(fn(reader, ctx) {
     let field_name = "segwit_discriminator"
-    let field_err = make_field_error(field_name, reader, ctx)
+    let field_err = make_field_error(field_name, reader.get_offset(reader), ctx)
 
     case reader.peek_bytes(reader, 2) {
       Ok(bytes) -> {
@@ -780,7 +760,7 @@ fn read_vin_count(
   |> parser.try_with_start_offset(fn(vin_count_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error_at_offset(field_name, start_offset, ctx)
+      |> make_field_error(field_name, start_offset, ctx)
       |> Error
     }
     validate_vin_count(vin_count_int, reader, max_vin_count_policy, on_invalid)
@@ -895,7 +875,7 @@ fn read_vout_count(
   |> parser.try_with_start_offset(fn(vout_count_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error_at_offset(field_name, start_offset, ctx)
+      |> make_field_error(field_name, start_offset, ctx)
       |> Error
     }
     validate_vout_count(
@@ -963,7 +943,7 @@ fn read_tx_outs(
     max_satoshis,
     fn(exceeded_val, reader, ctx) {
       InvalidValueRange(exceeded_val, Some(0), Some(max_satoshis))
-      |> make_field_error("outputs_total_value", reader, ctx)
+      |> make_field_error("outputs_total_value", reader.get_offset(reader), ctx)
     },
   )
 }
@@ -1004,16 +984,12 @@ fn read_satoshis() -> Parser(ParseContext, Satoshis, DecodeError) {
       value_i64
       |> int64.to_string
       |> IntegerOutOfRange
-      |> make_field_error_at_offset(field_name, start_offset, ctx)
+      |> make_field_error(field_name, start_offset, ctx)
     })
   })
   |> parser.try_with_start_offset(fn(value_int, start_offset, _, ctx) {
     value_int
-    |> validate_satoshis(make_field_error_at_offset(
-      field_name,
-      start_offset,
-      ctx,
-    ))
+    |> validate_satoshis(make_field_error(field_name, start_offset, ctx))
   })
 }
 
@@ -1056,7 +1032,7 @@ fn read_script_length(
   |> parser.try_with_start_offset(fn(script_len_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error_at_offset(field_name, start_offset, ctx)
+      |> make_field_error(field_name, start_offset, ctx)
       |> Error
     }
     validate_script_length(
@@ -1136,7 +1112,11 @@ fn read_witness_items_with_byte_tracking(
     max_total_bytes,
     fn(exceeded_val, reader, ctx) {
       PolicyLimitExceeded(exceeded_val, max_total_bytes)
-      |> make_field_error("witnessStack_total_payload_bytes", reader, ctx)
+      |> make_field_error(
+        "witnessStack_total_payload_bytes",
+        reader.get_offset(reader),
+        ctx,
+      )
     },
   )
 }
@@ -1179,7 +1159,7 @@ fn read_witness_stack_length(
   |> parser.try_with_start_offset(fn(stack_len, start_offset, _, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error_at_offset(field_name, start_offset, ctx)
+      |> make_field_error(field_name, start_offset, ctx)
       |> Error
     }
     validate_witness_stack_length(
@@ -1214,7 +1194,7 @@ fn read_witness_item_size(
   |> parser.try_with_start_offset(fn(length, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error_at_offset(field_name, start_offset, ctx)
+      |> make_field_error(field_name, start_offset, ctx)
       |> Error
     }
     validate_witness_item_size(length, reader, max_item_size_policy, on_invalid)
