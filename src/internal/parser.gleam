@@ -159,33 +159,6 @@ pub fn keep_left(
   })
 }
 
-/// Chain two parsers where the second depends on the first's result and reader state.
-///
-/// Like `then`, but the function that produces the next parser also receives the
-/// current reader state and context stack. This is useful when you need to make
-/// parsing decisions based on:
-/// - How many bytes have been consumed
-/// - The current position for conditional logic
-/// - The context stack for error handling
-///
-/// This is the monadic bind operation with access to reader context. Most of the
-/// time you'll use `then` instead, but this is valuable when parsing decisions
-/// depend on the state of the input stream.
-///
-/// Use `try_with_reader` instead if your transformation returns a `Result` rather
-/// than a `Parser`.
-pub fn then_with_reader(
-  parser: Parser(ctx, a, err),
-  f: fn(a, Reader, List(ctx)) -> Parser(ctx, b, err),
-) -> Parser(ctx, b, err) {
-  let Parser(parse) = parser
-
-  Parser(fn(reader, ctx) {
-    use #(reader, value) <- result.try(parse(reader, ctx))
-    run(reader, ctx, f(value, reader, ctx))
-  })
-}
-
 // ============================================================================
 // Error Handling & Validation
 // ============================================================================

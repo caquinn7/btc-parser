@@ -468,8 +468,8 @@ fn new_parse_error(kind: ParseErrorKind, offset: Int) -> ParseError {
   ParseError(offset:, kind:, ctx: [])
 }
 
-fn with_contexts(err: ParseError, ctx: List(ParseContext)) -> ParseError {
-  list.fold(ctx, err, fn(err, ctx) { ParseError(..err, ctx: [ctx, ..err.ctx]) })
+fn with_contexts(err: ParseError, ctxs: List(ParseContext)) -> ParseError {
+  list.fold(ctxs, err, fn(err, ctx) { ParseError(..err, ctx: [ctx, ..err.ctx]) })
 }
 
 /// Build a DecodeError factory function for a specific field at a given offset.
@@ -592,78 +592,58 @@ pub fn decode_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
 ) -> Result(Transaction, DecodeError) {
-  let reader = reader.new(bytes)
-  let tx_ctx = [InTransaction]
+  let tx_parser = {
+    use version <- parser.then(read_field("version", reader.read_i32_le))
 
-  // version
-  use reader, version <- parser.run_then(
-    reader,
-    tx_ctx,
-    read_field("version", reader.read_i32_le),
-  )
+    use is_segwit <- parser.then(detect_segwit())
 
-  // segwit?
-  use reader, is_segwit <- parser.run_then(reader, tx_ctx, detect_segwit())
-
-  // inputs
-  use reader, inputs <- parser.run_then(
-    reader,
-    tx_ctx,
-    parser.with_context(
+    use inputs <- parser.then(parser.with_context(
       read_inputs(policy.max_vin_count, policy.max_script_size),
       InInputs,
-    ),
-  )
+    ))
 
-  // outputs
-  use reader, outputs <- parser.run_then(
-    reader,
-    tx_ctx,
-    parser.with_context(
+    use outputs <- parser.then(parser.with_context(
       read_outputs(policy.max_vout_count, policy.max_script_size),
       InOutputs,
-    ),
-  )
+    ))
 
-  // Parse witnesses if segwit
-  use #(reader, witnesses) <- result.try(case is_segwit {
-    True -> {
-      use reader, witnesses <- parser.run_then(
-        reader,
-        tx_ctx,
-        read_witness_stacks(list.length(inputs), policy.witness_policy),
-      )
-      Ok(#(reader, Some(witnesses)))
-    }
+    use witnesses <- parser.then(case is_segwit {
+      True ->
+        read_witness_stacks(list.length(inputs), policy.witness_policy)
+        |> parser.map(Some)
 
-    False -> Ok(#(reader, None))
-  })
+      False -> parser.return(None)
+    })
 
-  // lock_time (common to both paths)
-  use reader, lock_time <- parser.run_then(
-    reader,
-    tx_ctx,
-    read_field("lock_time", reader.read_u32_le),
-  )
+    use lock_time <- parser.then(read_field("lock_time", reader.read_u32_le))
 
-  let tx = case witnesses {
-    Some(witnesses) ->
-      SegWit(version:, inputs:, outputs:, lock_time:, witnesses:)
+    // Build transaction and verify no trailing bytes
+    parser.try_with_reader(parser.return(Nil), fn(_, reader, ctx) {
+      let tx = case witnesses {
+        Some(witnesses) ->
+          SegWit(version:, inputs:, outputs:, lock_time:, witnesses:)
 
-    None -> Legacy(version:, inputs:, outputs:, lock_time:)
+        None -> Legacy(version:, inputs:, outputs:, lock_time:)
+      }
+
+      case reader.bytes_remaining(reader) {
+        0 -> Ok(tx)
+
+        byte_count ->
+          byte_count
+          |> TrailingBytes
+          |> new_parse_error(reader.get_offset(reader))
+          |> with_contexts(ctx)
+          |> ParseFailed
+          |> Error
+      }
+    })
   }
 
-  case reader.bytes_remaining(reader) {
-    0 -> Ok(tx)
-
-    byte_count ->
-      byte_count
-      |> TrailingBytes
-      |> new_parse_error(reader.get_offset(reader))
-      |> with_contexts(tx_ctx)
-      |> ParseFailed
-      |> Error
-  }
+  bytes
+  |> reader.new
+  |> parser.run([InTransaction], tx_parser)
+  |> result.map(pair.second)
 }
 
 pub fn decode_hex(hex: String) -> Result(Transaction, DecodeError) {
