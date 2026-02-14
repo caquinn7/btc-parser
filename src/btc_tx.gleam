@@ -2,8 +2,7 @@
 //// in a form suitable for inspection, analysis, and reference.
 
 import gleam/bit_array
-import gleam/bool
-import gleam/list.{Continue, Stop}
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/pair
 import gleam/result
@@ -12,6 +11,7 @@ import internal/fixed_int/int64
 import internal/fixed_int/uint64.{type Uint64}
 import internal/hash32.{type Hash32}
 import internal/hex
+import internal/parser.{type Parser}
 import internal/reader.{type Reader}
 
 // ---- Transaction types ----
@@ -464,209 +464,89 @@ pub fn parse_error_ctx(err: ParseError) -> List(ParseContext) {
   err.ctx
 }
 
-fn new_parse_error(kind: ParseErrorKind, reader: Reader) -> ParseError {
-  ParseError(reader.get_offset(reader), kind:, ctx: [])
+fn new_parse_error(kind: ParseErrorKind, offset: Int) -> ParseError {
+  ParseError(offset:, kind:, ctx: [])
 }
 
-fn with_contexts(err: ParseError, ctx: List(ParseContext)) -> ParseError {
-  list.fold(ctx, err, fn(err, ctx) { ParseError(..err, ctx: [ctx, ..err.ctx]) })
+fn with_contexts(err: ParseError, ctxs: List(ParseContext)) -> ParseError {
+  list.fold(ctxs, err, fn(err, ctx) { ParseError(..err, ctx: [ctx, ..err.ctx]) })
 }
 
-/// Build a DecodeError factory function for a specific field.
+/// Build a DecodeError factory function for a specific field at a given offset.
 ///
 /// Returns a function that takes a ParseErrorKind and produces a DecodeError
-/// with the field context already applied.
+/// with the field context already applied. The offset parameter allows you to
+/// point the error to a specific byte location, such as the start of a field,
+/// rather than the current reader position.
 fn make_field_error(
   field_name: String,
-  reader: Reader,
+  offset: Int,
   ctx: List(ParseContext),
 ) -> fn(ParseErrorKind) -> DecodeError {
   fn(kind) {
     kind
-    |> new_parse_error(reader)
+    |> new_parse_error(offset)
     |> with_contexts([AtField(field_name), ..ctx])
     |> ParseFailed
   }
 }
 
-// ---- Context-threading parser combinators ----
-
-/// A parsing computation that threads both the `Reader` and `ParseContext`.
-///
-/// This allows us to use Gleam's `use` syntax to elegantly compose parsing
-/// operations while automatically managing context propagation.
-type Parser(a) =
-  fn(Reader, List(ParseContext)) -> Result(#(Reader, a), DecodeError)
-
-// -- Combinators: functions that combine or transform parsers
-
-/// Run a Parser computation with an initial reader and context.
-/// 
-/// Combinator: chains parsers together using `use` syntax.
-fn run_parse(
-  reader: Reader,
-  ctx: List(ParseContext),
-  parser: Parser(a),
-  next: fn(Reader, a) -> Result(b, DecodeError),
-) -> Result(b, DecodeError) {
-  use #(reader, value) <- result.try(parser(reader, ctx))
-  next(reader, value)
-}
-
-/// Add a context layer to a parsing computation.
-///
-/// Combinator: wraps a Parser to prepend context to its context list.
-fn in_context(ctx: ParseContext, parser: Parser(a)) -> Parser(a) {
-  fn(reader, outer_ctx) { parser(reader, [ctx, ..outer_ctx]) }
-}
-
-// -- Parsers: functions that create parsers for specific data types
+// ---- Parser functions ----
 
 /// Lift a reader operation into a Parser, adding error mapping and context wrapping.
 fn read_field(
   field_name: String,
   read_fn: fn(Reader) -> Result(#(Reader, a), reader.ReaderError),
-) -> Parser(a) {
-  fn(reader, ctx) {
+) -> Parser(ParseContext, a, DecodeError) {
+  parser.new(fn(reader, ctx) {
     reader
     |> read_fn
     |> result.map_error(fn(err) {
       err
       |> ReaderError
-      |> new_parse_error(reader)
+      |> new_parse_error(reader.get_offset(reader))
       |> with_contexts([AtField(field_name), ..ctx])
       |> ParseFailed
     })
-  }
+  })
 }
 
 /// Lift a compact_size read into a Parser, adding error mapping and context wrapping.
-fn read_compact_size(field_name: String) -> Parser(Uint64) {
-  fn(reader, ctx) {
+fn read_compact_size(
+  field_name: String,
+) -> Parser(ParseContext, Uint64, DecodeError) {
+  parser.new(fn(reader, ctx) {
     reader
     |> compact_size.read
     |> result.map_error(fn(err) {
       err
       |> CompactSizeError
-      |> new_parse_error(reader)
+      |> new_parse_error(reader.get_offset(reader))
       |> with_contexts([AtField(field_name), ..ctx])
       |> ParseFailed
     })
-  }
+  })
 }
 
 /// Read a CompactSize value and convert it to `Int` with appropriate error handling.
 ///
 /// This wraps `read_compact_size` and handles the common pattern of converting
 /// the `Uint64` result to `Int`, mapping conversion failures to `IntegerOutOfRange` errors.
-fn read_compact_size_as_int(field_name: String) -> Parser(Int) {
-  fn(reader, ctx) {
-    let start_reader = reader
-
-    use reader, value_u64 <- run_parse(
-      reader,
-      ctx,
-      read_compact_size(field_name),
-    )
-
-    use value_int <- result.try(
-      value_u64
-      |> uint64.to_int
-      |> result.map_error(fn(_) {
-        value_u64
-        |> uint64.to_string
-        |> IntegerOutOfRange
-        |> make_field_error(field_name, start_reader, ctx)
-      }),
-    )
-
-    Ok(#(reader, value_int))
-  }
-}
-
-/// Read a vector of items by repeatedly calling a parser for each index.
-///
-/// Returns items in the order they appear in the binary stream.
-fn read_vec(length: Int, create_parser: fn(Int) -> Parser(a)) -> Parser(List(a)) {
-  fn(reader, ctx) {
-    use <- bool.guard(length <= 0, Ok(#(reader, [])))
-
-    let indices = list.range(0, length - 1)
-    let init = Ok(#(reader, []))
-
-    indices
-    |> list.fold_until(init, fn(acc, index) {
-      case acc {
-        Ok(#(current_reader, items)) -> {
-          let item_parser = create_parser(index)
-
-          case item_parser(current_reader, ctx) {
-            Ok(#(next_reader, item)) ->
-              Continue(Ok(#(next_reader, [item, ..items])))
-
-            Error(err) -> Stop(Error(err))
-          }
-        }
-
-        Error(_) -> Stop(acc)
-      }
-    })
-    |> result.map(pair.map_second(_, list.reverse))
-  }
-}
-
-/// Read a vector of items while tracking a cumulative metric.
-///
-/// This is a generic combinator that accumulates a metric across items and
-/// validates it doesn't exceed a maximum value. The `create_parser` function
-/// receives the index and returns a parser that produces both the item and
-/// its contribution to the metric as a tuple `#(item, metric_value)`.
-///
-/// The metric values are summed together, and parsing fails fast if the 
-/// cumulative sum exceeds `limit`. The error is created by calling 
-/// `limit_exceeded_err` with the exceeded value and contextualized with `field_name`.
-fn read_vec_with_cumulative_limit(
-  length: Int,
-  limit: Int,
+fn read_compact_size_as_int(
   field_name: String,
-  create_parser: fn(Int) -> Parser(#(a, Int)),
-  limit_exceeded_err: fn(Int) -> ParseErrorKind,
-) -> Parser(List(a)) {
-  fn(reader, ctx) {
-    use <- bool.guard(length <= 0, Ok(#(reader, [])))
-
-    let indices = list.range(0, length - 1)
-    let init = Ok(#(reader, [], 0))
-
-    indices
-    |> list.fold_until(init, fn(acc, index) {
-      case acc {
-        Ok(#(reader, items, acc_val)) -> {
-          let item_parser = create_parser(index)
-
-          case item_parser(reader, ctx) {
-            Ok(#(reader, #(item, item_val))) -> {
-              let acc_val = acc_val + item_val
-              case acc_val > limit {
-                True ->
-                  limit_exceeded_err(acc_val)
-                  |> make_field_error(field_name, reader, ctx)
-                  |> Error
-                  |> Stop
-
-                False -> Continue(Ok(#(reader, [item, ..items], acc_val)))
-              }
-            }
-
-            Error(err) -> Stop(Error(err))
-          }
-        }
-
-        Error(_) -> Stop(acc)
-      }
+) -> Parser(ParseContext, Int, DecodeError) {
+  field_name
+  |> read_compact_size
+  |> parser.try_with_start_offset(fn(value_u64, start_offset, _, ctx) {
+    value_u64
+    |> uint64.to_int
+    |> result.map_error(fn(_) {
+      value_u64
+      |> uint64.to_string
+      |> IntegerOutOfRange
+      |> make_field_error(field_name, start_offset, ctx)
     })
-    |> result.map(fn(acc) { #(acc.0, list.reverse(acc.1)) })
-  }
+  })
 }
 
 // ---- Decoding functions ----
@@ -712,78 +592,58 @@ pub fn decode_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
 ) -> Result(Transaction, DecodeError) {
-  let reader = reader.new(bytes)
-  let tx_ctx = [InTransaction]
+  let tx_parser = {
+    use version <- parser.then(read_field("version", reader.read_i32_le))
 
-  // version
-  use reader, version <- run_parse(
-    reader,
-    tx_ctx,
-    read_field("version", reader.read_i32_le),
-  )
+    use is_segwit <- parser.then(detect_segwit())
 
-  // segwit?
-  use reader, is_segwit <- run_parse(reader, tx_ctx, detect_segwit())
-
-  // inputs
-  use reader, inputs <- run_parse(
-    reader,
-    tx_ctx,
-    in_context(
-      InInputs,
+    use inputs <- parser.then(parser.with_context(
       read_inputs(policy.max_vin_count, policy.max_script_size),
-    ),
-  )
+      InInputs,
+    ))
 
-  // outputs
-  use reader, outputs <- run_parse(
-    reader,
-    tx_ctx,
-    in_context(
-      InOutputs,
+    use outputs <- parser.then(parser.with_context(
       read_outputs(policy.max_vout_count, policy.max_script_size),
-    ),
-  )
+      InOutputs,
+    ))
 
-  // Parse witnesses if segwit
-  use #(reader, witnesses) <- result.try(case is_segwit {
-    True -> {
-      use reader, witnesses <- run_parse(
-        reader,
-        tx_ctx,
-        read_witness_stacks(list.length(inputs), policy.witness_policy),
-      )
-      Ok(#(reader, Some(witnesses)))
-    }
+    use witnesses <- parser.then(case is_segwit {
+      True ->
+        read_witness_stacks(list.length(inputs), policy.witness_policy)
+        |> parser.map(Some)
 
-    False -> Ok(#(reader, None))
-  })
+      False -> parser.return(None)
+    })
 
-  // lock_time (common to both paths)
-  use reader, lock_time <- run_parse(
-    reader,
-    tx_ctx,
-    read_field("lock_time", reader.read_u32_le),
-  )
+    use lock_time <- parser.then(read_field("lock_time", reader.read_u32_le))
 
-  let tx = case witnesses {
-    Some(witnesses) ->
-      SegWit(version:, inputs:, outputs:, lock_time:, witnesses:)
+    // Build transaction and verify no trailing bytes
+    parser.try_with_reader(parser.return(Nil), fn(_, reader, ctx) {
+      let tx = case witnesses {
+        Some(witnesses) ->
+          SegWit(version:, inputs:, outputs:, lock_time:, witnesses:)
 
-    None -> Legacy(version:, inputs:, outputs:, lock_time:)
+        None -> Legacy(version:, inputs:, outputs:, lock_time:)
+      }
+
+      case reader.bytes_remaining(reader) {
+        0 -> Ok(tx)
+
+        byte_count ->
+          byte_count
+          |> TrailingBytes
+          |> new_parse_error(reader.get_offset(reader))
+          |> with_contexts(ctx)
+          |> ParseFailed
+          |> Error
+      }
+    })
   }
 
-  case reader.bytes_remaining(reader) {
-    0 -> Ok(tx)
-
-    byte_count ->
-      byte_count
-      |> TrailingBytes
-      |> new_parse_error(reader)
-      |> with_contexts(tx_ctx)
-      |> ParseFailed
-      |> Error
-  }
+  bytes
+  |> reader.new
+  |> parser.run(tx_parser, _, [InTransaction])
+  |> result.map(pair.second)
 }
 
 pub fn decode_hex(hex: String) -> Result(Transaction, DecodeError) {
@@ -797,29 +657,31 @@ pub fn decode_hex(hex: String) -> Result(Transaction, DecodeError) {
 ///
 /// Returns `True` if SegWit marker (0x00, 0x01) is present,`False` otherwise.
 /// Side effect: consumes the marker/flag bytes if SegWit is detected.
-fn detect_segwit() -> Parser(Bool) {
-  fn(reader, ctx) {
-    use reader, is_segwit <- run_parse(reader, ctx, peek_segwit())
+fn detect_segwit() -> Parser(ParseContext, Bool, DecodeError) {
+  peek_segwit()
+  |> parser.then(fn(is_segwit) {
+    case is_segwit {
+      True ->
+        is_segwit
+        |> parser.return
+        |> parser.keep_left(skip_marker_bytes())
 
-    let reader = case is_segwit {
-      True -> {
-        // safe to assert because we already peeked the next two bytes
-        let assert Ok(reader) = reader.skip_bytes(reader, 2)
-        reader
-      }
-      False -> reader
+      False -> parser.return(is_segwit)
     }
-
-    Ok(#(reader, is_segwit))
-  }
+  })
 }
 
 /// Peek ahead at the next two bytes to check for SegWit marker/flag.
 ///
 /// Returns `True` if next bytes are 0x00 0x01, `False` if they don't start with 0x00
 /// or on EOF. Returns an error if marker is 0x00 but flag is invalid.
-fn peek_segwit() -> Parser(Bool) {
-  fn(reader, ctx) {
+///
+fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
+  // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
+  parser.new(fn(reader, ctx) {
+    let field_name = "segwit_discriminator"
+    let field_err = make_field_error(field_name, reader.get_offset(reader), ctx)
+
     case reader.peek_bytes(reader, 2) {
       Ok(bytes) -> {
         let assert <<marker, flag>> = bytes
@@ -827,9 +689,7 @@ fn peek_segwit() -> Parser(Bool) {
           0x00, 0x01 -> Ok(#(reader, True))
           0x00, _ ->
             InvalidSegWitMarkerFlag(marker, flag)
-            |> new_parse_error(reader)
-            |> with_contexts([AtField("segwit_discriminator"), ..ctx])
-            |> ParseFailed
+            |> field_err
             |> Error
           _, _ -> Ok(#(reader, False))
         }
@@ -843,85 +703,91 @@ fn peek_segwit() -> Parser(Bool) {
           _ ->
             err
             |> ReaderError
-            |> new_parse_error(reader)
-            |> with_contexts([AtField("segwit_discriminator"), ..ctx])
-            |> ParseFailed
+            |> field_err
             |> Error
         }
     }
-  }
+  })
+}
+
+/// Helper parser that consumes the 2-byte segwit discriminator
+fn skip_marker_bytes() -> Parser(ParseContext, Nil, DecodeError) {
+  "segwit_marker"
+  |> read_field(fn(reader) {
+    reader
+    |> reader.skip_bytes(2)
+    |> result.map(pair.new(_, Nil))
+  })
 }
 
 fn read_inputs(
   max_vin_count_policy: Int,
   max_script_size_policy: Int,
-) -> Parser(List(TxIn)) {
-  fn(reader, ctx) {
-    use reader, vin_count <- run_parse(
-      reader,
-      ctx,
-      read_vin_count(max_vin_count_policy),
-    )
-    use reader, inputs <- run_parse(
-      reader,
-      ctx,
-      read_tx_ins(vin_count, max_script_size_policy),
-    )
-    Ok(#(reader, inputs))
-  }
+) -> Parser(ParseContext, List(TxIn), DecodeError) {
+  max_vin_count_policy
+  |> read_vin_count
+  |> parser.then(read_tx_ins(_, max_script_size_policy))
 }
 
 /// Validate and convert the vin_count from Uint64 to Int, checking structural and policy limits.
-fn read_vin_count(max_vin_count_policy: Int) -> Parser(Int) {
-  fn(reader, ctx) {
-    use reader, vin_count_int <- run_parse(
-      reader,
-      ctx,
-      read_compact_size_as_int("vin_count"),
-    )
+fn read_vin_count(
+  max_vin_count_policy: Int,
+) -> Parser(ParseContext, Int, DecodeError) {
+  let field_name = "vin_count"
 
-    let min_txin_size = 41
-    let remaining = reader.bytes_remaining(reader)
-
-    // Upper bound implied by remaining bytes (each input is at least 41 bytes)
-    let max_inputs_by_bytes = remaining / min_txin_size
-
-    let vin_count_err = fn(parse_error_kind) {
-      parse_error_kind
-      |> make_field_error("vin_count", reader, ctx)
+  field_name
+  |> read_compact_size_as_int
+  |> parser.try_with_start_offset(fn(vin_count_int, start_offset, reader, ctx) {
+    let on_invalid = fn(kind) {
+      kind
+      |> make_field_error(field_name, start_offset, ctx)
       |> Error
     }
+    validate_vin_count(vin_count_int, reader, max_vin_count_policy, on_invalid)
+  })
+}
 
-    case
-      vin_count_int < 1,
-      vin_count_int > max_inputs_by_bytes,
-      vin_count_int > max_vin_count_policy
-    {
-      // Minimum count validation
-      True, _, _ ->
-        InvalidValueRange(vin_count_int, Some(1), None)
-        |> vin_count_err
+fn validate_vin_count(
+  vin_count_int: Int,
+  reader: Reader,
+  max_vin_count_policy: Int,
+  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
+) -> Result(Int, DecodeError) {
+  let min_txin_size = 41
+  let remaining = reader.bytes_remaining(reader)
 
-      // Structural limit: count exceeds what remaining bytes can accommodate
-      False, True, _ ->
-        InsufficientBytes(claimed: remaining + 1, remaining:)
-        |> vin_count_err
+  // Upper bound implied by remaining bytes (each input is at least 41 bytes)
+  let max_inputs_by_bytes = remaining / min_txin_size
 
-      // Policy limit: count exceeds configured maximum
-      False, False, True ->
-        PolicyLimitExceeded(vin_count_int, max_vin_count_policy)
-        |> vin_count_err
+  case
+    vin_count_int < 1,
+    vin_count_int > max_inputs_by_bytes,
+    vin_count_int > max_vin_count_policy
+  {
+    // Minimum count validation
+    True, _, _ ->
+      InvalidValueRange(vin_count_int, Some(1), None)
+      |> on_invalid
 
-      // All validations passed
-      False, False, False -> Ok(#(reader, vin_count_int))
-    }
+    // Structural limit: count exceeds what remaining bytes can accommodate
+    False, True, _ ->
+      InsufficientBytes(claimed: remaining + 1, remaining:)
+      |> on_invalid
+
+    // Policy limit: count exceeds configured maximum
+    False, False, True ->
+      PolicyLimitExceeded(vin_count_int, max_vin_count_policy)
+      |> on_invalid
+
+    // All validations passed
+    False, False, False -> Ok(vin_count_int)
   }
 }
 
 fn read_tx_ins(
   vin_count: Int,
   max_script_size_policy: Int,
-) -> Parser(List(TxIn)) {
+) -> Parser(ParseContext, List(TxIn), DecodeError) {
   // vin_count
   // ├─ TxIn #0
   // │    ├─ prev_txid (32 bytes)
@@ -932,132 +798,116 @@ fn read_tx_ins(
   // ├─ TxIn #1
   // │    ├─ ...
   // └─ TxIn #(vin_count - 1)
-  read_vec(vin_count, fn(index) {
-    in_context(AtInput(index), read_tx_in(max_script_size_policy))
-  })
+  parser.indexed_repeat(vin_count, read_tx_in(max_script_size_policy), AtInput)
 }
 
-fn read_tx_in(max_script_size_policy: Int) -> Parser(TxIn) {
+fn read_tx_in(
+  max_script_size_policy: Int,
+) -> Parser(ParseContext, TxIn, DecodeError) {
   // │ prev_txid (32 bytes)
   // │ vout (4 bytes)
   // │ scriptSig_len (CompactSize)
   // │ scriptSig bytes
   // │ sequence (4 bytes)
-  fn(reader, ctx) {
-    use reader, prev_out <- run_parse(reader, ctx, read_prev_out())
-    use reader, script_sig <- run_parse(
-      reader,
-      ctx,
-      read_script("scriptSig", max_script_size_policy),
-    )
-    use reader, sequence <- run_parse(
-      reader,
-      ctx,
-      read_field("sequence", reader.read_u32_le),
-    )
-
-    Ok(#(reader, TxIn(prev_out:, script_sig:, sequence:)))
-  }
+  parser.map3(
+    read_prev_out(),
+    read_script("scriptSig", max_script_size_policy),
+    read_field("sequence", reader.read_u32_le),
+    TxIn,
+  )
 }
 
-fn read_prev_out() -> Parser(PrevOut) {
-  fn(reader, ctx) {
-    use reader, prev_txid_bytes <- run_parse(
-      reader,
-      ctx,
-      read_field("prev_txid", reader.read_bytes(_, 32)),
-    )
+fn read_prev_out() -> Parser(ParseContext, PrevOut, DecodeError) {
+  parser.map2(
+    read_field("prev_txid", reader.read_bytes(_, 32)),
+    read_field("vout", reader.read_u32_le),
+    fn(prev_txid_bytes, vout) {
+      case prev_txid_bytes, vout {
+        <<0:size(256)>>, 0xFFFFFFFF -> Coinbase
 
-    use reader, vout <- run_parse(
-      reader,
-      ctx,
-      read_field("vout", reader.read_u32_le),
-    )
-
-    let prev_out = case prev_txid_bytes, vout {
-      <<0:size(256)>>, 0xFFFFFFFF -> Coinbase
-
-      _, _ -> {
-        // Safe: read_bytes(_, 32) guarantees exactly 32 bytes on success
-        let assert Ok(hash32) = hash32.from_bytes_le(prev_txid_bytes)
-        OutPoint(TxId(hash32), vout)
+        _, _ -> {
+          // Safe: read_bytes(_, 32) guarantees exactly 32 bytes on success
+          let assert Ok(hash32) = hash32.from_bytes_le(prev_txid_bytes)
+          OutPoint(TxId(hash32), vout)
+        }
       }
-    }
-
-    Ok(#(reader, prev_out))
-  }
+    },
+  )
 }
 
 fn read_outputs(
   max_vout_count_policy: Int,
   max_script_size_policy: Int,
-) -> Parser(List(TxOut)) {
-  fn(reader, ctx) {
-    use reader, vout_count <- run_parse(
-      reader,
-      ctx,
-      read_vout_count(max_vout_count_policy),
-    )
-    use reader, outputs <- run_parse(
-      reader,
-      ctx,
-      read_tx_outs(vout_count, max_script_size_policy),
-    )
-    Ok(#(reader, outputs))
-  }
+) -> Parser(ParseContext, List(TxOut), DecodeError) {
+  max_vout_count_policy
+  |> read_vout_count
+  |> parser.then(read_tx_outs(_, max_script_size_policy))
 }
 
 /// Validate and convert the vout_count from Uint64 to Int, checking structural and policy limits.
-fn read_vout_count(max_vout_count_policy: Int) -> Parser(Int) {
-  fn(reader, ctx) {
-    use reader, vout_count_int <- run_parse(
-      reader,
-      ctx,
-      read_compact_size_as_int("vout_count"),
-    )
+fn read_vout_count(
+  max_vout_count_policy: Int,
+) -> Parser(ParseContext, Int, DecodeError) {
+  let field_name = "vout_count"
 
-    let min_txout_size = 9
-    let remaining = reader.bytes_remaining(reader)
-
-    // Upper bound implied by remaining bytes (each output is at least 9 bytes)
-    let max_outputs_by_bytes = remaining / min_txout_size
-
-    let vout_count_err = fn(parse_error_kind) {
-      parse_error_kind
-      |> make_field_error("vout_count", reader, ctx)
+  field_name
+  |> read_compact_size_as_int
+  |> parser.try_with_start_offset(fn(vout_count_int, start_offset, reader, ctx) {
+    let on_invalid = fn(kind) {
+      kind
+      |> make_field_error(field_name, start_offset, ctx)
       |> Error
     }
+    validate_vout_count(
+      vout_count_int,
+      reader,
+      max_vout_count_policy,
+      on_invalid,
+    )
+  })
+}
 
-    case
-      vout_count_int < 1,
-      vout_count_int > max_outputs_by_bytes,
-      vout_count_int > max_vout_count_policy
-    {
-      // Minimum count validation
-      True, _, _ ->
-        InvalidValueRange(vout_count_int, Some(1), None)
-        |> vout_count_err
+fn validate_vout_count(
+  vout_count_int: Int,
+  reader: Reader,
+  max_vout_count_policy: Int,
+  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
+) -> Result(Int, DecodeError) {
+  let min_txout_size = 9
+  let remaining = reader.bytes_remaining(reader)
 
-      // Structural limit: count exceeds what remaining bytes can accommodate
-      False, True, _ ->
-        InsufficientBytes(claimed: remaining + 1, remaining:)
-        |> vout_count_err
+  // Upper bound implied by remaining bytes (each output is at least 9 bytes)
+  let max_outputs_by_bytes = remaining / min_txout_size
 
-      // Policy limit: count exceeds configured maximum
-      False, False, True ->
-        PolicyLimitExceeded(vout_count_int, max_vout_count_policy)
-        |> vout_count_err
+  case
+    vout_count_int < 1,
+    vout_count_int > max_outputs_by_bytes,
+    vout_count_int > max_vout_count_policy
+  {
+    // Minimum count validation
+    True, _, _ ->
+      InvalidValueRange(vout_count_int, Some(1), None)
+      |> on_invalid
 
-      // All validations passed
-      False, False, False -> Ok(#(reader, vout_count_int))
-    }
+    // Structural limit: count exceeds what remaining bytes can accommodate
+    False, True, _ ->
+      InsufficientBytes(claimed: remaining + 1, remaining:)
+      |> on_invalid
+
+    // Policy limit: count exceeds configured maximum
+    False, False, True ->
+      PolicyLimitExceeded(vout_count_int, max_vout_count_policy)
+      |> on_invalid
+
+    // All validations passed
+    False, False, False -> Ok(vout_count_int)
   }
 }
 
 fn read_tx_outs(
   vout_count: Int,
   max_script_size_policy: Int,
-) -> Parser(List(TxOut)) {
+) -> Parser(ParseContext, List(TxOut), DecodeError) {
   // vout_count
   // ├─ TxOut #0
   // │    ├─ value (8 bytes)
@@ -1066,93 +916,87 @@ fn read_tx_outs(
   // ├─ TxOut #1
   // │    ├─ ...
   // └─ TxOut #(vout_count - 1)
-  read_vec_with_cumulative_limit(
+  parser.indexed_repeat_with_limit(
     vout_count,
+    read_tx_out_with_value(max_script_size_policy),
+    AtOutput,
     max_satoshis,
-    "outputs_total_value",
-    fn(index) {
-      in_context(
-        AtOutput(index),
-        read_tx_out_with_value(max_script_size_policy),
-      )
+    fn(exceeded_val, start_offset, ctx) {
+      InvalidValueRange(exceeded_val, Some(0), Some(max_satoshis))
+      |> make_field_error("outputs_total_value", start_offset, ctx)
     },
-    InvalidValueRange(_, Some(0), Some(max_satoshis)),
   )
 }
 
-fn read_tx_out_with_value(max_script_size_policy: Int) -> Parser(#(TxOut, Int)) {
+fn read_tx_out_with_value(
+  max_script_size_policy: Int,
+) -> Parser(ParseContext, #(TxOut, Int), DecodeError) {
   // | value (8 bytes)
   // | scriptPubKey_len (CompactSize)
   // | scriptPubKey bytes
-  fn(reader, ctx) {
-    use reader, value <- run_parse(reader, ctx, read_satoshis())
-    use reader, script_pubkey <- run_parse(
-      reader,
-      ctx,
-      read_script("scriptPubKey", max_script_size_policy),
-    )
-
-    let output = TxOut(value:, script_pubkey:)
-    let Satoshis(value_int) = value
-
-    Ok(#(reader, #(output, value_int)))
-  }
+  parser.map2(
+    read_satoshis(),
+    read_script("scriptPubKey", max_script_size_policy),
+    fn(value, script_pubkey) {
+      let output = TxOut(value:, script_pubkey:)
+      let Satoshis(value_int) = value
+      #(output, value_int)
+    },
+  )
 }
 
-fn read_satoshis() -> Parser(Satoshis) {
-  fn(reader, ctx) {
-    use reader, value_bytes <- run_parse(
-      reader,
-      ctx,
-      read_field("value", reader.read_bytes(_, 8)),
-    )
+fn read_satoshis() -> Parser(ParseContext, Satoshis, DecodeError) {
+  let field_name = "value"
 
+  field_name
+  |> read_field(reader.read_bytes(_, 8))
+  |> parser.map(fn(value_bytes) {
     let assert Ok(value_i64) = int64.from_bytes_le(value_bytes)
-
-    let value_err = make_field_error("value", reader, ctx)
-
+    value_i64
+  })
+  |> parser.try_with_start_offset(fn(value_i64, start_offset, _, ctx) {
     // This should never happen.
     // The max possible amount of satoshis 2_100_000_000_000_000 (2.1 quadrillion)
-    // is less than JavaScript's Number.MAX_SAFE_INTEGER 
-    use value_int <- result.try(
+    // is less than JavaScript's Number.MAX_SAFE_INTEGER
+    value_i64
+    |> int64.to_int
+    |> result.map_error(fn(_) {
       value_i64
-      |> int64.to_int
-      |> result.map_error(fn(_) {
-        value_i64
-        |> int64.to_string
-        |> IntegerOutOfRange
-        |> value_err
-      }),
-    )
+      |> int64.to_string
+      |> IntegerOutOfRange
+      |> make_field_error(field_name, start_offset, ctx)
+    })
+  })
+  |> parser.try_with_start_offset(fn(value_int, start_offset, _, ctx) {
+    value_int
+    |> validate_satoshis(make_field_error(field_name, start_offset, ctx))
+  })
+}
 
-    case value_int < 0 || value_int > max_satoshis {
-      True ->
-        InvalidValueRange(value_int, Some(0), Some(max_satoshis))
-        |> value_err
-        |> Error
+fn validate_satoshis(
+  value_int: Int,
+  on_invalid: fn(ParseErrorKind) -> DecodeError,
+) -> Result(Satoshis, DecodeError) {
+  case value_int < 0 || value_int > max_satoshis {
+    True ->
+      InvalidValueRange(value_int, Some(0), Some(max_satoshis))
+      |> on_invalid
+      |> Error
 
-      False -> Ok(#(reader, Satoshis(value_int)))
-    }
+    False -> Ok(Satoshis(value_int))
   }
 }
 
 fn read_script(
   field_name: String,
   max_script_size_policy: Int,
-) -> Parser(ScriptBytes) {
-  fn(reader, ctx) {
-    use reader, script_len <- run_parse(
-      reader,
-      ctx,
-      read_script_length(field_name <> "_len", max_script_size_policy),
-    )
-    use reader, script_bytes <- run_parse(
-      reader,
-      ctx,
-      read_field(field_name, reader.read_bytes(_, script_len)),
-    )
-    Ok(#(reader, ScriptBytes(script_bytes)))
-  }
+) -> Parser(ParseContext, ScriptBytes, DecodeError) {
+  { field_name <> "_len" }
+  |> read_script_length(max_script_size_policy)
+  |> parser.then(fn(script_len) {
+    read_field(field_name, reader.read_bytes(_, script_len))
+  })
+  |> parser.map(ScriptBytes)
 }
 
 /// Read and validate a script length field.
@@ -1162,49 +1006,58 @@ fn read_script(
 fn read_script_length(
   field_name: String,
   max_script_size_policy: Int,
-) -> Parser(Int) {
-  fn(reader, ctx) {
-    use reader, script_len_int <- run_parse(
-      reader,
-      ctx,
-      read_compact_size_as_int(field_name),
-    )
-
-    let script_len_err = fn(parse_error_kind) {
-      parse_error_kind
-      |> make_field_error(field_name, reader, ctx)
+) -> Parser(ParseContext, Int, DecodeError) {
+  field_name
+  |> read_compact_size_as_int
+  |> parser.try_with_start_offset(fn(script_len_int, start_offset, reader, ctx) {
+    let on_invalid = fn(kind) {
+      kind
+      |> make_field_error(field_name, start_offset, ctx)
       |> Error
     }
+    validate_script_length(
+      script_len_int,
+      reader,
+      max_script_size_policy,
+      on_invalid,
+    )
+  })
+}
 
-    let remaining = reader.bytes_remaining(reader)
+fn validate_script_length(
+  script_len_int: Int,
+  reader: Reader,
+  max_script_size_policy: Int,
+  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
+) -> Result(Int, DecodeError) {
+  let remaining = reader.bytes_remaining(reader)
 
-    case script_len_int > remaining, script_len_int > max_script_size_policy {
-      // Structural limit: length exceeds remaining bytes
-      True, _ ->
-        InsufficientBytes(claimed: script_len_int, remaining:)
-        |> script_len_err
+  case script_len_int > remaining, script_len_int > max_script_size_policy {
+    // Structural limit: length exceeds remaining bytes
+    True, _ ->
+      InsufficientBytes(claimed: script_len_int, remaining:)
+      |> on_invalid
 
-      // Policy limit: length exceeds configured maximum
-      False, True ->
-        PolicyLimitExceeded(script_len_int, max_script_size_policy)
-        |> script_len_err
+    // Policy limit: length exceeds configured maximum
+    False, True ->
+      PolicyLimitExceeded(script_len_int, max_script_size_policy)
+      |> on_invalid
 
-      // All validations passed
-      False, False -> Ok(#(reader, script_len_int))
-    }
+    // All validations passed
+    False, False -> Ok(script_len_int)
   }
 }
 
 fn read_witness_stacks(
   vin_count: Int,
   policy: WitnessPolicy,
-) -> Parser(List(WitnessStack)) {
-  read_vec(vin_count, fn(index) {
-    in_context(AtWitnessStack(index), read_witness_stack(policy))
-  })
+) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
+  parser.indexed_repeat(vin_count, read_witness_stack(policy), AtWitnessStack)
 }
 
-fn read_witness_stack(policy: WitnessPolicy) -> Parser(WitnessStack) {
+fn read_witness_stack(
+  policy: WitnessPolicy,
+) -> Parser(ParseContext, WitnessStack, DecodeError) {
   // WitnessStack for one input:
   // ├─ stack_len (CompactSize) - number of witness items
   // ├─ WitnessItem #0
@@ -1213,26 +1066,16 @@ fn read_witness_stack(policy: WitnessPolicy) -> Parser(WitnessStack) {
   // ├─ WitnessItem #1
   // │    ├─ ...
   // └─ WitnessItem #(stack_len - 1)
-  fn(reader, ctx) {
-    use reader, stack_len <- run_parse(
-      reader,
-      ctx,
-      read_witness_stack_length(policy.max_items_per_input),
+  policy.max_items_per_input
+  |> read_witness_stack_length
+  |> parser.then(fn(stack_len) {
+    read_witness_items_with_byte_tracking(
+      stack_len,
+      policy.max_item_size,
+      policy.max_stack_payload_bytes_per_input,
     )
-
-    // Parse witness items while tracking cumulative byte size
-    use reader, witness_items <- run_parse(
-      reader,
-      ctx,
-      read_witness_items_with_byte_tracking(
-        stack_len,
-        policy.max_item_size,
-        policy.max_stack_payload_bytes_per_input,
-      ),
-    )
-
-    Ok(#(reader, WitnessStack(witness_items)))
-  }
+  })
+  |> parser.map(WitnessStack)
 }
 
 /// Read witness items while tracking cumulative payload bytes and failing fast
@@ -1241,102 +1084,119 @@ fn read_witness_items_with_byte_tracking(
   count: Int,
   max_item_size: Int,
   max_total_bytes: Int,
-) -> Parser(List(WitnessItem)) {
-  read_vec_with_cumulative_limit(
+) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
+  parser.indexed_repeat_with_limit(
     count,
+    read_witness_item_with_size(max_item_size),
+    AtWitnessItem,
     max_total_bytes,
-    "witnessStack_total_payload_bytes",
-    fn(index) {
-      in_context(
-        AtWitnessItem(index),
-        read_witness_item_with_size(max_item_size),
-      )
+    fn(exceeded_val, start_offset, ctx) {
+      PolicyLimitExceeded(exceeded_val, max_total_bytes)
+      |> make_field_error("witnessStack_total_payload_bytes", start_offset, ctx)
     },
-    PolicyLimitExceeded(_, max_total_bytes),
   )
 }
 
 /// Read a witness item and return it along with its byte size.
 fn read_witness_item_with_size(
   max_item_size: Int,
-) -> Parser(#(WitnessItem, Int)) {
-  fn(reader, ctx) {
-    use reader, item <- run_parse(reader, ctx, read_witness_item(max_item_size))
-
+) -> Parser(ParseContext, #(WitnessItem, Int), DecodeError) {
+  max_item_size
+  |> read_witness_item
+  |> parser.map(fn(item) {
     let WitnessItem(bytes) = item
     let byte_size = bit_array.byte_size(bytes)
-
-    Ok(#(reader, #(item, byte_size)))
-  }
+    #(item, byte_size)
+  })
 }
 
-fn read_witness_item(max_item_size_policy: Int) -> Parser(WitnessItem) {
-  fn(reader, ctx) {
-    use reader, length <- run_parse(
-      reader,
-      ctx,
-      read_witness_item_size(max_item_size_policy),
-    )
-    use reader, item_bytes <- run_parse(
-      reader,
-      ctx,
-      read_field("witnessItem", reader.read_bytes(_, length)),
-    )
-    Ok(#(reader, WitnessItem(item_bytes)))
-  }
+fn read_witness_item(
+  max_item_size_policy: Int,
+) -> Parser(ParseContext, WitnessItem, DecodeError) {
+  max_item_size_policy
+  |> read_witness_item_size
+  |> parser.then(fn(length) {
+    read_field("witnessItem", reader.read_bytes(_, length))
+  })
+  |> parser.map(WitnessItem)
 }
 
 /// Read and validate a witness stack length field.
 ///
 /// Reads a CompactSize length, converts it to Int, and validates it against
 /// max_items_per_input policy.
-fn read_witness_stack_length(max_items_per_input_policy: Int) -> Parser(Int) {
-  fn(reader, ctx) {
-    use reader, stack_len <- run_parse(
-      reader,
-      ctx,
-      read_compact_size_as_int("witnessStack_len"),
-    )
+fn read_witness_stack_length(
+  max_items_per_input_policy: Int,
+) -> Parser(ParseContext, Int, DecodeError) {
+  let field_name = "witnessStack_len"
 
-    use <- bool.lazy_guard(stack_len > max_items_per_input_policy, fn() {
-      PolicyLimitExceeded(stack_len, max_items_per_input_policy)
-      |> make_field_error("witnessStack_len", reader, ctx)
+  field_name
+  |> read_compact_size_as_int
+  |> parser.try_with_start_offset(fn(stack_len, start_offset, _, ctx) {
+    let on_invalid = fn(kind) {
+      kind
+      |> make_field_error(field_name, start_offset, ctx)
       |> Error
-    })
+    }
+    validate_witness_stack_length(
+      stack_len,
+      max_items_per_input_policy,
+      on_invalid,
+    )
+  })
+}
 
-    Ok(#(reader, stack_len))
+fn validate_witness_stack_length(
+  stack_len: Int,
+  max_items_per_input_policy: Int,
+  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
+) -> Result(Int, DecodeError) {
+  case stack_len > max_items_per_input_policy {
+    True ->
+      PolicyLimitExceeded(stack_len, max_items_per_input_policy)
+      |> on_invalid
+
+    False -> Ok(stack_len)
   }
 }
 
-fn read_witness_item_size(max_item_size_policy: Int) -> Parser(Int) {
-  fn(reader, ctx) {
-    use reader, length <- run_parse(
-      reader,
-      ctx,
-      read_compact_size_as_int("witnessItem_len"),
-    )
+fn read_witness_item_size(
+  max_item_size_policy: Int,
+) -> Parser(ParseContext, Int, DecodeError) {
+  let field_name = "witnessItem_len"
 
-    let witness_item_len_err = fn(parse_error_kind) {
-      parse_error_kind
-      |> make_field_error("witnessItem_len", reader, ctx)
+  field_name
+  |> read_compact_size_as_int
+  |> parser.try_with_start_offset(fn(length, start_offset, reader, ctx) {
+    let on_invalid = fn(kind) {
+      kind
+      |> make_field_error(field_name, start_offset, ctx)
       |> Error
     }
+    validate_witness_item_size(length, reader, max_item_size_policy, on_invalid)
+  })
+}
 
-    let remaining = reader.bytes_remaining(reader)
+fn validate_witness_item_size(
+  length: Int,
+  reader: Reader,
+  max_item_size_policy: Int,
+  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
+) -> Result(Int, DecodeError) {
+  let remaining = reader.bytes_remaining(reader)
 
-    case length > remaining, length > max_item_size_policy {
-      // Structural limit: length exceeds remaining bytes
-      True, _ ->
-        InsufficientBytes(claimed: length, remaining:)
-        |> witness_item_len_err
+  case length > remaining, length > max_item_size_policy {
+    // Structural limit: length exceeds remaining bytes
+    True, _ ->
+      InsufficientBytes(claimed: length, remaining:)
+      |> on_invalid
 
-      // Policy limit: length exceeds configured maximum
-      False, True ->
-        PolicyLimitExceeded(length, max_item_size_policy)
-        |> witness_item_len_err
+    // Policy limit: length exceeds configured maximum
+    False, True ->
+      PolicyLimitExceeded(length, max_item_size_policy)
+      |> on_invalid
 
-      // All validations passed
-      False, False -> Ok(#(reader, length))
-    }
+    // All validations passed
+    False, False -> Ok(length)
   }
 }
