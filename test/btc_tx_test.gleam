@@ -1108,40 +1108,6 @@ pub fn decode_rejects_output_value_exceeding_max_money_test() {
 
 // total output value validation
 
-pub fn decode_rejects_outputs_total_value_exceeding_max_money_test() {
-  // Create a transaction with 2 outputs whose values sum to more than max_satoshis
-  // max_satoshis = 21_000_000 * 100_000_000 = 2_100_000_000_000_000
-  // output1 = 1_500_000_000_000_000, output2 = 700_000_000_000_000
-  // total = 2_200_000_000_000_000 > 2_100_000_000_000_000
-
-  let vout_count = compact_size(2)
-  let value1 = 1_500_000_000_000_000
-  let value2 = 700_000_000_000_000
-  let script_pubkey = <<>>
-
-  let output1 = build_output(<<value1:little-size(64)>>, script_pubkey)
-  let output2 = build_output(<<value2:little-size(64)>>, script_pubkey)
-
-  let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
-      version1:bits,
-      build_minimal_input():bits,
-      vout_count:bits,
-      output1:bits,
-      output2:bits,
-    >>)
-
-  assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(
-      2_200_000_000_000_000,
-      Some(0),
-      Some(2_100_000_000_000_000),
-    )
-
-  assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtField("outputs_total_value")]
-}
-
 pub fn decode_rejects_outputs_total_value_at_second_output_test() {
   // Create a transaction where the sum of output values exceeds max_satoshis
   // exactly when the second output is parsed (fail fast test)
@@ -1173,7 +1139,7 @@ pub fn decode_rejects_outputs_total_value_at_second_output_test() {
     )
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtField("outputs_total_value")]
+    == [InTransaction, InOutputs, AtOutput(1), AtField("outputs_total_value")]
 }
 
 pub fn decode_rejects_outputs_total_value_at_third_output_test() {
@@ -1211,7 +1177,7 @@ pub fn decode_rejects_outputs_total_value_at_third_output_test() {
     )
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtField("outputs_total_value")]
+    == [InTransaction, InOutputs, AtOutput(2), AtField("outputs_total_value")]
 }
 
 pub fn decode_accepts_outputs_total_value_exactly_at_max_money_test() {
@@ -1889,6 +1855,7 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
     == [
       InTransaction,
       AtWitnessStack(0),
+      AtWitnessItem(2),
       AtField("witnessStack_total_payload_bytes"),
     ]
 }

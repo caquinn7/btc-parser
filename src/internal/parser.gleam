@@ -326,7 +326,10 @@ pub fn indexed_repeat_with_limit(
 
       let acc_val = acc_val + item_val
       case acc_val > limit {
-        True -> Error(on_limit_exceeded(acc_val, reader, ctx))
+        True -> {
+          let ctx = [index_to_context(index), ..ctx]
+          Error(on_limit_exceeded(acc_val, reader, ctx))
+        }
         False -> Ok(#(reader, [item, ..items], acc_val))
       }
     })
