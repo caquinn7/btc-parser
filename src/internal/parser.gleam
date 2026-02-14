@@ -320,9 +320,13 @@ fn indexed_repeat_loop(
 /// Each item parser returns `#(item, metric_value)`. The metric values are
 /// summed, and parsing fails fast if the cumulative sum exceeds `limit`.
 ///
-/// The `on_limit_exceeded` callback receives the exceeded value, the reader
-/// (after the item that caused the limit to be exceeded was parsed), and the
-/// context stack, allowing for proper error construction with byte offsets.
+/// The `on_limit_exceeded` callback receives:
+/// - The exceeded cumulative value
+/// - The byte offset of the start of the item that caused the limit to be exceeded
+/// - The context stack
+///
+/// This allows for proper error construction with precise byte offsets pointing
+/// to the problematic item.
 ///
 /// Returns only the items (metric values are discarded after validation).
 pub fn indexed_repeat_with_limit(
@@ -330,7 +334,7 @@ pub fn indexed_repeat_with_limit(
   item_parser: Parser(ctx, #(a, Int), err),
   index_to_context: fn(Int) -> ctx,
   limit: Int,
-  on_limit_exceeded: fn(Int, Reader, List(ctx)) -> err,
+  on_limit_exceeded: fn(Int, Int, List(ctx)) -> err,
 ) -> Parser(ctx, List(a), err) {
   Parser(fn(reader, ctx) {
     use <- bool.guard(count <= 0, Ok(#(reader, [])))
@@ -360,12 +364,15 @@ fn indexed_repeat_with_limit_loop(
   item_parser: Parser(ctx, #(a, Int), err),
   index_to_context: fn(Int) -> ctx,
   limit: Int,
-  on_limit_exceeded: fn(Int, Reader, List(ctx)) -> err,
+  on_limit_exceeded: fn(Int, Int, List(ctx)) -> err,
 ) -> Result(#(Reader, List(a)), err) {
   case index >= count {
     True -> Ok(#(reader, list.reverse(items)))
     False -> {
-      let contextualized = with_context(item_parser, index_to_context(index))
+      let index_ctx = index_to_context(index)
+      let contextualized = with_context(item_parser, index_ctx)
+      let start_offset = reader.get_offset(reader)
+
       use #(reader, #(item, item_val)) <- result.try(run(
         contextualized,
         reader,
@@ -375,8 +382,8 @@ fn indexed_repeat_with_limit_loop(
       let acc_val = acc_val + item_val
       case acc_val > limit {
         True -> {
-          let ctx = [index_to_context(index), ..ctx]
-          Error(on_limit_exceeded(acc_val, reader, ctx))
+          let ctx = [index_ctx, ..ctx]
+          Error(on_limit_exceeded(acc_val, start_offset, ctx))
         }
         False ->
           indexed_repeat_with_limit_loop(

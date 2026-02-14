@@ -921,9 +921,9 @@ fn read_tx_outs(
     read_tx_out_with_value(max_script_size_policy),
     AtOutput,
     max_satoshis,
-    fn(exceeded_val, reader, ctx) {
+    fn(exceeded_val, start_offset, ctx) {
       InvalidValueRange(exceeded_val, Some(0), Some(max_satoshis))
-      |> make_field_error("outputs_total_value", reader.get_offset(reader), ctx)
+      |> make_field_error("outputs_total_value", start_offset, ctx)
     },
   )
 }
@@ -1090,13 +1090,9 @@ fn read_witness_items_with_byte_tracking(
     read_witness_item_with_size(max_item_size),
     AtWitnessItem,
     max_total_bytes,
-    fn(exceeded_val, reader, ctx) {
+    fn(exceeded_val, start_offset, ctx) {
       PolicyLimitExceeded(exceeded_val, max_total_bytes)
-      |> make_field_error(
-        "witnessStack_total_payload_bytes",
-        reader.get_offset(reader),
-        ctx,
-      )
+      |> make_field_error("witnessStack_total_payload_bytes", start_offset, ctx)
     },
   )
 }

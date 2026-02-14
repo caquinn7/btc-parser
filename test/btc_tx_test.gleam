@@ -1142,6 +1142,34 @@ pub fn decode_rejects_outputs_total_value_at_second_output_test() {
     == [InTransaction, InOutputs, AtOutput(1), AtField("outputs_total_value")]
 }
 
+pub fn decode_outputs_total_value_error_offset_points_to_second_output_test() {
+  // Verify that when outputs_total_value limit is exceeded at the second output,
+  // the error offset points to the start of the second output's value field
+
+  let vout_count = compact_size(2)
+  let value1 = 1_000_000_000_000_000
+  let value2 = 1_100_000_000_000_001
+  let script_pubkey = <<>>
+
+  let output1 = build_output(<<value1:little-size(64)>>, script_pubkey)
+  let output2 = build_output(<<value2:little-size(64)>>, script_pubkey)
+
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode(<<
+      version1:bits,
+      build_minimal_input():bits,
+      vout_count:bits,
+      output1:bits,
+      output2:bits,
+    >>)
+
+  // Calculate expected offset:
+  // version (4) + vin_count (1) + minimal_input (41) + vout_count (1) + output1 (9)
+  let expected_offset = 4 + 1 + 41 + 1 + 9
+
+  assert btc_tx.parse_error_offset(parse_err) == expected_offset
+}
+
 pub fn decode_rejects_outputs_total_value_at_third_output_test() {
   // Create a transaction with 3 outputs where the sum exceeds max_satoshis
   // when the third output is parsed
@@ -1178,6 +1206,37 @@ pub fn decode_rejects_outputs_total_value_at_third_output_test() {
 
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, InOutputs, AtOutput(2), AtField("outputs_total_value")]
+}
+
+pub fn decode_outputs_total_value_error_offset_points_to_third_output_test() {
+  // Verify that when outputs_total_value limit is exceeded at the third output,
+  // the error offset points to the start of the third output's value field
+
+  let vout_count = compact_size(3)
+  let value1 = 700_000_000_000_000
+  let value2 = 700_000_000_000_000
+  let value3 = 700_000_000_000_001
+  let script_pubkey = <<>>
+
+  let output1 = build_output(<<value1:little-size(64)>>, script_pubkey)
+  let output2 = build_output(<<value2:little-size(64)>>, script_pubkey)
+  let output3 = build_output(<<value3:little-size(64)>>, script_pubkey)
+
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode(<<
+      version1:bits,
+      build_minimal_input():bits,
+      vout_count:bits,
+      output1:bits,
+      output2:bits,
+      output3:bits,
+    >>)
+
+  // Calculate expected offset:
+  // version (4) + vin_count (1) + minimal_input (41) + vout_count (1) + output1 (9) + output2 (9)
+  let expected_offset = 4 + 1 + 41 + 1 + 9 + 9
+
+  assert btc_tx.parse_error_offset(parse_err) == expected_offset
 }
 
 pub fn decode_accepts_outputs_total_value_exactly_at_max_money_test() {
@@ -1858,6 +1917,53 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
       AtWitnessItem(2),
       AtField("witnessStack_total_payload_bytes"),
     ]
+}
+
+pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
+  // Verify that when witnessStack_total_payload_bytes limit is exceeded at the
+  // third witness item, the error offset points to the start of the third item's
+  // length field
+
+  let max_payload_bytes = 50
+
+  // Build input and output
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let output = build_output(<<1000:little-size(64)>>, <<>>)
+
+  // Build witness stack with items totaling more than max_payload_bytes
+  // 3 items: 20 bytes + 15 bytes + 16 bytes = 51 bytes total (exceeds 50)
+  let witness_items = <<
+    compact_size(20):bits,
+    repeat_byte(0xAA, 20):bits,
+    compact_size(15):bits,
+    repeat_byte(0xBB, 15):bits,
+    compact_size(16):bits,
+    repeat_byte(0xCC, 16):bits,
+  >>
+
+  let witness_stack = <<compact_size(3):bits, witness_items:bits>>
+
+  let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
+
+  let policy =
+    DecodePolicy(
+      ..btc_tx.default_policy,
+      witness_policy: WitnessPolicy(
+        ..btc_tx.default_witness_policy,
+        max_stack_payload_bytes_per_input: max_payload_bytes,
+      ),
+    )
+
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode_with_policy(tx_bytes, policy)
+
+  // Calculate expected offset to start of third witness item's length field:
+  // version (4) + marker (1) + flag (1) + vin_count (1) + input (41) +
+  // vout_count (1) + output (9) + witness_stack_len (1) +
+  // item1_len (1) + item1_bytes (20) + item2_len (1) + item2_bytes (15)
+  let expected_offset = 4 + 1 + 1 + 1 + 41 + 1 + 9 + 1 + 1 + 20 + 1 + 15
+
+  assert btc_tx.parse_error_offset(parse_err) == expected_offset
 }
 
 // ---- Trailing bytes detection tests ----
