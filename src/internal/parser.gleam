@@ -166,6 +166,34 @@ pub fn try_with_reader(
   })
 }
 
+/// Chain a parser with a fallible transformation that needs the start offset.
+///
+/// Like `try_with_reader`, but also captures the byte offset from before parsing.
+/// This is useful for validation errors that should point to the beginning of the
+/// field being parsed rather than to the position after parsing.
+///
+/// The function receives:
+/// - The parsed value
+/// - The byte offset from *before* parsing (start of the field)
+/// - The reader state *after* parsing
+/// - The context stack
+///
+/// This is particularly useful for semantic validation errors where you want the
+/// error location to point to the problematic field itself.
+pub fn try_with_start_offset(
+  parser: Parser(ctx, a, err),
+  f: fn(a, Int, Reader, List(ctx)) -> Result(b, err),
+) -> Parser(ctx, b, err) {
+  let Parser(parse) = parser
+
+  Parser(fn(reader, ctx) {
+    let start_offset = reader.get_offset(reader)
+    use #(reader, value) <- result.try(parse(reader, ctx))
+    use new_value <- result.try(f(value, start_offset, reader, ctx))
+    Ok(#(reader, new_value))
+  })
+}
+
 /// Chain two parsers where the second depends on the first's result.
 ///
 /// This is the monadic bind operation for parsers. It runs the first parser,

@@ -468,6 +468,10 @@ fn new_parse_error(kind: ParseErrorKind, reader: Reader) -> ParseError {
   ParseError(reader.get_offset(reader), kind:, ctx: [])
 }
 
+fn new_parse_error_at_offset(kind: ParseErrorKind, offset: Int) -> ParseError {
+  ParseError(offset:, kind:, ctx: [])
+}
+
 fn with_contexts(err: ParseError, ctx: List(ParseContext)) -> ParseError {
   list.fold(ctx, err, fn(err, ctx) { ParseError(..err, ctx: [ctx, ..err.ctx]) })
 }
@@ -484,6 +488,24 @@ fn make_field_error(
   fn(kind) {
     kind
     |> new_parse_error(reader)
+    |> with_contexts([AtField(field_name), ..ctx])
+    |> ParseFailed
+  }
+}
+
+/// Build a DecodeError factory function for a specific field at a given offset.
+///
+/// Like `make_field_error`, but uses an explicit byte offset instead of deriving
+/// it from the reader. This is useful when you want the error to point to the
+/// start of a field rather than the current reader position.
+fn make_field_error_at_offset(
+  field_name: String,
+  offset: Int,
+  ctx: List(ParseContext),
+) -> fn(ParseErrorKind) -> DecodeError {
+  fn(kind) {
+    kind
+    |> new_parse_error_at_offset(offset)
     |> with_contexts([AtField(field_name), ..ctx])
     |> ParseFailed
   }
@@ -533,24 +555,17 @@ fn read_compact_size(
 fn read_compact_size_as_int(
   field_name: String,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    let start_reader = reader
-
-    let convert_parser =
-      field_name
-      |> read_compact_size
-      |> parser.try(fn(value_u64) {
-        value_u64
-        |> uint64.to_int
-        |> result.map_error(fn(_) {
-          value_u64
-          |> uint64.to_string
-          |> IntegerOutOfRange
-          |> make_field_error(field_name, start_reader, ctx)
-        })
-      })
-
-    parser.run(reader, ctx, convert_parser)
+  field_name
+  |> read_compact_size
+  |> parser.try_with_start_offset(fn(value_u64, start_offset, _, ctx) {
+    value_u64
+    |> uint64.to_int
+    |> result.map_error(fn(_) {
+      value_u64
+      |> uint64.to_string
+      |> IntegerOutOfRange
+      |> make_field_error_at_offset(field_name, start_offset, ctx)
+    })
   })
 }
 
@@ -762,10 +777,10 @@ fn read_vin_count(
 
   field_name
   |> read_compact_size_as_int
-  |> parser.try_with_reader(fn(vin_count_int, reader, ctx) {
+  |> parser.try_with_start_offset(fn(vin_count_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(field_name, reader, ctx)
+      |> make_field_error_at_offset(field_name, start_offset, ctx)
       |> Error
     }
     validate_vin_count(vin_count_int, reader, max_vin_count_policy, on_invalid)
@@ -877,10 +892,10 @@ fn read_vout_count(
 
   field_name
   |> read_compact_size_as_int
-  |> parser.try_with_reader(fn(vout_count_int, reader, ctx) {
+  |> parser.try_with_start_offset(fn(vout_count_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(field_name, reader, ctx)
+      |> make_field_error_at_offset(field_name, start_offset, ctx)
       |> Error
     }
     validate_vout_count(
@@ -979,7 +994,7 @@ fn read_satoshis() -> Parser(ParseContext, Satoshis, DecodeError) {
     let assert Ok(value_i64) = int64.from_bytes_le(value_bytes)
     value_i64
   })
-  |> parser.try_with_reader(fn(value_i64, reader, ctx) {
+  |> parser.try_with_start_offset(fn(value_i64, start_offset, _, ctx) {
     // This should never happen.
     // The max possible amount of satoshis 2_100_000_000_000_000 (2.1 quadrillion)
     // is less than JavaScript's Number.MAX_SAFE_INTEGER
@@ -989,11 +1004,16 @@ fn read_satoshis() -> Parser(ParseContext, Satoshis, DecodeError) {
       value_i64
       |> int64.to_string
       |> IntegerOutOfRange
-      |> make_field_error(field_name, reader, ctx)
+      |> make_field_error_at_offset(field_name, start_offset, ctx)
     })
   })
-  |> parser.try_with_reader(fn(value_int, reader, ctx) {
-    validate_satoshis(value_int, make_field_error(field_name, reader, ctx))
+  |> parser.try_with_start_offset(fn(value_int, start_offset, _, ctx) {
+    value_int
+    |> validate_satoshis(make_field_error_at_offset(
+      field_name,
+      start_offset,
+      ctx,
+    ))
   })
 }
 
@@ -1033,10 +1053,10 @@ fn read_script_length(
 ) -> Parser(ParseContext, Int, DecodeError) {
   field_name
   |> read_compact_size_as_int
-  |> parser.try_with_reader(fn(script_len_int, reader, ctx) {
+  |> parser.try_with_start_offset(fn(script_len_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(field_name, reader, ctx)
+      |> make_field_error_at_offset(field_name, start_offset, ctx)
       |> Error
     }
     validate_script_length(
@@ -1156,10 +1176,10 @@ fn read_witness_stack_length(
 
   field_name
   |> read_compact_size_as_int
-  |> parser.try_with_reader(fn(stack_len, reader, ctx) {
+  |> parser.try_with_start_offset(fn(stack_len, start_offset, _, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(field_name, reader, ctx)
+      |> make_field_error_at_offset(field_name, start_offset, ctx)
       |> Error
     }
     validate_witness_stack_length(
@@ -1191,10 +1211,10 @@ fn read_witness_item_size(
 
   field_name
   |> read_compact_size_as_int
-  |> parser.try_with_reader(fn(length, reader, ctx) {
+  |> parser.try_with_start_offset(fn(length, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(field_name, reader, ctx)
+      |> make_field_error_at_offset(field_name, start_offset, ctx)
       |> Error
     }
     validate_witness_item_size(length, reader, max_item_size_policy, on_invalid)

@@ -94,7 +94,7 @@ pub fn decode_does_not_misclassify_segwit_when_discriminator_is_truncated_test()
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode(<<version1:bits, marker:bits>>)
 
-  assert btc_tx.parse_error_offset(parse_err) == 5
+  assert btc_tx.parse_error_offset(parse_err) == 4
 
   assert btc_tx.parse_error_kind(parse_err)
     == InvalidValueRange(0, Some(1), None)
@@ -226,7 +226,7 @@ pub fn validate_vin_count_exceeds_policy_error_test() {
       DecodePolicy(..btc_tx.default_policy, max_vin_count: 2),
     )
 
-  assert btc_tx.parse_error_offset(parse_err) == 5
+  assert btc_tx.parse_error_offset(parse_err) == 4
 
   assert btc_tx.parse_error_kind(parse_err) == PolicyLimitExceeded(vin_count, 2)
 
@@ -248,7 +248,7 @@ pub fn validate_vin_count_exceeds_structural_error_test() {
       DecodePolicy(..btc_tx.default_policy, max_vin_count: 100),
     )
 
-  assert btc_tx.parse_error_offset(parse_err) == 5
+  assert btc_tx.parse_error_offset(parse_err) == 4
 
   assert btc_tx.parse_error_kind(parse_err)
     == InsufficientBytes(
@@ -297,7 +297,7 @@ pub fn validate_vin_count_insufficient_bytes_for_inputs_test() {
       input_padding:bits,
     >>)
 
-  assert btc_tx.parse_error_offset(parse_err) == 5
+  assert btc_tx.parse_error_offset(parse_err) == 4
 
   assert btc_tx.parse_error_kind(parse_err)
     == InsufficientBytes(
@@ -527,6 +527,8 @@ pub fn decode_rejects_scriptsig_exceeding_max_size_test() {
       input_bytes:bits,
     >>)
 
+  assert btc_tx.parse_error_offset(parse_err) == 41
+
   assert btc_tx.parse_error_kind(parse_err)
     == PolicyLimitExceeded(10_001, 10_000)
 
@@ -559,6 +561,8 @@ pub fn decode_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
       vin_count:bits,
       input_bytes:bits,
     >>)
+
+  assert btc_tx.parse_error_offset(parse_err) == 41
 
   assert btc_tx.parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 10)
@@ -625,7 +629,7 @@ pub fn decode_returns_invalid_value_range_when_vout_count_zero_test() {
       lock_time:bits,
     >>)
 
-  assert btc_tx.parse_error_offset(parse_err) == 47
+  assert btc_tx.parse_error_offset(parse_err) == 46
 
   assert btc_tx.parse_error_kind(parse_err)
     == InvalidValueRange(vout_count, Some(1), None)
@@ -748,7 +752,7 @@ pub fn validate_vout_count_exceeds_structural_error_test() {
       DecodePolicy(..btc_tx.default_policy, max_vout_count: 100),
     )
 
-  assert btc_tx.parse_error_offset(parse_err) == 47
+  assert btc_tx.parse_error_offset(parse_err) == 46
 
   assert btc_tx.parse_error_kind(parse_err)
     == InsufficientBytes(
@@ -1093,6 +1097,8 @@ pub fn decode_rejects_output_value_exceeding_max_money_test() {
       output_bytes:bits,
     >>)
 
+  assert btc_tx.parse_error_offset(parse_err) == 47
+
   assert btc_tx.parse_error_kind(parse_err)
     == InvalidValueRange(value_satoshis, Some(0), Some(2_100_000_000_000_000))
 
@@ -1254,6 +1260,8 @@ pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {
       vout_count:bits,
       output_bytes:bits,
     >>)
+
+  assert btc_tx.parse_error_offset(parse_err) == 55
 
   assert btc_tx.parse_error_kind(parse_err)
     == PolicyLimitExceeded(10_001, 10_000)
@@ -1677,6 +1685,8 @@ pub fn decode_witness_item_exceeds_custom_max_size_fails_test() {
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode_with_policy(tx_bytes, policy)
 
+  assert btc_tx.parse_error_offset(parse_err) == 59
+
   // Verify the error kind indicates length exceeded max_item_size
   assert btc_tx.parse_error_kind(parse_err)
     == PolicyLimitExceeded(
@@ -1766,6 +1776,8 @@ pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
 
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode_with_policy(tx_bytes, policy)
+
+  assert btc_tx.parse_error_offset(parse_err) == 58
 
   // Verify the error kind indicates length exceeded max_items_per_input
   assert btc_tx.parse_error_kind(parse_err)
