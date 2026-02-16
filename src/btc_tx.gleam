@@ -58,7 +58,9 @@ import internal/hex
 import internal/parser.{type Parser}
 import internal/reader.{type Reader}
 
-// ---- Transaction types ----
+// ==============================================================================
+// Transaction types
+// ==============================================================================
 
 /// Phantom type indicating a transaction that has been successfully
 /// parsed but has not yet been validated against Bitcoin consensus rules.
@@ -383,7 +385,9 @@ pub opaque type WtxId {
   WtxId(Hash32)
 }
 
-// ---- Error handling ----
+// ==============================================================================
+// Error handling
+// ==============================================================================
 
 /// An error that occurred while decoding a Bitcoin transaction.
 ///
@@ -616,65 +620,9 @@ fn make_field_error(
   }
 }
 
-// ---- Parser functions ----
-
-/// Lift a reader operation into a Parser, adding error mapping and context wrapping.
-fn read_field(
-  field_name: String,
-  read_fn: fn(Reader) -> Result(#(Reader, a), reader.ReaderError),
-) -> Parser(ParseContext, a, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    reader
-    |> read_fn
-    |> result.map_error(fn(err) {
-      err
-      |> ReaderError
-      |> new_parse_error(reader.get_offset(reader))
-      |> with_contexts([AtField(field_name), ..ctx])
-      |> ParseFailed
-    })
-  })
-}
-
-/// Lift a compact_size read into a Parser, adding error mapping and context wrapping.
-fn read_compact_size(
-  field_name: String,
-) -> Parser(ParseContext, Uint64, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    reader
-    |> compact_size.read
-    |> result.map_error(fn(err) {
-      err
-      |> CompactSizeError
-      |> new_parse_error(reader.get_offset(reader))
-      |> with_contexts([AtField(field_name), ..ctx])
-      |> ParseFailed
-    })
-  })
-}
-
-/// Read a CompactSize value and convert it to `Int` with appropriate error handling.
-///
-/// This wraps `read_compact_size` and handles the common pattern of converting
-/// the `Uint64` result to `Int`, mapping conversion failures to `IntegerOutOfRange` errors.
-fn read_compact_size_as_int(
-  field_name: String,
-) -> Parser(ParseContext, Int, DecodeError) {
-  field_name
-  |> read_compact_size
-  |> parser.try_with_start_offset(fn(value_u64, start_offset, _, ctx) {
-    value_u64
-    |> uint64.to_int
-    |> result.map_error(fn(_) {
-      value_u64
-      |> uint64.to_string
-      |> IntegerOutOfRange
-      |> make_field_error(field_name, start_offset, ctx)
-    })
-  })
-}
-
-// ---- Decoding functions ----
+// ==============================================================================
+// Decoding functions
+// ==============================================================================
 
 /// Configuration policy for transaction decoding limits.
 ///
@@ -961,6 +909,62 @@ fn try_hex_to_bytes(hex: String) -> Result(BitArray, DecodeError) {
   hex
   |> hex.hex_to_bytes
   |> result.map_error(HexToBytesFailed)
+}
+
+/// Lift a reader operation into a Parser, adding error mapping and context wrapping.
+fn read_field(
+  field_name: String,
+  read_fn: fn(Reader) -> Result(#(Reader, a), reader.ReaderError),
+) -> Parser(ParseContext, a, DecodeError) {
+  parser.new(fn(reader, ctx) {
+    reader
+    |> read_fn
+    |> result.map_error(fn(err) {
+      err
+      |> ReaderError
+      |> new_parse_error(reader.get_offset(reader))
+      |> with_contexts([AtField(field_name), ..ctx])
+      |> ParseFailed
+    })
+  })
+}
+
+/// Lift a compact_size read into a Parser, adding error mapping and context wrapping.
+fn read_compact_size(
+  field_name: String,
+) -> Parser(ParseContext, Uint64, DecodeError) {
+  parser.new(fn(reader, ctx) {
+    reader
+    |> compact_size.read
+    |> result.map_error(fn(err) {
+      err
+      |> CompactSizeError
+      |> new_parse_error(reader.get_offset(reader))
+      |> with_contexts([AtField(field_name), ..ctx])
+      |> ParseFailed
+    })
+  })
+}
+
+/// Read a CompactSize value and convert it to `Int` with appropriate error handling.
+///
+/// This wraps `read_compact_size` and handles the common pattern of converting
+/// the `Uint64` result to `Int`, mapping conversion failures to `IntegerOutOfRange` errors.
+fn read_compact_size_as_int(
+  field_name: String,
+) -> Parser(ParseContext, Int, DecodeError) {
+  field_name
+  |> read_compact_size
+  |> parser.try_with_start_offset(fn(value_u64, start_offset, _, ctx) {
+    value_u64
+    |> uint64.to_int
+    |> result.map_error(fn(_) {
+      value_u64
+      |> uint64.to_string
+      |> IntegerOutOfRange
+      |> make_field_error(field_name, start_offset, ctx)
+    })
+  })
 }
 
 /// Detect whether this is a SegWit transaction by peeking at the marker/flag bytes.
@@ -1465,7 +1469,9 @@ fn validate_witness_item_size(
   }
 }
 
-// ---- Validate Consensus functions ----
+// ==============================================================================
+// Consensus Validation
+// ==============================================================================
 
 /// An error that occurred during consensus validation of a Bitcoin transaction.
 ///
