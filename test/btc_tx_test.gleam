@@ -1,12 +1,13 @@
 import btc_tx.{
-  AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack, CompactSizeError,
-  DecodePolicy, InInputs, InOutputs, InTransaction, InsufficientBytes,
-  InvalidSegWitMarkerFlag, InvalidValueRange, ParseFailed, PolicyLimitExceeded,
-  ReaderError, TrailingBytes, WitnessPolicy,
+  AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack,
+  CoinbaseWithMultipleInputs, CompactSizeError, DecodePolicy, InInputs,
+  InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
+  InvalidSegWitMarkerFlag, MultipleCoinbaseInputs, NegativeOutputValue, NoInputs,
+  NoOutputs, OutputValueExceedsSupply, ParseFailed, PolicyLimitExceeded,
+  ReaderError, TotalOutputValueExceedsSupply, TrailingBytes, WitnessPolicy,
 }
 import gleam/bit_array
 import gleam/list
-import gleam/option.{None, Some}
 import gleeunit
 import internal/compact_size
 import internal/reader
@@ -27,7 +28,9 @@ pub fn main() -> Nil {
   gleeunit.main()
 }
 
-// version and segwit
+// ============================================================================
+// Version and SegWit Detection
+// ============================================================================
 
 pub fn decode_legacy_full_tx_sets_version_and_is_segwit_false_test() {
   let assert Ok(result) = btc_tx.decode_hex(legacy_v1_tx)
@@ -94,13 +97,13 @@ pub fn decode_does_not_misclassify_segwit_when_discriminator_is_truncated_test()
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode(<<version1:bits, marker:bits>>)
 
-  assert btc_tx.parse_error_offset(parse_err) == 4
+  assert btc_tx.parse_error_offset(parse_err) == 5
 
   assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(0, Some(1), None)
+    == CompactSizeError(compact_size.ReaderError(reader.UnexpectedEof(1, 0)))
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InInputs, AtField("vin_count")]
+    == [InTransaction, InOutputs, AtField("vout_count")]
 }
 
 pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
@@ -138,17 +141,9 @@ pub fn decode_rejects_segwit_marker_with_zero_flag_test() {
     == [InTransaction, AtField("segwit_discriminator")]
 }
 
-// vin_count parsing and validation
-
-// Note: vin_count=0 is validated in two different ways, depending on how many
-// bytes follow the version field:
-// - If there is at least one more byte after the 0x00 (for example, a flag byte),
-//   the segwit discriminator logic runs and the InvalidSegwitMarkerFlag tests
-//   above cover those vin_count=0 cases.
-// - If the input ends immediately after the 0x00 (or peek_segwit/0 hits EOF),
-//   decoding proceeds down the legacy path and vin_count=0 is rejected by the
-//   usual vin_count validation with InvalidValueRange(0, Some(1), None), as
-//   exercised by the discriminator_is_truncated test.
+// ============================================================================
+// Input Count (vin_count) Parsing and Validation
+// ============================================================================
 
 pub fn validate_vin_count_minimum_succeeds_test() {
   // version (4 bytes) + vin_count (CompactSize = 0x01) + 41 bytes padding
@@ -309,7 +304,38 @@ pub fn validate_vin_count_insufficient_bytes_for_inputs_test() {
     == [InTransaction, InInputs, AtField("vin_count")]
 }
 
-// input structure parsing
+pub fn decode_accepts_segwit_tx_with_zero_inputs_test() {
+  // Demonstrate that a transaction with 0 inputs can be represented in bytes
+  // and successfully decoded (though it would fail consensus validation).
+  // Note: Legacy format cannot encode 0 inputs because the 0x00 byte conflicts
+  // with SegWit marker detection, making it impossible to distinguish from SegWit.
+  let marker = <<0x00>>
+  let flag = <<0x01>>
+  let vin_count = compact_size(0)
+  let vout_count = compact_size(1)
+  let output = build_output(<<0:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    marker:bits,
+    flag:bits,
+    vin_count:bits,
+    vout_count:bits,
+    output:bits,
+    // Empty witness section (0 witness stacks for 0 inputs)
+    lock_time:bits,
+  >>
+
+  // Should decode successfully as Unvalidated
+  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  assert btc_tx.is_segwit(tx)
+  assert list.is_empty(btc_tx.get_inputs(tx))
+}
+
+// ============================================================================
+// Input Structure Parsing
+// ============================================================================
 
 pub fn decode_parses_single_input_test() {
   let vin_count = compact_size(1)
@@ -506,7 +532,9 @@ pub fn decode_parses_multiple_inputs_test() {
     == sig3_bytes
 }
 
-// scriptSig validation
+// ============================================================================
+// ScriptSig Validation
+// ============================================================================
 
 pub fn decode_rejects_scriptsig_exceeding_max_size_test() {
   // Build a transaction with scriptSig_len = 10,001 (exceeds MAX_SCRIPT_SIZE of 10,000)
@@ -609,34 +637,9 @@ pub fn decode_returns_error_with_current_input_index_test() {
     == [InTransaction, InInputs, AtInput(1), AtField("scriptSig_len")]
 }
 
-// vout_count parsing and validation
-
-pub fn decode_returns_invalid_value_range_when_vout_count_zero_test() {
-  // Construct: version (4 bytes) + vin_count (1) + input (41 bytes) + vout_count (CompactSize = 0x00) + 9 bytes
-  // of padding so that `remaining >= min_txout_size` and the validator
-  // produces an InvalidValueRange for vout_count == 0.
-
-  let vout_count = 0
-  let output_padding = <<0:little-size({ 1 * min_txout_size_bytes * 8 })>>
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
-      version1:bits,
-      build_minimal_input():bits,
-      compact_size(vout_count):bits,
-      output_padding:bits,
-      lock_time:bits,
-    >>)
-
-  assert btc_tx.parse_error_offset(parse_err) == 46
-
-  assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(vout_count, Some(1), None)
-
-  assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtField("vout_count")]
-}
+// ============================================================================
+// Output Count (vout_count) Parsing and Validation
+// ============================================================================
 
 pub fn validate_vout_count_minimum_succeeds_test() {
   let lock_time = <<0:little-size(32)>>
@@ -816,7 +819,57 @@ pub fn validate_vout_count_insufficient_bytes_for_outputs_test() {
     == [InTransaction, InOutputs, AtField("vout_count")]
 }
 
-// output structure parsing
+pub fn decode_accepts_legacy_tx_with_zero_outputs_test() {
+  // Demonstrate that a legacy transaction with 0 outputs can be represented
+  // in bytes and successfully decoded (though it would fail consensus validation).
+  let vout_count = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    build_minimal_input():bits,
+    vout_count:bits,
+    lock_time:bits,
+  >>
+
+  // Should decode successfully as Unvalidated
+  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  assert !btc_tx.is_segwit(tx)
+  assert list.is_empty(btc_tx.get_outputs(tx))
+}
+
+pub fn decode_accepts_segwit_tx_with_zero_outputs_test() {
+  // Demonstrate that a SegWit transaction with 0 outputs can be represented
+  // in bytes and successfully decoded (though it would fail consensus validation).
+  let marker = <<0x00>>
+  let flag = <<0x01>>
+  let vin_count = compact_size(1)
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let vout_count = compact_size(0)
+  let witness_stack_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    marker:bits,
+    flag:bits,
+    vin_count:bits,
+    input:bits,
+    vout_count:bits,
+    // Witness section: 1 empty witness stack for the 1 input
+    witness_stack_len:bits,
+    lock_time:bits,
+  >>
+
+  // Should decode successfully as Unvalidated
+  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  assert btc_tx.is_segwit(tx)
+  assert list.is_empty(btc_tx.get_outputs(tx))
+}
+
+// ============================================================================
+// Output Structure Parsing
+// ============================================================================
 
 pub fn decode_parses_single_output_test() {
   // Create a transaction with a single output with specific properties
@@ -969,47 +1022,9 @@ pub fn decode_parses_empty_scriptpubkey_test() {
   assert actual_script_pubkey_bytes == <<>>
 }
 
-// output value validation
-
-pub fn decode_rejects_output_value_negative_one_test() {
-  // Create an output with value = -1 (all bits set in signed i64 representation)
-  // Satoshi values must be non-negative, so this should be rejected.
-
-  let vout_count = compact_size(1)
-
-  // All bits set = -1 in two's complement signed representation
-  let value_negative_one = <<
-    255:size(8),
-    255:size(8),
-    255:size(8),
-    255:size(8),
-    255:size(8),
-    255:size(8),
-    255:size(8),
-    255:size(8),
-  >>
-
-  let script_pubkey_len = compact_size(0)
-
-  let output_bytes = <<
-    value_negative_one:bits,
-    script_pubkey_len:bits,
-  >>
-
-  let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
-      version1:bits,
-      build_minimal_input():bits,
-      vout_count:bits,
-      output_bytes:bits,
-    >>)
-
-  assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(-1, Some(0), Some(2_100_000_000_000_000))
-
-  assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, btc_tx.AtOutput(0), AtField("value")]
-}
+// ============================================================================
+// Output Value Validation
+// ============================================================================
 
 @target(javascript)
 pub fn decode_rejects_output_value_min_i64_js_test() {
@@ -1043,202 +1058,6 @@ pub fn decode_rejects_output_value_min_i64_js_test() {
     == [InTransaction, InOutputs, AtOutput(0), AtField("value")]
 }
 
-@target(erlang)
-pub fn decode_rejects_output_value_min_i64_erlang_test() {
-  // Create an output with value = minimum i64 (-9223372036854775808)
-  // On Erlang, conversion succeeds but validation rejects negative value.
-
-  let vout_count = compact_size(1)
-
-  // Minimum i64: sign bit set, all other bits clear
-  let value_min_i64 = <<0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80>>
-
-  let script_pubkey_len = compact_size(0)
-
-  let output_bytes = <<
-    value_min_i64:bits,
-    script_pubkey_len:bits,
-  >>
-
-  let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
-      version1:bits,
-      build_minimal_input():bits,
-      vout_count:bits,
-      output_bytes:bits,
-    >>)
-
-  assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(
-      -9_223_372_036_854_775_808,
-      Some(0),
-      Some(2_100_000_000_000_000),
-    )
-
-  assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, btc_tx.AtOutput(0), AtField("value")]
-}
-
-pub fn decode_rejects_output_value_exceeding_max_money_test() {
-  // Create an output with a value that exceeds the max money supply.
-  // Use a value slightly larger than max_money (2_100_000_000_000_000 satoshis).
-
-  let vout_count = compact_size(1)
-  let value_satoshis = 2_100_000_000_000_001
-  let script_pubkey_bytes = <<>>
-  let output_bytes =
-    build_output(<<value_satoshis:little-size(64)>>, script_pubkey_bytes)
-
-  let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
-      version1:bits,
-      build_minimal_input():bits,
-      vout_count:bits,
-      output_bytes:bits,
-    >>)
-
-  assert btc_tx.parse_error_offset(parse_err) == 47
-
-  assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(value_satoshis, Some(0), Some(2_100_000_000_000_000))
-
-  assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, btc_tx.AtOutput(0), AtField("value")]
-}
-
-// total output value validation
-
-pub fn decode_rejects_outputs_total_value_at_second_output_test() {
-  // Create a transaction where the sum of output values exceeds max_satoshis
-  // exactly when the second output is parsed (fail fast test)
-  // output1 = 1_000_000_000_000_000 (valid alone)
-  // output2 = 1_100_000_000_000_001 (when added to output1, exceeds max)
-
-  let vout_count = compact_size(2)
-  let value1 = 1_000_000_000_000_000
-  let value2 = 1_100_000_000_000_001
-  let script_pubkey = <<>>
-
-  let output1 = build_output(<<value1:little-size(64)>>, script_pubkey)
-  let output2 = build_output(<<value2:little-size(64)>>, script_pubkey)
-
-  let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
-      version1:bits,
-      build_minimal_input():bits,
-      vout_count:bits,
-      output1:bits,
-      output2:bits,
-    >>)
-
-  assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(
-      2_100_000_000_000_001,
-      Some(0),
-      Some(2_100_000_000_000_000),
-    )
-
-  assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtOutput(1), AtField("outputs_total_value")]
-}
-
-pub fn decode_outputs_total_value_error_offset_points_to_second_output_test() {
-  // Verify that when outputs_total_value limit is exceeded at the second output,
-  // the error offset points to the start of the second output's value field
-
-  let vout_count = compact_size(2)
-  let value1 = 1_000_000_000_000_000
-  let value2 = 1_100_000_000_000_001
-  let script_pubkey = <<>>
-
-  let output1 = build_output(<<value1:little-size(64)>>, script_pubkey)
-  let output2 = build_output(<<value2:little-size(64)>>, script_pubkey)
-
-  let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
-      version1:bits,
-      build_minimal_input():bits,
-      vout_count:bits,
-      output1:bits,
-      output2:bits,
-    >>)
-
-  // Calculate expected offset:
-  // version (4) + vin_count (1) + minimal_input (41) + vout_count (1) + output1 (9)
-  let expected_offset = 4 + 1 + 41 + 1 + 9
-
-  assert btc_tx.parse_error_offset(parse_err) == expected_offset
-}
-
-pub fn decode_rejects_outputs_total_value_at_third_output_test() {
-  // Create a transaction with 3 outputs where the sum exceeds max_satoshis
-  // when the third output is parsed
-  // output1 = 700_000_000_000_000 (valid alone)
-  // output2 = 700_000_000_000_000 (cumulative = 1_400_000_000_000_000, still valid)
-  // output3 = 700_000_000_000_001 (cumulative = 2_100_000_000_000_001, exceeds max)
-
-  let vout_count = compact_size(3)
-  let value1 = 700_000_000_000_000
-  let value2 = 700_000_000_000_000
-  let value3 = 700_000_000_000_001
-  let script_pubkey = <<>>
-
-  let output1 = build_output(<<value1:little-size(64)>>, script_pubkey)
-  let output2 = build_output(<<value2:little-size(64)>>, script_pubkey)
-  let output3 = build_output(<<value3:little-size(64)>>, script_pubkey)
-
-  let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
-      version1:bits,
-      build_minimal_input():bits,
-      vout_count:bits,
-      output1:bits,
-      output2:bits,
-      output3:bits,
-    >>)
-
-  assert btc_tx.parse_error_kind(parse_err)
-    == InvalidValueRange(
-      2_100_000_000_000_001,
-      Some(0),
-      Some(2_100_000_000_000_000),
-    )
-
-  assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtOutput(2), AtField("outputs_total_value")]
-}
-
-pub fn decode_outputs_total_value_error_offset_points_to_third_output_test() {
-  // Verify that when outputs_total_value limit is exceeded at the third output,
-  // the error offset points to the start of the third output's value field
-
-  let vout_count = compact_size(3)
-  let value1 = 700_000_000_000_000
-  let value2 = 700_000_000_000_000
-  let value3 = 700_000_000_000_001
-  let script_pubkey = <<>>
-
-  let output1 = build_output(<<value1:little-size(64)>>, script_pubkey)
-  let output2 = build_output(<<value2:little-size(64)>>, script_pubkey)
-  let output3 = build_output(<<value3:little-size(64)>>, script_pubkey)
-
-  let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
-      version1:bits,
-      build_minimal_input():bits,
-      vout_count:bits,
-      output1:bits,
-      output2:bits,
-      output3:bits,
-    >>)
-
-  // Calculate expected offset:
-  // version (4) + vin_count (1) + minimal_input (41) + vout_count (1) + output1 (9) + output2 (9)
-  let expected_offset = 4 + 1 + 41 + 1 + 9 + 9
-
-  assert btc_tx.parse_error_offset(parse_err) == expected_offset
-}
-
 pub fn decode_accepts_outputs_total_value_exactly_at_max_money_test() {
   // Create a transaction with outputs totaling exactly max_satoshis (should succeed)
   // max_satoshis = 2_100_000_000_000_000
@@ -1266,7 +1085,9 @@ pub fn decode_accepts_outputs_total_value_exactly_at_max_money_test() {
     >>)
 }
 
-// scriptPubKey validation
+// ============================================================================
+// ScriptPubKey Validation
+// ============================================================================
 
 pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {
   // Build a transaction with scriptPubKey_len = 10,001 (exceeds MAX_SCRIPT_SIZE of 10,000)
@@ -1363,7 +1184,9 @@ pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
     == [InTransaction, InOutputs, AtOutput(0), AtField("scriptPubKey_len")]
 }
 
-// witness data parsing
+// ============================================================================
+// Witness Data Parsing
+// ============================================================================
 
 pub fn decode_segwit_tx_parses_witness_data_test() {
   // Use the real SegWit transaction constant
@@ -1639,7 +1462,9 @@ pub fn decode_witness_invalid_compact_size_in_item_length_test() {
     ]
 }
 
-// WitnessPolicy.max_item_size enforcement tests
+// ============================================================================
+// Witness Item Size (max_item_size) Policy Enforcement
+// ============================================================================
 
 pub fn decode_witness_item_at_max_size_succeeds_test() {
   let max_witness_item_size = 50
@@ -1729,7 +1554,9 @@ pub fn decode_witness_item_exceeds_custom_max_size_fails_test() {
     ]
 }
 
-// WitnessPolicy.max_items_per_input enforcement tests
+// ============================================================================
+// Witness Items Per Input (max_items_per_input) Policy Enforcement
+// ============================================================================
 
 pub fn decode_witness_stack_at_max_items_per_input_succeeds_test() {
   let max_items_per_input = 3
@@ -1816,7 +1643,9 @@ pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
     == [InTransaction, AtWitnessStack(0), AtField("witnessStack_len")]
 }
 
-// WitnessPolicy.max_stack_payload_bytes_per_input enforcement tests
+// ============================================================================
+// Witness Stack Payload Bytes (max_stack_payload_bytes_per_input) Policy Enforcement
+// ============================================================================
 
 pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
   let max_payload_bytes = 50
@@ -1966,7 +1795,9 @@ pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
   assert btc_tx.parse_error_offset(parse_err) == expected_offset
 }
 
-// ---- Trailing bytes detection tests ----
+// ============================================================================
+// Trailing Bytes Detection
+// ============================================================================
 
 pub fn decode_rejects_legacy_tx_with_trailing_byte_test() {
   let lock_time = <<0:little-size(32)>>
@@ -2006,7 +1837,381 @@ pub fn decode_rejects_segwit_tx_with_trailing_byte_test() {
   assert btc_tx.parse_error_offset(parse_err) == expected_offset
 }
 
-// helpers
+// ============================================================================
+// Consensus Validation
+// ============================================================================
+
+pub fn validate_consensus_accepts_valid_legacy_tx_test() {
+  // Use a real legacy transaction that has 1 input and 1 output
+  let assert Ok(unvalidated_tx) = btc_tx.decode_hex(legacy_v1_tx)
+
+  assert !btc_tx.is_segwit(unvalidated_tx)
+
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(unvalidated_tx)
+
+  // Verify the validated transaction maintains the same properties
+  assert !btc_tx.is_segwit(validated_tx)
+  assert btc_tx.get_version(validated_tx) == 1
+  assert list.length(btc_tx.get_inputs(validated_tx)) == 1
+  assert list.length(btc_tx.get_outputs(validated_tx)) == 1
+  assert btc_tx.get_lock_time(validated_tx) == 0
+}
+
+pub fn validate_consensus_accepts_valid_segwit_tx_test() {
+  // Use a real SegWit transaction that has 1 input, 2 outputs, and witness data
+  let assert Ok(unvalidated_tx) = btc_tx.decode_hex(segwit_v1_tx)
+
+  assert btc_tx.is_segwit(unvalidated_tx)
+
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(unvalidated_tx)
+
+  // Verify the validated transaction maintains the same properties
+  assert btc_tx.is_segwit(validated_tx)
+  assert btc_tx.get_version(validated_tx) == 1
+  assert list.length(btc_tx.get_inputs(validated_tx)) == 1
+  assert list.length(btc_tx.get_outputs(validated_tx)) == 2
+  assert btc_tx.get_lock_time(validated_tx) == 1170
+
+  // Verify witness data is preserved
+  let assert Ok(witnesses) = btc_tx.get_witnesses(validated_tx)
+  assert list.length(witnesses) == 1
+}
+
+pub fn validate_consensus_rejects_tx_with_no_inputs_test() {
+  // Build a SegWit transaction with 0 inputs (SegWit format required when vin_count=0)
+  let marker = <<0x00>>
+  let flag = <<0x01>>
+  let vin_count = compact_size(0)
+  let vout_count = compact_size(1)
+  let value = <<1000:little-size(64)>>
+  let script_pubkey_len = compact_size(0)
+  let witness_data = <<>>
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    marker:bits,
+    flag:bits,
+    vin_count:bits,
+    vout_count:bits,
+    value:bits,
+    script_pubkey_len:bits,
+    witness_data:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.validate_consensus(unvalidated_tx) == Error([NoInputs])
+}
+
+pub fn validate_consensus_rejects_tx_with_no_outputs_test() {
+  // Build a legacy transaction with 1 input and 0 outputs
+  let vin_count = compact_size(1)
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let vout_count = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    input:bits,
+    vout_count:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.validate_consensus(unvalidated_tx) == Error([NoOutputs])
+}
+
+pub fn validate_consensus_rejects_tx_with_negative_output_value_test() {
+  let vin_count = compact_size(1)
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let vout_count = compact_size(1)
+  // -1 as signed int64
+  let negative_value = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    input:bits,
+    vout_count:bits,
+    negative_value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.validate_consensus(unvalidated_tx)
+    == Error([NegativeOutputValue])
+}
+
+pub fn validate_consensus_rejects_tx_with_output_exceeding_supply_test() {
+  // Build a transaction with single output > max_satoshis (2_100_000_000_000_000)
+  // Use 2_100_000_000_000_001 which exceeds the max supply
+  let vin_count = compact_size(1)
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let vout_count = compact_size(1)
+  let excessive_value = <<2_100_000_000_000_001:little-size(64)>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    input:bits,
+    vout_count:bits,
+    excessive_value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.validate_consensus(unvalidated_tx)
+    == Error([OutputValueExceedsSupply])
+}
+
+pub fn validate_consensus_rejects_tx_with_total_outputs_exceeding_supply_test() {
+  // Build a transaction with two outputs that individually are valid but total exceeds max_satoshis
+  // Each output: 1_100_000_000_000_000, Total: 2_200_000_000_000_000 > 2_100_000_000_000_000
+  let vin_count = compact_size(1)
+  let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let vout_count = compact_size(2)
+  let value1 = <<1_100_000_000_000_000:little-size(64)>>
+  let value2 = <<1_100_000_000_000_000:little-size(64)>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    input:bits,
+    vout_count:bits,
+    value1:bits,
+    script_pubkey_len:bits,
+    value2:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.validate_consensus(unvalidated_tx)
+    == Error([TotalOutputValueExceedsSupply])
+}
+
+pub fn validate_consensus_rejects_coinbase_with_multiple_inputs_test() {
+  // Build a transaction with 1 coinbase input and 1 regular input
+  // Coinbase transactions must have exactly 1 input, so this should fail
+  let vin_count = compact_size(2)
+
+  // Coinbase input (prev_txid=all zeros, vout=0xFFFFFFFF)
+  let coinbase_input = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+
+  // Regular input (non-zero prev_txid)
+  let regular_input = build_input(<<1:size(256)>>, 0, <<>>, 0)
+
+  let vout_count = compact_size(1)
+  let value = <<1000:little-size(64)>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    coinbase_input:bits,
+    regular_input:bits,
+    vout_count:bits,
+    value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.validate_consensus(unvalidated_tx)
+    == Error([CoinbaseWithMultipleInputs])
+}
+
+pub fn validate_consensus_rejects_tx_with_multiple_coinbase_inputs_test() {
+  // Build a transaction with 2 coinbase inputs
+  // This violates the rule that a transaction can only have one coinbase input
+  let vin_count = compact_size(2)
+  let coinbase_input = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+  let vout_count = compact_size(1)
+  let value = <<1000:little-size(64)>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    coinbase_input:bits,
+    coinbase_input:bits,
+    vout_count:bits,
+    value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.validate_consensus(unvalidated_tx)
+    == Error([MultipleCoinbaseInputs])
+}
+
+pub fn validate_consensus_rejects_coinbase_with_scriptsig_too_short_test() {
+  // Build a coinbase transaction with scriptSig of 1 byte (minimum is 2 bytes)
+  let vin_count = compact_size(1)
+  // Coinbase input with 1-byte scriptSig (too short)
+  let coinbase_input = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0x01>>, 0)
+  let vout_count = compact_size(1)
+  let value = <<1000:little-size(64)>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    coinbase_input:bits,
+    vout_count:bits,
+    value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.validate_consensus(unvalidated_tx)
+    == Error([InvalidCoinbaseScriptSigLength])
+}
+
+pub fn validate_consensus_rejects_coinbase_with_scriptsig_too_long_test() {
+  let vin_count = compact_size(1)
+
+  // Coinbase input with 101-byte (808-bit) scriptSig
+  let coinbase_input =
+    build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(808)>>, 0)
+
+  let vout_count = compact_size(1)
+  let value = <<1000:little-size(64)>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    coinbase_input:bits,
+    vout_count:bits,
+    value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.validate_consensus(unvalidated_tx)
+    == Error([InvalidCoinbaseScriptSigLength])
+}
+
+pub fn validate_consensus_accepts_coinbase_with_scriptsig_min_length_test() {
+  let vin_count = compact_size(1)
+
+  // Coinbase input with 2-byte scriptSig
+  let coinbase_input =
+    build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(16)>>, 0)
+
+  let vout_count = compact_size(1)
+  let value = <<1000:little-size(64)>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    coinbase_input:bits,
+    vout_count:bits,
+    value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(_) = btc_tx.validate_consensus(unvalidated_tx)
+}
+
+pub fn validate_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
+  let vin_count = compact_size(1)
+
+  // Coinbase input with 100-byte scriptSig
+  let coinbase_input =
+    build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(800)>>, 0)
+
+  let vout_count = compact_size(1)
+  let value = <<1000:little-size(64)>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    coinbase_input:bits,
+    vout_count:bits,
+    value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(_) = btc_tx.validate_consensus(unvalidated_tx)
+}
+
+pub fn validate_consensus_returns_multiple_errors_test() {
+  // Build a transaction that violates multiple consensus rules:
+  // 1. Two coinbase inputs (should trigger MultipleCoinbaseInputs)
+  // 2. Negative output value (should trigger NegativeOutputValue)
+  let vin_count = compact_size(2)
+
+  // Two coinbase inputs
+  let coinbase_input1 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+  let coinbase_input2 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+
+  let vout_count = compact_size(1)
+  // Negative value: 0xFFFFFFFFFFFFFFFF = -1 as signed int64
+  let negative_value = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    coinbase_input1:bits,
+    coinbase_input2:bits,
+    vout_count:bits,
+    negative_value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+
+  // Validate consensus rules - should fail with multiple errors
+  let assert Error(errors) = btc_tx.validate_consensus(unvalidated_tx)
+
+  // Should contain both MultipleCoinbaseInputs and NegativeOutputValue
+  assert list.contains(errors, MultipleCoinbaseInputs)
+  assert list.contains(errors, NegativeOutputValue)
+  assert list.length(errors) == 2
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
 /// Build an input with specific values
 fn build_input(

@@ -1,4 +1,3 @@
-import gleam/bool
 import gleam/list
 import gleam/result
 import internal/reader.{type Reader}
@@ -274,8 +273,6 @@ pub fn indexed_repeat(
   index_to_context: fn(Int) -> ctx,
 ) -> Parser(ctx, List(a), err) {
   Parser(fn(reader, ctx) {
-    use <- bool.guard(count <= 0, Ok(#(reader, [])))
-
     indexed_repeat_loop(
       0,
       count,
@@ -337,8 +334,6 @@ pub fn indexed_repeat_with_limit(
   on_limit_exceeded: fn(Int, Int, List(ctx)) -> err,
 ) -> Parser(ctx, List(a), err) {
   Parser(fn(reader, ctx) {
-    use <- bool.guard(count <= 0, Ok(#(reader, [])))
-
     indexed_repeat_with_limit_loop(
       0,
       count,
