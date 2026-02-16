@@ -712,11 +712,6 @@ pub type DecodePolicy {
 /// This type controls resource constraints when parsing witness stacks in SegWit
 /// transactions. Witness data can be arbitrarily large in the general case, so
 /// these limits protect against resource exhaustion.
-///
-/// ## See Also
-///
-/// - `default_witness_policy` for the standard witness parsing limits
-/// - `DecodePolicy` for overall transaction parsing limits
 pub type WitnessPolicy {
   WitnessPolicy(
     /// Maximum size in bytes for any individual witness stack
@@ -733,21 +728,49 @@ pub type WitnessPolicy {
   )
 }
 
+/// The default witness data parsing policy.
+///
+/// This policy provides reasonable limits for witness data in SegWit transactions,
+/// balancing protection against resource exhaustion with support for legitimate
+/// use cases. These limits are applied automatically when using `decode` or
+/// `decode_hex`.
+///
+/// ## Default Values
+/// 
+/// - `max_item_size`: 100 bytes - Accommodates standard witness items like
+///   signatures (~72 bytes) and public keys (~33 bytes), with room for slightly
+///   larger items.
+/// - `max_items_per_input`: 10,000 items - Allows complex scripts while preventing
+///   unbounded memory allocation.
+/// - `max_stack_payload_bytes_per_input`: 100,000 bytes - Caps total witness data
+///   per input, protecting against excessive witness payloads.
 pub const default_witness_policy = WitnessPolicy(
   max_item_size: 100,
   max_items_per_input: 10_000,
   max_stack_payload_bytes_per_input: 100_000,
 )
 
+/// The default transaction parsing policy.
+///
+/// This policy provides reasonable resource limits for transaction decoding that
+/// protect against malicious inputs while supporting legitimate Bitcoin transactions.
+/// These limits are applied automatically when using `decode` or `decode_hex`.
+///
+/// ## Default Values
+///
+/// - `max_vin_count`: 100,000 inputs - Substantially higher than typical transactions
+///   (which usually have 1-10 inputs) but prevents unbounded memory allocation.
+/// - `max_vout_count`: 100,000 outputs - Similarly generous for outputs.
+/// - `max_script_size`: 10,000 bytes - Accommodates standard scripts (typically
+///   25-35 bytes for P2PKH/P2WPKH, ~34 bytes for P2SH) with significant headroom
+///   for complex or non-standard scripts.
+/// - `witness_policy`: Uses `default_witness_policy` for SegWit witness data.
 pub const default_policy = DecodePolicy(
   max_vin_count: 100_000,
   max_vout_count: 100_000,
   max_script_size: 10_000,
   witness_policy: default_witness_policy,
 )
-
-// 21_000_000 bitcoins * 100_000_000 satoshis in a bitcoin
-const max_satoshis = 2_100_000_000_000_000
 
 /// Decode a Bitcoin transaction from its binary representation.
 ///
@@ -756,9 +779,10 @@ const max_satoshis = 2_100_000_000_000_000
 /// whether the transaction is legacy or SegWit by inspecting the marker bytes.
 ///
 /// This function applies `default_policy` to protect against malicious inputs
-/// by enforcing reasonable limits on input/output counts (100,000 each), script
-/// sizes (10,000 bytes), and witness data. For custom parsing limits, use
-/// `decode_with_policy` instead.
+/// by enforcing reasonable limits on input/output counts, script
+/// sizes, and witness data.
+/// 
+/// For custom parsing limits, use `decode_with_policy` instead.
 ///
 /// The decoded transaction is marked as `Unvalidated`, meaning it has been
 /// successfully parsed but has not been checked against Bitcoin consensus rules.
@@ -780,11 +804,6 @@ const max_satoshis = 2_100_000_000_000_000
 ///   Error(HexToBytesFailed(err)) -> // Won't occur with direct bytes
 /// }
 /// ```
-///
-/// ## See Also
-///
-/// - `decode_with_policy` for custom parsing limits
-/// - `decode_hex` for parsing from hexadecimal strings
 pub fn decode(bytes: BitArray) -> Result(Transaction(Unvalidated), DecodeError) {
   decode_with_policy(bytes, default_policy)
 }
@@ -831,11 +850,6 @@ pub fn decode(bytes: BitArray) -> Result(Transaction(Unvalidated), DecodeError) 
 ///   Error(HexToBytesFailed(_)) -> // Not possible with BitArray input
 /// }
 /// ```
-///
-/// ## See Also
-///
-/// - `decode` for decoding with `default_policy`
-/// - `default_policy` for the standard parsing limits
 pub fn decode_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
@@ -896,6 +910,7 @@ pub fn decode_with_policy(
 /// vectors.
 ///
 /// This function applies `default_policy` for parsing limits.
+/// For custom parsing limits, use `decode_with_policy` instead.
 ///
 /// ## Returns
 ///
@@ -914,16 +929,38 @@ pub fn decode_with_policy(
 ///   Error(ParseFailed(err)) -> // Valid hex but invalid transaction
 /// }
 /// ```
-///
-/// ## See Also
-///
-/// - `decode` for decoding from raw bytes
-/// - `decode_with_policy` for custom parsing limits
 pub fn decode_hex(hex: String) -> Result(Transaction(Unvalidated), DecodeError) {
+  hex
+  |> try_hex_to_bytes
+  |> result.try(decode)
+}
+
+/// Decode a Bitcoin transaction from hexadecimal with custom parsing limits.
+///
+/// This function combines hex-to-bytes conversion with policy-based transaction
+/// parsing, providing both the convenience of hexadecimal input and fine-grained
+/// control over resource limits. Use this when working with hex-encoded transaction
+/// data that requires custom parsing constraints.
+///
+/// ## Returns
+///
+/// - `Ok(Transaction(Unvalidated))`: Successfully decoded transaction within policy limits.
+/// - `Error(HexToBytesFailed(_))`: The hex string was invalid (odd length or
+///   invalid characters).
+/// - `Error(ParseFailed(_))`: The bytes could not be parsed or exceeded policy limits.
+pub fn decode_hex_with_policy(
+  hex: String,
+  policy: DecodePolicy,
+) -> Result(Transaction(Unvalidated), DecodeError) {
+  hex
+  |> try_hex_to_bytes
+  |> result.try(decode_with_policy(_, policy))
+}
+
+fn try_hex_to_bytes(hex: String) -> Result(BitArray, DecodeError) {
   hex
   |> hex.hex_to_bytes
   |> result.map_error(HexToBytesFailed)
-  |> result.try(decode)
 }
 
 /// Detect whether this is a SegWit transaction by peeking at the marker/flag bytes.
@@ -1548,6 +1585,9 @@ fn validate_at_least_one_output(
 fn validate_output_values(
   tx: Transaction(Unvalidated),
 ) -> Result(Nil, ValidationError) {
+  // 2.1 quadrillion (21_000_000 Bitcoins * 100_000_000 Satoshis in a Bitcoin)
+  let max_satoshis = 21_000_000 * 100_000_000
+
   tx.outputs
   |> list.fold_until(Ok(0), fn(acc, output) {
     let assert Ok(sum) = acc
