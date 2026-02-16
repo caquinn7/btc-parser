@@ -250,7 +250,7 @@ pub fn get_witness_item_bytes(item: WitnessItem) -> BitArray {
 pub opaque type TxOut {
   TxOut(
     /// The number of satoshis assigned to this output.
-    value: Satoshis,
+    value: Int,
     /// The locking script (scriptPubKey) defining the spending conditions.
     script_pubkey: ScriptBytes,
   )
@@ -260,7 +260,7 @@ pub opaque type TxOut {
 ///
 /// Returns the number of satoshis that will be available to spend if the
 /// output's spending conditions (specified by scriptPubKey) are satisfied.
-pub fn get_output_value(output: TxOut) -> Satoshis {
+pub fn get_output_value(output: TxOut) -> Int {
   output.value
 }
 
@@ -285,20 +285,6 @@ pub opaque type ScriptBytes {
 pub fn get_raw_script_bytes(script: ScriptBytes) -> BitArray {
   let ScriptBytes(bytes) = script
   bytes
-}
-
-/// A quantity of satoshis. (1 Bitcoin = 100,000,000 Satoshis)
-///
-/// A satoshi is the smallest unit of Bitcoin.
-/// Valid values are non-negative and bounded by the consensus maximum money supply.
-pub opaque type Satoshis {
-  Satoshis(Int)
-}
-
-/// Convert a satoshi quantity to its integer representation.
-pub fn satoshis_to_int(sats: Satoshis) -> Int {
-  let Satoshis(value) = sats
-  value
 }
 
 /// The transaction identifier (txid).
@@ -929,7 +915,7 @@ fn read_tx_out(
   )
 }
 
-fn read_satoshis() -> Parser(ParseContext, Satoshis, DecodeError) {
+fn read_satoshis() -> Parser(ParseContext, Int, DecodeError) {
   let field_name = "value"
 
   field_name
@@ -950,7 +936,6 @@ fn read_satoshis() -> Parser(ParseContext, Satoshis, DecodeError) {
       |> IntegerOutOfRange
       |> make_field_error(field_name, start_offset, ctx)
     })
-    |> result.map(Satoshis)
   })
 }
 
@@ -1289,12 +1274,10 @@ fn validate_output_values(
   tx.outputs
   |> list.fold_until(Ok(0), fn(acc, output) {
     let assert Ok(sum) = acc
-    let sats = output.value
-
-    case sats {
-      Satoshis(s) if s < 0 -> Stop(Error(NegativeOutputValue))
-      Satoshis(s) if s > max_satoshis -> Stop(Error(OutputValueExceedsSupply))
-      Satoshis(s) -> Continue(Ok(sum + s))
+    case output.value {
+      v if v < 0 -> Stop(Error(NegativeOutputValue))
+      v if v > max_satoshis -> Stop(Error(OutputValueExceedsSupply))
+      v -> Continue(Ok(sum + v))
     }
   })
   |> result.try(fn(total_sats) {

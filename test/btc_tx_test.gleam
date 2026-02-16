@@ -896,7 +896,6 @@ pub fn decode_parses_single_output_test() {
   let actual_value =
     first_output
     |> btc_tx.get_output_value
-    |> btc_tx.satoshis_to_int
 
   assert actual_value == value_satoshis
 
@@ -943,7 +942,6 @@ pub fn decode_parses_multiple_outputs_test() {
   let actual_value1 =
     o1
     |> btc_tx.get_output_value
-    |> btc_tx.satoshis_to_int
 
   assert actual_value1 == 0
 
@@ -958,7 +956,6 @@ pub fn decode_parses_multiple_outputs_test() {
   let actual_value2 =
     o2
     |> btc_tx.get_output_value
-    |> btc_tx.satoshis_to_int
 
   assert actual_value2 == 100_000_000
 
@@ -973,7 +970,6 @@ pub fn decode_parses_multiple_outputs_test() {
   let actual_value3 =
     o3
     |> btc_tx.get_output_value
-    |> btc_tx.satoshis_to_int
 
   assert actual_value3 == 50_000_000
 
@@ -1010,7 +1006,6 @@ pub fn decode_parses_empty_scriptpubkey_test() {
   let actual_value =
     first_output
     |> btc_tx.get_output_value
-    |> btc_tx.satoshis_to_int
 
   assert actual_value == value_satoshis
 
@@ -1141,7 +1136,6 @@ pub fn decode_parses_scriptpubkey_at_max_size_test() {
   let actual_value =
     first_output
     |> btc_tx.get_output_value
-    |> btc_tx.satoshis_to_int
 
   assert actual_value == value_satoshis
 
