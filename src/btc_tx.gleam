@@ -2,8 +2,8 @@
 //// in a form suitable for inspection, analysis, and reference.
 
 import gleam/bit_array
-import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/list.{Continue, Stop}
+import gleam/option.{None, Some}
 import gleam/pair
 import gleam/result
 import internal/compact_size
@@ -16,13 +16,17 @@ import internal/reader.{type Reader}
 
 // ---- Transaction types ----
 
+pub type Unvalidated
+
+pub type Validated
+
 /// A Bitcoin transaction.
 ///
 /// A transaction transfers value by consuming previously created outputs
 /// (inputs) and creating new outputs. Transactions are either legacy
 /// (pre-SegWit) or SegWit, which affects how witness data is serialized
 /// and how transaction identifiers are computed.
-pub opaque type Transaction {
+pub opaque type Transaction(validation_state) {
   /// A legacy (non-SegWit) transaction.
   ///
   /// Legacy transactions do not include witness data and compute their
@@ -63,24 +67,28 @@ pub opaque type Transaction {
   )
 }
 
-pub fn get_version(tx: Transaction) -> Int {
+pub fn get_version(tx: Transaction(v)) -> Int {
   tx.version
 }
 
-pub fn is_segwit(tx: Transaction) -> Bool {
+pub fn is_segwit(tx: Transaction(v)) -> Bool {
   case tx {
     Legacy(..) -> False
     SegWit(..) -> True
   }
 }
 
+pub fn is_coinbase(tx: Transaction(Validated)) -> Bool {
+  list.any(tx.inputs, fn(txin) { prev_out_is_coinbase(txin.prev_out) })
+}
+
 /// Get all transaction inputs in order.
-pub fn get_inputs(tx: Transaction) -> List(TxIn) {
+pub fn get_inputs(tx: Transaction(v)) -> List(TxIn) {
   tx.inputs
 }
 
 /// Get all transaction outputs in order.
-pub fn get_outputs(tx: Transaction) -> List(TxOut) {
+pub fn get_outputs(tx: Transaction(v)) -> List(TxOut) {
   tx.outputs
 }
 
@@ -90,7 +98,7 @@ pub fn get_outputs(tx: Transaction) -> List(TxOut) {
 /// - Values less than 500,000,000 are interpreted as block heights
 /// - Values greater than or equal to 500,000,000 are interpreted as Unix timestamps
 /// - A value of 0 means the transaction is valid immediately
-pub fn get_lock_time(tx: Transaction) -> Int {
+pub fn get_lock_time(tx: Transaction(v)) -> Int {
   tx.lock_time
 }
 
@@ -98,7 +106,7 @@ pub fn get_lock_time(tx: Transaction) -> Int {
 ///
 /// Returns `Ok(witnesses)` if this is a `SegWit` transaction, or `Error(Nil)` if
 /// it's a `Legacy` transaction (which has no witness data).
-pub fn get_witnesses(tx: Transaction) -> Result(List(WitnessStack), Nil) {
+pub fn get_witnesses(tx: Transaction(v)) -> Result(List(WitnessStack), Nil) {
   case tx {
     SegWit(witnesses:, ..) -> Ok(witnesses)
     Legacy(..) -> Error(Nil)
@@ -385,16 +393,6 @@ pub type ParseErrorKind {
   /// `value` is the offending value, and `max` is the policy limit.
   PolicyLimitExceeded(value: Int, max: Int)
 
-  /// A decoded numeric value fell outside the allowed range for the given field.
-  ///
-  /// The value was successfully decoded from well-formed input, but is rejected
-  /// because it violates semantic constraints or consensus rules implied by the
-  /// field's meaning (for example, negative satoshi amounts, satoshi values exceeding
-  /// the maximum money supply, or counts below their required minimum).
-  ///
-  /// `value` is the decoded value, and `min` / `max` define the permitted inclusive range.
-  InvalidValueRange(value: Int, min: Option(Int), max: Option(Int))
-
   /// The transaction was successfully parsed, but extra bytes remain in the input.
   ///
   /// This indicates the input buffer contains more data than a single valid transaction.
@@ -584,14 +582,14 @@ pub const default_policy = DecodePolicy(
 // 21_000_000 bitcoins * 100_000_000 satoshis in a bitcoin
 const max_satoshis = 2_100_000_000_000_000
 
-pub fn decode(bytes: BitArray) -> Result(Transaction, DecodeError) {
+pub fn decode(bytes: BitArray) -> Result(Transaction(Unvalidated), DecodeError) {
   decode_with_policy(bytes, default_policy)
 }
 
 pub fn decode_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
-) -> Result(Transaction, DecodeError) {
+) -> Result(Transaction(Unvalidated), DecodeError) {
   let tx_parser = {
     use version <- parser.then(read_field("version", reader.read_i32_le))
 
@@ -646,7 +644,7 @@ pub fn decode_with_policy(
   |> result.map(pair.second)
 }
 
-pub fn decode_hex(hex: String) -> Result(Transaction, DecodeError) {
+pub fn decode_hex(hex: String) -> Result(Transaction(Unvalidated), DecodeError) {
   hex
   |> hex.hex_to_bytes
   |> result.map_error(HexToBytesFailed)
@@ -675,12 +673,11 @@ fn detect_segwit() -> Parser(ParseContext, Bool, DecodeError) {
 ///
 /// Returns `True` if next bytes are 0x00 0x01, `False` if they don't start with 0x00
 /// or on EOF. Returns an error if marker is 0x00 but flag is invalid.
-///
 fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
   // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
   parser.new(fn(reader, ctx) {
-    let field_name = "segwit_discriminator"
-    let field_err = make_field_error(field_name, reader.get_offset(reader), ctx)
+    let field_err =
+      make_field_error("segwit_discriminator", reader.get_offset(reader), ctx)
 
     case reader.peek_bytes(reader, 2) {
       Ok(bytes) -> {
@@ -755,32 +752,24 @@ fn validate_vin_count(
 ) -> Result(Int, DecodeError) {
   let min_txin_size = 41
   let remaining = reader.bytes_remaining(reader)
-
   // Upper bound implied by remaining bytes (each input is at least 41 bytes)
   let max_inputs_by_bytes = remaining / min_txin_size
 
   case
-    vin_count_int < 1,
     vin_count_int > max_inputs_by_bytes,
     vin_count_int > max_vin_count_policy
   {
-    // Minimum count validation
-    True, _, _ ->
-      InvalidValueRange(vin_count_int, Some(1), None)
-      |> on_invalid
-
     // Structural limit: count exceeds what remaining bytes can accommodate
-    False, True, _ ->
+    True, _ ->
       InsufficientBytes(claimed: remaining + 1, remaining:)
       |> on_invalid
 
     // Policy limit: count exceeds configured maximum
-    False, False, True ->
+    _, True ->
       PolicyLimitExceeded(vin_count_int, max_vin_count_policy)
       |> on_invalid
 
-    // All validations passed
-    False, False, False -> Ok(vin_count_int)
+    _, _ -> Ok(vin_count_int)
   }
 }
 
@@ -875,32 +864,24 @@ fn validate_vout_count(
 ) -> Result(Int, DecodeError) {
   let min_txout_size = 9
   let remaining = reader.bytes_remaining(reader)
-
   // Upper bound implied by remaining bytes (each output is at least 9 bytes)
   let max_outputs_by_bytes = remaining / min_txout_size
 
   case
-    vout_count_int < 1,
     vout_count_int > max_outputs_by_bytes,
     vout_count_int > max_vout_count_policy
   {
-    // Minimum count validation
-    True, _, _ ->
-      InvalidValueRange(vout_count_int, Some(1), None)
-      |> on_invalid
-
     // Structural limit: count exceeds what remaining bytes can accommodate
-    False, True, _ ->
+    True, _ ->
       InsufficientBytes(claimed: remaining + 1, remaining:)
       |> on_invalid
 
     // Policy limit: count exceeds configured maximum
-    False, False, True ->
+    _, True ->
       PolicyLimitExceeded(vout_count_int, max_vout_count_policy)
       |> on_invalid
 
-    // All validations passed
-    False, False, False -> Ok(vout_count_int)
+    _, _ -> Ok(vout_count_int)
   }
 }
 
@@ -916,32 +897,23 @@ fn read_tx_outs(
   // ├─ TxOut #1
   // │    ├─ ...
   // └─ TxOut #(vout_count - 1)
-  parser.indexed_repeat_with_limit(
+  parser.indexed_repeat(
     vout_count,
-    read_tx_out_with_value(max_script_size_policy),
+    read_tx_out(max_script_size_policy),
     AtOutput,
-    max_satoshis,
-    fn(exceeded_val, start_offset, ctx) {
-      InvalidValueRange(exceeded_val, Some(0), Some(max_satoshis))
-      |> make_field_error("outputs_total_value", start_offset, ctx)
-    },
   )
 }
 
-fn read_tx_out_with_value(
+fn read_tx_out(
   max_script_size_policy: Int,
-) -> Parser(ParseContext, #(TxOut, Int), DecodeError) {
+) -> Parser(ParseContext, TxOut, DecodeError) {
   // | value (8 bytes)
   // | scriptPubKey_len (CompactSize)
   // | scriptPubKey bytes
   parser.map2(
     read_satoshis(),
     read_script("scriptPubKey", max_script_size_policy),
-    fn(value, script_pubkey) {
-      let output = TxOut(value:, script_pubkey:)
-      let Satoshis(value_int) = value
-      #(output, value_int)
-    },
+    TxOut,
   )
 }
 
@@ -966,25 +938,8 @@ fn read_satoshis() -> Parser(ParseContext, Satoshis, DecodeError) {
       |> IntegerOutOfRange
       |> make_field_error(field_name, start_offset, ctx)
     })
+    |> result.map(Satoshis)
   })
-  |> parser.try_with_start_offset(fn(value_int, start_offset, _, ctx) {
-    value_int
-    |> validate_satoshis(make_field_error(field_name, start_offset, ctx))
-  })
-}
-
-fn validate_satoshis(
-  value_int: Int,
-  on_invalid: fn(ParseErrorKind) -> DecodeError,
-) -> Result(Satoshis, DecodeError) {
-  case value_int < 0 || value_int > max_satoshis {
-    True ->
-      InvalidValueRange(value_int, Some(0), Some(max_satoshis))
-      |> on_invalid
-      |> Error
-
-    False -> Ok(Satoshis(value_int))
-  }
 }
 
 fn read_script(
@@ -1039,12 +994,11 @@ fn validate_script_length(
       |> on_invalid
 
     // Policy limit: length exceeds configured maximum
-    False, True ->
+    _, True ->
       PolicyLimitExceeded(script_len_int, max_script_size_policy)
       |> on_invalid
 
-    // All validations passed
-    False, False -> Ok(script_len_int)
+    _, _ -> Ok(script_len_int)
   }
 }
 
@@ -1192,11 +1146,172 @@ fn validate_witness_item_size(
       |> on_invalid
 
     // Policy limit: length exceeds configured maximum
-    False, True ->
+    _, True ->
       PolicyLimitExceeded(length, max_item_size_policy)
       |> on_invalid
 
-    // All validations passed
-    False, False -> Ok(length)
+    _, _ -> Ok(length)
+  }
+}
+
+// ---- Validate Consensus functions ----
+
+/// An error that occurred during consensus validation of a Bitcoin transaction.
+///
+/// These errors represent violations of Bitcoin's consensus rules that would
+/// cause a transaction to be rejected by the network.
+pub type ValidationError {
+  /// The transaction has no inputs.
+  ///
+  /// All Bitcoin transactions must have at least one input.
+  NoInputs
+
+  /// The transaction has no outputs.
+  ///
+  /// All Bitcoin transactions must have at least one output.
+  NoOutputs
+
+  /// An output has a negative value.
+  ///
+  /// Output values must be non-negative.
+  NegativeOutputValue
+
+  /// An individual output's value exceeds the maximum possible supply.
+  ///
+  /// No single output can contain more than 21 million BTC (2.1 quadrillion satoshis).
+  OutputValueExceedsSupply
+
+  /// The sum of all output values exceeds the maximum possible supply.
+  ///
+  /// The total value of all outputs cannot exceed 21 million BTC (2.1 quadrillion satoshis).
+  TotalOutputValueExceedsSupply
+
+  /// A coinbase transaction has more than one input.
+  ///
+  /// Coinbase transactions (those with a coinbase input) must have exactly one input.
+  CoinbaseWithMultipleInputs
+
+  /// A transaction has multiple coinbase inputs.
+  ///
+  /// A transaction cannot contain more than one coinbase input.
+  MultipleCoinbaseInputs
+
+  /// A coinbase transaction's scriptSig length is invalid.
+  ///
+  /// Coinbase scriptSig must be between 2 and 100 bytes (inclusive).
+  InvalidCoinbaseScriptSigLength
+}
+
+pub fn validate_consensus(
+  tx: Transaction(Unvalidated),
+) -> Result(Transaction(Validated), List(ValidationError)) {
+  let validators = [
+    validate_at_least_one_input,
+    validate_at_least_one_output,
+    validate_output_values,
+    validate_coinbase_structure,
+    validate_coinbase_scriptsig_length,
+  ]
+
+  validators
+  |> list.map(fn(validator) { validator(tx) })
+  |> list.filter_map(fn(result) {
+    case result {
+      Error(err) -> Ok(err)
+      Ok(_) -> Error(Nil)
+    }
+  })
+  |> fn(errors) {
+    case errors {
+      [] -> {
+        Ok(case tx {
+          Legacy(v, i, o, l) -> Legacy(v, i, o, l)
+          SegWit(v, i, o, l, w) -> SegWit(v, i, o, l, w)
+        })
+      }
+      _ -> Error(errors)
+    }
+  }
+}
+
+fn validate_at_least_one_input(
+  tx: Transaction(Unvalidated),
+) -> Result(Nil, ValidationError) {
+  case list.is_empty(tx.inputs) {
+    True -> Error(NoInputs)
+    False -> Ok(Nil)
+  }
+}
+
+fn validate_at_least_one_output(
+  tx: Transaction(Unvalidated),
+) -> Result(Nil, ValidationError) {
+  case list.is_empty(tx.outputs) {
+    True -> Error(NoOutputs)
+    False -> Ok(Nil)
+  }
+}
+
+fn validate_output_values(
+  tx: Transaction(Unvalidated),
+) -> Result(Nil, ValidationError) {
+  tx.outputs
+  |> list.fold_until(Ok(0), fn(acc, output) {
+    let assert Ok(sum) = acc
+    let sats = output.value
+
+    case sats {
+      Satoshis(s) if s < 0 -> Stop(Error(NegativeOutputValue))
+      Satoshis(s) if s > max_satoshis -> Stop(Error(OutputValueExceedsSupply))
+      Satoshis(s) -> Continue(Ok(sum + s))
+    }
+  })
+  |> result.try(fn(total_sats) {
+    case total_sats > max_satoshis {
+      True -> Error(TotalOutputValueExceedsSupply)
+      False -> Ok(Nil)
+    }
+  })
+}
+
+fn validate_coinbase_structure(
+  tx: Transaction(Unvalidated),
+) -> Result(Nil, ValidationError) {
+  let coinbase_count =
+    list.count(tx.inputs, fn(txin) { prev_out_is_coinbase(txin.prev_out) })
+
+  case coinbase_count {
+    0 -> Ok(Nil)
+    1 ->
+      case list.length(tx.inputs) == 1 {
+        True -> Ok(Nil)
+        False -> Error(CoinbaseWithMultipleInputs)
+      }
+    _ -> Error(MultipleCoinbaseInputs)
+  }
+}
+
+fn validate_coinbase_scriptsig_length(
+  tx: Transaction(Unvalidated),
+) -> Result(Nil, ValidationError) {
+  case tx.inputs {
+    [] -> Ok(Nil)
+
+    [input] ->
+      case prev_out_is_coinbase(input.prev_out) {
+        True -> {
+          let ScriptBytes(bytes) = input.script_sig
+          let script_sig_size = bit_array.byte_size(bytes)
+
+          case 2 <= script_sig_size && script_sig_size <= 100 {
+            True -> Ok(Nil)
+            False -> Error(InvalidCoinbaseScriptSigLength)
+          }
+        }
+
+        False -> Ok(Nil)
+      }
+
+    _ -> Ok(Nil)
   }
 }
