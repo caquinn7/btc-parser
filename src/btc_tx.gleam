@@ -1210,6 +1210,25 @@ pub type ValidationError {
   InvalidCoinbaseScriptSigLength
 }
 
+/// Validate a transaction against Bitcoin consensus rules.
+///
+/// This function performs a subset of Bitcoin's transaction validation checks,
+/// including rules that must be satisfied for a transaction to be considered
+/// valid on the Bitcoin network. If all validation checks pass, the transaction
+/// is marked as `Validated`.
+///
+/// The following consensus rules are checked:
+/// - Must have at least one input
+/// - Must have at least one output
+/// - All output values must be non-negative
+/// - No single output value may exceed the maximum supply (21M BTC)
+/// - The sum of all output values cannot exceed the maximum supply
+/// - Coinbase transactions must have exactly one input
+/// - Transactions cannot have multiple coinbase inputs
+/// - Coinbase scriptSig must be between 2 and 100 bytes (inclusive)
+///
+/// Returns the transaction as `Validated` on success, or a list of all
+/// validation errors encountered if any checks fail.
 pub fn validate_consensus(
   tx: Transaction(Unvalidated),
 ) -> Result(Transaction(Validated), List(ValidationError)) {
