@@ -78,6 +78,14 @@ pub fn is_segwit(tx: Transaction(v)) -> Bool {
   }
 }
 
+/// Check whether a transaction is a coinbase transaction.
+///
+/// A coinbase transaction is the first transaction in a block, which creates new
+/// bitcoins as a block reward and does not spend any previous outputs. Coinbase
+/// transactions have exactly one input with a special `Coinbase` marker instead
+/// of a reference to a previous transaction output.
+///
+/// Returns `True` if this is a coinbase transaction, `False` otherwise.
 pub fn is_coinbase(tx: Transaction(Validated)) -> Bool {
   list.any(tx.inputs, fn(txin) { prev_out_is_coinbase(txin.prev_out) })
 }
@@ -1223,12 +1231,12 @@ pub fn validate_consensus(
   })
   |> fn(errors) {
     case errors {
-      [] -> {
+      [] ->
         Ok(case tx {
           Legacy(v, i, o, l) -> Legacy(v, i, o, l)
           SegWit(v, i, o, l, w) -> SegWit(v, i, o, l, w)
         })
-      }
+
       _ -> Error(errors)
     }
   }
@@ -1237,18 +1245,18 @@ pub fn validate_consensus(
 fn validate_at_least_one_input(
   tx: Transaction(Unvalidated),
 ) -> Result(Nil, ValidationError) {
-  case list.is_empty(tx.inputs) {
-    True -> Error(NoInputs)
-    False -> Ok(Nil)
+  case tx.inputs {
+    [] -> Error(NoInputs)
+    _ -> Ok(Nil)
   }
 }
 
 fn validate_at_least_one_output(
   tx: Transaction(Unvalidated),
 ) -> Result(Nil, ValidationError) {
-  case list.is_empty(tx.outputs) {
-    True -> Error(NoOutputs)
-    False -> Ok(Nil)
+  case tx.outputs {
+    [] -> Error(NoOutputs)
+    _ -> Ok(Nil)
   }
 }
 
