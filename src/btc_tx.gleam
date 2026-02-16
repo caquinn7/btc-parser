@@ -16,8 +16,12 @@ import internal/reader.{type Reader}
 
 // ---- Transaction types ----
 
+/// Phantom type indicating a transaction that has been successfully
+/// parsed but has not yet been validated against Bitcoin consensus rules.
 pub type Unvalidated
 
+/// Phantom type indicating a transaction that has passed Bitcoin
+/// consensus validation.
 pub type Validated
 
 /// A Bitcoin transaction.
