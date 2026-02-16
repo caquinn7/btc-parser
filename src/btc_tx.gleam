@@ -1,5 +1,49 @@
-//// btc_tx provides facilities for parsing and modeling Bitcoin transaction data
-//// in a form suitable for inspection, analysis, and reference.
+//// Parse, inspect, and validate Bitcoin transactions.
+////
+//// This module provides type-safe facilities for working with Bitcoin transaction
+//// data, supporting both legacy and SegWit transaction formats. It includes
+//// safe parsing with configurable resource limits, comprehensive error reporting,
+//// and consensus validation.
+////
+//// ## Quick Start
+////
+//// ```gleam
+//// import btc_tx
+////
+//// // Decode from hex
+//// case btc_tx.decode_hex("0100000001...") {
+////   Ok(tx) -> {
+////     // Inspect transaction
+////     let version = btc_tx.get_version(tx)
+////     let inputs = btc_tx.get_inputs(tx)
+////     let outputs = btc_tx.get_outputs(tx)
+////
+////     // Validate consensus rules
+////     case btc_tx.validate_consensus(tx) {
+////       Ok(validated_tx) -> // Transaction is consensus-valid
+////       Error(errors) -> // Handle validation failures
+////     }
+////   }
+////   Error(btc_tx.ParseFailed(err)) -> // Handle parse error
+////   Error(btc_tx.HexToBytesFailed(err)) -> // Handle hex error
+//// }
+//// ```
+////
+//// ## Key Features
+////
+//// - **Safe parsing**: Configurable resource limits protect against malicious
+////   inputs (see `DecodePolicy` and `decode_with_policy`)
+//// - **Format detection**: Automatically distinguishes legacy and SegWit transactions
+//// - **Rich error context**: Detailed parse errors with byte offsets and context stacks
+//// - **Consensus validation**: Check transactions against Bitcoin's consensus rules
+//// - **Type safety**: Phantom types distinguish validated from unvalidated transactions
+////
+//// ## Main Entry Points
+////
+//// - `decode` / `decode_hex` - Parse transaction data
+//// - `validate_consensus` - Validate against consensus rules
+//// - `get_inputs`, `get_outputs`, etc. - Access transaction components
+//// - `is_segwit`, `is_coinbase` - Query transaction properties
 
 import gleam/bit_array
 import gleam/list.{Continue, Stop}
@@ -71,10 +115,27 @@ pub opaque type Transaction(validation_state) {
   )
 }
 
+/// Get the version number from a transaction.
+///
+/// The version number indicates the transaction format and rules that apply.
+/// Common versions are:
+/// - Version 1: Original Bitcoin transaction format
+/// - Version 2: Introduced with BIP 68 (relative lock-time using sequence numbers)
+///
+/// Unknown or future version values are permitted by Bitcoin consensus rules,
+/// so the decoder does not reject transactions with unrecognized versions.
 pub fn get_version(tx: Transaction(v)) -> Int {
   tx.version
 }
 
+/// Check whether a transaction uses the SegWit format.
+///
+/// SegWit (Segregated Witness) transactions separate witness data from the main
+/// transaction structure, enabling features like improved scalability and
+/// transaction malleability fixes. This function distinguishes between legacy
+/// (pre-SegWit) transactions and SegWit transactions.
+///
+/// Returns `True` for SegWit transactions, `False` for legacy transactions.
 pub fn is_segwit(tx: Transaction(v)) -> Bool {
   case tx {
     Legacy(..) -> False
@@ -94,12 +155,16 @@ pub fn is_coinbase(tx: Transaction(Validated)) -> Bool {
   list.any(tx.inputs, fn(txin) { prev_out_is_coinbase(txin.prev_out) })
 }
 
-/// Get all transaction inputs in order.
+/// Get the transaction inputs.
+///
+/// Returns the inputs in the same order they appear in the transaction serialization.
 pub fn get_inputs(tx: Transaction(v)) -> List(TxIn) {
   tx.inputs
 }
 
-/// Get all transaction outputs in order.
+/// Get the transaction outputs.
+///
+/// Returns the outputs in the same order they appear in the transaction serialization.
 pub fn get_outputs(tx: Transaction(v)) -> List(TxOut) {
   tx.outputs
 }
@@ -118,6 +183,10 @@ pub fn get_lock_time(tx: Transaction(v)) -> Int {
 ///
 /// Returns `Ok(witnesses)` if this is a `SegWit` transaction, or `Error(Nil)` if
 /// it's a `Legacy` transaction (which has no witness data).
+///
+/// The witness stacks are returned in order, corresponding 1-to-1 with the
+/// transaction inputs by position (witness stack at index N corresponds to
+/// input at index N).
 pub fn get_witnesses(tx: Transaction(v)) -> Result(List(WitnessStack), Nil) {
   case tx {
     SegWit(witnesses:, ..) -> Ok(witnesses)
@@ -224,6 +293,8 @@ pub opaque type WitnessStack {
 }
 
 /// Get the witness items from a witness stack.
+///
+/// Returns the witness items in order as they appear in the serialization.
 pub fn get_witness_items(stack: WitnessStack) -> List(WitnessItem) {
   let WitnessStack(items) = stack
   items
@@ -256,7 +327,7 @@ pub opaque type TxOut {
   )
 }
 
-/// Get the satoshi value assigned to a transaction output.
+/// Get the value assigned to a transaction output.
 ///
 /// Returns the number of satoshis that will be available to spend if the
 /// output's spending conditions (specified by scriptPubKey) are satisfied.
@@ -448,14 +519,72 @@ pub type ParseContext {
   AtField(String)
 }
 
+/// Get the byte offset where a parsing error occurred.
+///
+/// The offset is a zero-based position into the input buffer, indicating
+/// where the parser was reading when it encountered the error. This is useful
+/// for debugging and error reporting.
+///
+/// ## Examples
+///
+/// ```gleam
+/// case decode(malformed_bytes) {
+///   Error(ParseFailed(err)) -> {
+///     let offset = parse_error_offset(err)
+///     // offset: 42 (error occurred at byte position 42)
+///   }
+///   _ -> // ...
+/// }
+/// ```
 pub fn parse_error_offset(err: ParseError) -> Int {
   err.offset
 }
 
+/// Get the specific kind of parsing error that occurred.
+///
+/// Returns the `ParseErrorKind` variant that categorizes what went wrong,
+/// such as `ReaderError`, `CompactSizeError`, `PolicyLimitExceeded`, etc.
+/// This allows you to handle different error types differently.
+///
+/// ## Examples
+///
+/// ```gleam
+/// case decode(bytes) {
+///   Error(ParseFailed(err)) -> {
+///     case parse_error_kind(err) {
+///       PolicyLimitExceeded(value, max) -> 
+///         // Handle resource limit violation
+///       InsufficientBytes(claimed, remaining) -> 
+///         // Handle truncated input
+///       _ -> // Handle other errors
+///     }
+///   }
+///   _ -> // ...
+/// }
+/// ```
 pub fn parse_error_kind(err: ParseError) -> ParseErrorKind {
   err.kind
 }
 
+/// Get the parsing context stack for an error.
+///
+/// Returns a list of `ParseContext` values showing where in the transaction
+/// structure the error occurred. The list is ordered from least specific (outermost)
+/// to most specific (innermost), providing a "stack trace" through the parsing
+/// process.
+///
+/// ## Examples
+///
+/// ```gleam
+/// case decode(malformed_bytes) {
+///   Error(ParseFailed(err)) -> {
+///     let ctx = parse_error_ctx(err)
+///     // ctx: [InTransaction, InInputs, AtInput(2), AtField("scriptSig_len")]
+///     // Means: error in the scriptSig_len field of input #2
+///   }
+///   _ -> // ...
+/// }
+/// ```
 pub fn parse_error_ctx(err: ParseError) -> List(ParseContext) {
   err.ctx
 }
@@ -547,19 +676,59 @@ fn read_compact_size_as_int(
 
 // ---- Decoding functions ----
 
+/// Configuration policy for transaction decoding limits.
+///
+/// This type controls resource constraints during transaction parsing to protect
+/// against malicious inputs that could cause excessive memory allocation or
+/// processing time. All limits are enforced during parsing, failing with
+/// `PolicyLimitExceeded` if exceeded.
+///
+/// ## See Also
+///
+/// - `default_policy` for the standard parsing limits
+/// - `decode_with_policy` to apply a custom policy
 pub type DecodePolicy {
   DecodePolicy(
+    /// Maximum number of transaction inputs allowed. Exceeding
+    /// this causes the parser to reject the transaction before allocating memory
+    /// for the inputs.
     max_vin_count: Int,
+    /// Maximum number of transaction outputs allowed. Exceeding
+    /// this causes the parser to reject the transaction before allocating memory
+    /// for the outputs.
     max_vout_count: Int,
+    /// Maximum size in bytes for any individual script (both
+    /// input scriptSig and output scriptPubKey). This prevents unbounded memory
+    /// allocation when reading scripts.
     max_script_size: Int,
+    /// Policy controlling witness data parsing limits. Only
+    /// applied to SegWit transactions.
     witness_policy: WitnessPolicy,
   )
 }
 
+/// Configuration policy for SegWit witness data parsing limits.
+///
+/// This type controls resource constraints when parsing witness stacks in SegWit
+/// transactions. Witness data can be arbitrarily large in the general case, so
+/// these limits protect against resource exhaustion.
+///
+/// ## See Also
+///
+/// - `default_witness_policy` for the standard witness parsing limits
+/// - `DecodePolicy` for overall transaction parsing limits
 pub type WitnessPolicy {
   WitnessPolicy(
+    /// Maximum size in bytes for any individual witness stack
+    /// item. Standard transactions typically use items under 80 bytes (e.g.,
+    /// signatures and public keys), but larger items are consensus-valid.
     max_item_size: Int,
+    /// Maximum number of witness stack items allowed for
+    /// any single input. Complex scripts may require many stack items.
     max_items_per_input: Int,
+    /// Maximum total bytes across all witness
+    /// items for a single input. This provides a cap on total witness data per
+    /// input, even if individual items are small.
     max_stack_payload_bytes_per_input: Int,
   )
 }
@@ -580,29 +749,108 @@ pub const default_policy = DecodePolicy(
 // 21_000_000 bitcoins * 100_000_000 satoshis in a bitcoin
 const max_satoshis = 2_100_000_000_000_000
 
+/// Decode a Bitcoin transaction from its binary representation.
+///
+/// This is the standard entry point for parsing Bitcoin transaction data
+/// serialized in the Bitcoin network protocol format. It automatically detects
+/// whether the transaction is legacy or SegWit by inspecting the marker bytes.
+///
+/// This function applies `default_policy` to protect against malicious inputs
+/// by enforcing reasonable limits on input/output counts (100,000 each), script
+/// sizes (10,000 bytes), and witness data. For custom parsing limits, use
+/// `decode_with_policy` instead.
+///
+/// The decoded transaction is marked as `Unvalidated`, meaning it has been
+/// successfully parsed but has not been checked against Bitcoin consensus rules.
+///
+/// ## Returns
+///
+/// - `Ok(Transaction(Unvalidated))`: Successfully decoded transaction.
+/// - `Error(DecodeError)`: The bytes could not be parsed as a valid transaction.
+///   This includes malformed data, unexpected end of input, or violations of
+///   the policy limits.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let tx_bytes = <<0x01, 0x00, 0x00, 0x00, ...>>
+/// case decode(tx_bytes) {
+///   Ok(tx) -> // Transaction successfully parsed
+///   Error(ParseFailed(err)) -> // Handle parse error
+///   Error(HexToBytesFailed(err)) -> // Won't occur with direct bytes
+/// }
+/// ```
+///
+/// ## See Also
+///
+/// - `decode_with_policy` for custom parsing limits
+/// - `decode_hex` for parsing from hexadecimal strings
 pub fn decode(bytes: BitArray) -> Result(Transaction(Unvalidated), DecodeError) {
   decode_with_policy(bytes, default_policy)
 }
 
+/// Decode a Bitcoin transaction with custom parsing limits.
+///
+/// This function provides fine-grained control over the parser's resource limits
+/// when decoding transaction data. Use this when you need different constraints
+/// than `default_policy`, such as when processing known-safe data, implementing
+/// strict validation, or defending against resource exhaustion attacks.
+///
+/// The policy controls maximum values for:
+/// - Input count (`max_vin_count`)
+/// - Output count (`max_vout_count`)
+/// - Script sizes (`max_script_size`)
+/// - Witness data (`witness_policy` controls item size, item count, and total bytes)
+///
+/// When a transaction exceeds these limits, decoding fails with a
+/// `PolicyLimitExceeded` error rather than consuming excessive resources.
+///
+/// ## Returns
+///
+/// - `Ok(Transaction(Unvalidated))`: Successfully decoded transaction within policy limits.
+/// - `Error(DecodeError)`: The bytes could not be parsed or exceeded policy limits.
+///
+/// ## Examples
+///
+/// ```gleam
+/// // Strict policy for untrusted input
+/// let strict_policy = DecodePolicy(
+///   max_vin_count: 100,
+///   max_vout_count: 100,
+///   max_script_size: 1_000,
+///   witness_policy: WitnessPolicy(
+///     max_item_size: 80,
+///     max_items_per_input: 100,
+///     max_stack_payload_bytes_per_input: 10_000,
+///   ),
+/// )
+///
+/// case decode_with_policy(untrusted_bytes, strict_policy) {
+///   Ok(tx) -> // Transaction parsed and within limits
+///   Error(ParseFailed(err)) -> // Parse error or limit exceeded
+///   Error(HexToBytesFailed(_)) -> // Not possible with BitArray input
+/// }
+/// ```
+///
+/// ## See Also
+///
+/// - `decode` for decoding with `default_policy`
+/// - `default_policy` for the standard parsing limits
 pub fn decode_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
 ) -> Result(Transaction(Unvalidated), DecodeError) {
   let tx_parser = {
     use version <- parser.then(read_field("version", reader.read_i32_le))
-
     use is_segwit <- parser.then(detect_segwit())
-
     use inputs <- parser.then(parser.with_context(
       read_inputs(policy.max_vin_count, policy.max_script_size),
       InInputs,
     ))
-
     use outputs <- parser.then(parser.with_context(
       read_outputs(policy.max_vout_count, policy.max_script_size),
       InOutputs,
     ))
-
     use witnesses <- parser.then(case is_segwit {
       True ->
         read_witness_stacks(list.length(inputs), policy.witness_policy)
@@ -610,10 +858,8 @@ pub fn decode_with_policy(
 
       False -> parser.return(None)
     })
-
     use lock_time <- parser.then(read_field("lock_time", reader.read_u32_le))
 
-    // Build transaction and verify no trailing bytes
     parser.try_with_reader(parser.return(Nil), fn(_, reader, ctx) {
       let tx = case witnesses {
         Some(witnesses) ->
@@ -642,6 +888,37 @@ pub fn decode_with_policy(
   |> result.map(pair.second)
 }
 
+/// Decode a Bitcoin transaction from its hexadecimal string representation.
+///
+/// This is a convenience function that combines hex-to-bytes conversion with
+/// transaction decoding. It's useful when working with transaction data in
+/// hexadecimal format, such as from block explorers, RPC responses, or test
+/// vectors.
+///
+/// This function applies `default_policy` for parsing limits.
+///
+/// ## Returns
+///
+/// - `Ok(Transaction(Unvalidated))`: Successfully decoded transaction.
+/// - `Error(HexToBytesFailed(_))`: The hex string was invalid (odd length or
+///   invalid characters).
+/// - `Error(ParseFailed(_))`: The bytes could not be parsed as a valid transaction.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let hex = "0100000001..."
+/// case decode_hex(hex) {
+///   Ok(tx) -> // Transaction successfully parsed
+///   Error(HexToBytesFailed(err)) -> // Invalid hex string
+///   Error(ParseFailed(err)) -> // Valid hex but invalid transaction
+/// }
+/// ```
+///
+/// ## See Also
+///
+/// - `decode` for decoding from raw bytes
+/// - `decode_with_policy` for custom parsing limits
 pub fn decode_hex(hex: String) -> Result(Transaction(Unvalidated), DecodeError) {
   hex
   |> hex.hex_to_bytes
@@ -1274,6 +1551,7 @@ fn validate_output_values(
   tx.outputs
   |> list.fold_until(Ok(0), fn(acc, output) {
     let assert Ok(sum) = acc
+
     case output.value {
       v if v < 0 -> Stop(Error(NegativeOutputValue))
       v if v > max_satoshis -> Stop(Error(OutputValueExceedsSupply))
