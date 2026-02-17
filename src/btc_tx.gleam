@@ -1590,25 +1590,25 @@ pub fn validate_consensus(
     validate_coinbase_scriptsig_length,
   ]
 
-  validators
-  |> list.map(fn(validator) { validator(tx) })
-  |> list.filter_map(fn(result) {
-    case result {
-      Error(err) -> Ok(err)
-      Ok(_) -> Error(Nil)
-    }
-  })
-  |> fn(errors) {
-    case errors {
-      [] ->
-        // Change phantom type to Validated by reconstructing with identical data
-        Ok(case tx {
-          Legacy(v, i, o, l) -> Legacy(v, i, o, l)
-          SegWit(v, i, o, l, w) -> SegWit(v, i, o, l, w)
-        })
+  let errors =
+    validators
+    |> list.map(fn(validator) { validator(tx) })
+    |> list.filter_map(fn(result) {
+      case result {
+        Error(err) -> Ok(err)
+        Ok(_) -> Error(Nil)
+      }
+    })
 
-      _ -> Error(errors)
-    }
+  case errors {
+    [] ->
+      // Change phantom type to Validated by reconstructing with identical data
+      Ok(case tx {
+        Legacy(v, i, o, l) -> Legacy(v, i, o, l)
+        SegWit(v, i, o, l, w) -> SegWit(v, i, o, l, w)
+      })
+
+    _ -> Error(errors)
   }
 }
 
