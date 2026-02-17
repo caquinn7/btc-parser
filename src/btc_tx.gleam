@@ -515,14 +515,20 @@ pub type ParseContext {
   /// The wrapped `Int` is the zero-based index of the witness item being parsed.
   AtWitnessItem(Int)
 
-  /// The error occurred while parsing or validating a specific logical field.
+  /// The error occurred while parsing a specific named field.
   ///
-  /// This is typically used to label reads of fixed-size or length-prefixed
-  /// fields such as `"version"`, `"sequence"`, `"lock_time"`, `"script_sig"`,
-  /// or `"script_pubkey"`.
+  /// The wrapped `Field` identifies which transaction field was being parsed
+  /// when the error occurred, such as the version, lock time, an input's
+  /// script signature, or an output's value.
   AtField(Field)
 }
 
+/// A named field within a Bitcoin transaction.
+///
+/// This type enumerates all the distinct fields that can be parsed from
+/// a Bitcoin transaction's serialized format. Fields are used in error
+/// reporting to indicate which part of the transaction was being parsed
+/// when an error occurred.
 pub type Field {
   // Top-level transaction fields
   Version
@@ -612,7 +618,7 @@ pub fn parse_error_kind(err: ParseError) -> ParseErrorKind {
 /// case decode(malformed_bytes) {
 ///   Error(ParseFailed(err)) -> {
 ///     let ctx = parse_error_ctx(err)
-///     // ctx: [InTransaction, InInputs, AtInput(2), AtField("scriptSig_len")]
+///     // ctx: [InTransaction, InInputs, AtInput(2), AtField(ScriptSigLength)]
 ///     // Means: error in the scriptSig_len field of input #2
 ///   }
 ///   _ -> // ...
