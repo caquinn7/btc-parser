@@ -46,7 +46,7 @@
 //// - `is_segwit`, `is_coinbase` - Query transaction properties
 
 import gleam/bit_array
-import gleam/list.{Continue, Stop}
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/pair
 import gleam/result
@@ -1532,17 +1532,17 @@ pub type ValidationError {
   /// An output has a negative value.
   ///
   /// Output values must be non-negative.
-  NegativeOutputValue
+  NegativeOutputValue(index: Int, value: Int)
 
   /// An individual output's value exceeds the maximum possible supply.
   ///
   /// No single output can contain more than 21 million BTC (2.1 quadrillion satoshis).
-  OutputValueExceedsSupply
+  OutputValueExceedsSupply(index: Int, value: Int)
 
   /// The sum of all output values exceeds the maximum possible supply.
   ///
   /// The total value of all outputs cannot exceed 21 million BTC (2.1 quadrillion satoshis).
-  TotalOutputValueExceedsSupply
+  TotalOutputValueExceedsSupply(total: Int)
 
   /// A coinbase transaction has more than one input.
   ///
@@ -1601,6 +1601,7 @@ pub fn validate_consensus(
   |> fn(errors) {
     case errors {
       [] ->
+        // Change phantom type to Validated by reconstructing with identical data
         Ok(case tx {
           Legacy(v, i, o, l) -> Legacy(v, i, o, l)
           SegWit(v, i, o, l, w) -> SegWit(v, i, o, l, w)
@@ -1634,23 +1635,29 @@ fn validate_output_values(
 ) -> Result(Nil, ValidationError) {
   // 2.1 quadrillion (21_000_000 Bitcoins * 100_000_000 Satoshis in a Bitcoin)
   let max_satoshis = 21_000_000 * 100_000_000
+  validate_output_values_loop(tx.outputs, 0, 0, max_satoshis)
+}
 
-  tx.outputs
-  |> list.fold_until(Ok(0), fn(acc, output) {
-    let assert Ok(sum) = acc
+fn validate_output_values_loop(
+  outputs: List(TxOut),
+  index: Int,
+  sum: Int,
+  max_satoshis: Int,
+) -> Result(Nil, ValidationError) {
+  case outputs {
+    [] ->
+      case sum > max_satoshis {
+        True -> Error(TotalOutputValueExceedsSupply(sum))
+        False -> Ok(Nil)
+      }
 
-    case output.value {
-      v if v < 0 -> Stop(Error(NegativeOutputValue))
-      v if v > max_satoshis -> Stop(Error(OutputValueExceedsSupply))
-      v -> Continue(Ok(sum + v))
-    }
-  })
-  |> result.try(fn(total_sats) {
-    case total_sats > max_satoshis {
-      True -> Error(TotalOutputValueExceedsSupply)
-      False -> Ok(Nil)
-    }
-  })
+    [output, ..rest] ->
+      case output.value {
+        v if v < 0 -> Error(NegativeOutputValue(index, v))
+        v if v > max_satoshis -> Error(OutputValueExceedsSupply(index, v))
+        v -> validate_output_values_loop(rest, index + 1, sum + v, max_satoshis)
+      }
+  }
 }
 
 fn validate_coinbase_structure(

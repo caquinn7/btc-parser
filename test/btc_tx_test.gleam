@@ -1943,7 +1943,7 @@ pub fn validate_consensus_rejects_tx_with_negative_output_value_test() {
   let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
 
   assert btc_tx.validate_consensus(unvalidated_tx)
-    == Error([NegativeOutputValue])
+    == Error([NegativeOutputValue(0, -1)])
 }
 
 pub fn validate_consensus_rejects_tx_with_output_exceeding_supply_test() {
@@ -1969,7 +1969,7 @@ pub fn validate_consensus_rejects_tx_with_output_exceeding_supply_test() {
   let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
 
   assert btc_tx.validate_consensus(unvalidated_tx)
-    == Error([OutputValueExceedsSupply])
+    == Error([OutputValueExceedsSupply(0, 2_100_000_000_000_001)])
 }
 
 pub fn validate_consensus_rejects_tx_with_total_outputs_exceeding_supply_test() {
@@ -1998,7 +1998,7 @@ pub fn validate_consensus_rejects_tx_with_total_outputs_exceeding_supply_test() 
   let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
 
   assert btc_tx.validate_consensus(unvalidated_tx)
-    == Error([TotalOutputValueExceedsSupply])
+    == Error([TotalOutputValueExceedsSupply(2_200_000_000_000_000)])
 }
 
 pub fn validate_consensus_rejects_coinbase_with_multiple_inputs_test() {
@@ -2201,7 +2201,7 @@ pub fn validate_consensus_returns_multiple_errors_test() {
 
   // Should contain both MultipleCoinbaseInputs and NegativeOutputValue
   assert list.contains(errors, MultipleCoinbaseInputs)
-  assert list.contains(errors, NegativeOutputValue)
+  assert list.contains(errors, NegativeOutputValue(0, -1))
   assert list.length(errors) == 2
 }
 
