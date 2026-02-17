@@ -4,7 +4,10 @@ import btc_tx.{
   InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
   InvalidSegWitMarkerFlag, MultipleCoinbaseInputs, NegativeOutputValue, NoInputs,
   NoOutputs, OutputValueExceedsSupply, ParseFailed, PolicyLimitExceeded,
-  ReaderError, TotalOutputValueExceedsSupply, TrailingBytes, WitnessPolicy,
+  ReaderError, ScriptPubKeyLength, ScriptSigLength, SegwitDiscriminator,
+  TotalOutputValueExceedsSupply, TrailingBytes, Version, VinCount, VoutCount,
+  WitnessItemLength, WitnessPolicy, WitnessStackLength,
+  WitnessStackTotalPayloadBytes,
 }
 import gleam/bit_array
 import gleam/list
@@ -75,8 +78,7 @@ pub fn decode_errors_when_input_shorter_than_4_bytes_test() {
   assert btc_tx.parse_error_kind(parse_err)
     == ReaderError(reader.UnexpectedEof(4, 3))
 
-  assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, AtField("version")]
+  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction, AtField(Version)]
 }
 
 pub fn decode_does_not_misclassify_segwit_when_discriminator_is_missing_test() {
@@ -88,7 +90,7 @@ pub fn decode_does_not_misclassify_segwit_when_discriminator_is_missing_test() {
     == CompactSizeError(compact_size.ReaderError(reader.UnexpectedEof(1, 0)))
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InInputs, AtField("vin_count")]
+    == [InTransaction, InInputs, AtField(VinCount)]
 }
 
 pub fn decode_does_not_misclassify_segwit_when_discriminator_is_truncated_test() {
@@ -103,7 +105,7 @@ pub fn decode_does_not_misclassify_segwit_when_discriminator_is_truncated_test()
     == CompactSizeError(compact_size.ReaderError(reader.UnexpectedEof(1, 0)))
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtField("vout_count")]
+    == [InTransaction, InOutputs, AtField(VoutCount)]
 }
 
 pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
@@ -116,7 +118,7 @@ pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
   assert btc_tx.parse_error_offset(parse_err) == 4
   assert btc_tx.parse_error_kind(parse_err) == InvalidSegWitMarkerFlag(0, 2)
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, AtField("segwit_discriminator")]
+    == [InTransaction, AtField(SegwitDiscriminator)]
 }
 
 pub fn decode_rejects_segwit_marker_with_zero_flag_test() {
@@ -138,7 +140,7 @@ pub fn decode_rejects_segwit_marker_with_zero_flag_test() {
   assert btc_tx.parse_error_offset(parse_err) == 4
   assert btc_tx.parse_error_kind(parse_err) == InvalidSegWitMarkerFlag(0, 0)
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, AtField("segwit_discriminator")]
+    == [InTransaction, AtField(SegwitDiscriminator)]
 }
 
 // ============================================================================
@@ -226,7 +228,7 @@ pub fn validate_vin_count_exceeds_policy_error_test() {
   assert btc_tx.parse_error_kind(parse_err) == PolicyLimitExceeded(vin_count, 2)
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InInputs, AtField("vin_count")]
+    == [InTransaction, InInputs, AtField(VinCount)]
 }
 
 pub fn validate_vin_count_exceeds_structural_error_test() {
@@ -252,7 +254,7 @@ pub fn validate_vin_count_exceeds_structural_error_test() {
     )
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InInputs, AtField("vin_count")]
+    == [InTransaction, InInputs, AtField(VinCount)]
 }
 
 pub fn validate_vin_count_structural_boundary_succeeds_test() {
@@ -301,7 +303,7 @@ pub fn validate_vin_count_insufficient_bytes_for_inputs_test() {
     )
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InInputs, AtField("vin_count")]
+    == [InTransaction, InInputs, AtField(VinCount)]
 }
 
 pub fn decode_accepts_segwit_tx_with_zero_inputs_test() {
@@ -561,7 +563,7 @@ pub fn decode_rejects_scriptsig_exceeding_max_size_test() {
     == PolicyLimitExceeded(10_001, 10_000)
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InInputs, AtInput(0), AtField("scriptSig_len")]
+    == [InTransaction, InInputs, AtInput(0), AtField(ScriptSigLength)]
 }
 
 pub fn decode_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
@@ -596,7 +598,7 @@ pub fn decode_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
     == InsufficientBytes(claimed: 100, remaining: 10)
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InInputs, AtInput(0), AtField("scriptSig_len")]
+    == [InTransaction, InInputs, AtInput(0), AtField(ScriptSigLength)]
 }
 
 pub fn decode_returns_error_with_current_input_index_test() {
@@ -634,7 +636,7 @@ pub fn decode_returns_error_with_current_input_index_test() {
     == InsufficientBytes(claimed: 100, remaining: 4)
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InInputs, AtInput(1), AtField("scriptSig_len")]
+    == [InTransaction, InInputs, AtInput(1), AtField(ScriptSigLength)]
 }
 
 // ============================================================================
@@ -731,7 +733,7 @@ pub fn validate_vout_count_exceeds_policy_error_test() {
     == PolicyLimitExceeded(vout_count, 2)
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtField("vout_count")]
+    == [InTransaction, InOutputs, AtField(VoutCount)]
 }
 
 pub fn validate_vout_count_exceeds_structural_error_test() {
@@ -764,7 +766,7 @@ pub fn validate_vout_count_exceeds_structural_error_test() {
     )
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtField("vout_count")]
+    == [InTransaction, InOutputs, AtField(VoutCount)]
 }
 
 pub fn validate_vout_count_structural_boundary_succeeds_test() {
@@ -816,7 +818,7 @@ pub fn validate_vout_count_insufficient_bytes_for_outputs_test() {
     )
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtField("vout_count")]
+    == [InTransaction, InOutputs, AtField(VoutCount)]
 }
 
 pub fn decode_accepts_legacy_tx_with_zero_outputs_test() {
@@ -1050,7 +1052,7 @@ pub fn decode_rejects_output_value_min_i64_js_test() {
     == btc_tx.IntegerOutOfRange("-9223372036854775808")
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtOutput(0), AtField("value")]
+    == [InTransaction, InOutputs, AtOutput(0), AtField(btc_tx.Value)]
 }
 
 pub fn decode_accepts_outputs_total_value_exactly_at_max_money_test() {
@@ -1108,7 +1110,7 @@ pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {
     == PolicyLimitExceeded(10_001, 10_000)
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtOutput(0), AtField("scriptPubKey_len")]
+    == [InTransaction, InOutputs, AtOutput(0), AtField(ScriptPubKeyLength)]
 }
 
 pub fn decode_parses_scriptpubkey_at_max_size_test() {
@@ -1175,7 +1177,7 @@ pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
     == InsufficientBytes(claimed: 100, remaining: 10)
 
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtOutput(0), AtField("scriptPubKey_len")]
+    == [InTransaction, InOutputs, AtOutput(0), AtField(ScriptPubKeyLength)]
 }
 
 // ============================================================================
@@ -1367,7 +1369,7 @@ pub fn decode_witness_item_length_exceeds_remaining_bytes_test() {
       InTransaction,
       AtWitnessStack(0),
       AtWitnessItem(0),
-      AtField("witnessItem_len"),
+      AtField(WitnessItemLength),
     ]
 }
 
@@ -1406,7 +1408,7 @@ pub fn decode_witness_invalid_compact_size_in_stack_length_test() {
 
   // Verify the error context indicates we're in witness stack count parsing
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, AtWitnessStack(0), AtField("witnessStack_len")]
+    == [InTransaction, AtWitnessStack(0), AtField(WitnessStackLength)]
 }
 
 pub fn decode_witness_invalid_compact_size_in_item_length_test() {
@@ -1452,7 +1454,7 @@ pub fn decode_witness_invalid_compact_size_in_item_length_test() {
       InTransaction,
       AtWitnessStack(0),
       AtWitnessItem(0),
-      AtField("witnessItem_len"),
+      AtField(WitnessItemLength),
     ]
 }
 
@@ -1544,7 +1546,7 @@ pub fn decode_witness_item_exceeds_custom_max_size_fails_test() {
       InTransaction,
       AtWitnessStack(0),
       AtWitnessItem(0),
-      AtField("witnessItem_len"),
+      AtField(WitnessItemLength),
     ]
 }
 
@@ -1634,7 +1636,7 @@ pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
 
   // Verify the error context indicates witness stack length validation
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, AtWitnessStack(0), AtField("witnessStack_len")]
+    == [InTransaction, AtWitnessStack(0), AtField(WitnessStackLength)]
 }
 
 // ============================================================================
@@ -1738,7 +1740,7 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
       InTransaction,
       AtWitnessStack(0),
       AtWitnessItem(2),
-      AtField("witnessStack_total_payload_bytes"),
+      AtField(WitnessStackTotalPayloadBytes),
     ]
 }
 

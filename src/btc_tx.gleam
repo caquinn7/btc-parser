@@ -515,12 +515,47 @@ pub type ParseContext {
   /// The wrapped `Int` is the zero-based index of the witness item being parsed.
   AtWitnessItem(Int)
 
-  /// The error occurred while parsing or validating a specific logical field.
+  /// The error occurred while parsing a specific named field.
   ///
-  /// This is typically used to label reads of fixed-size or length-prefixed
-  /// fields such as `"version"`, `"sequence"`, `"lock_time"`, `"script_sig"`,
-  /// or `"script_pubkey"`.
-  AtField(String)
+  /// The wrapped `Field` identifies which transaction field was being parsed
+  /// when the error occurred, such as the version, lock time, an input's
+  /// script signature, or an output's value.
+  AtField(Field)
+}
+
+/// A named field within a Bitcoin transaction.
+///
+/// This type enumerates all the distinct fields that can be parsed from
+/// a Bitcoin transaction's serialized format. Fields are used in error
+/// reporting to indicate which part of the transaction was being parsed
+/// when an error occurred.
+pub type Field {
+  // Top-level transaction fields
+  Version
+  LockTime
+
+  // SegWit marker/flag detection
+  SegwitDiscriminator
+  SegwitMarker
+
+  // Input-related fields
+  VinCount
+  PrevTxId
+  Vout
+  ScriptSig
+  ScriptSigLength
+  Sequence
+
+  // Output-related fields
+  VoutCount
+  Value
+  ScriptPubKey
+  ScriptPubKeyLength
+
+  // Witness-related fields
+  WitnessStackLength
+  WitnessItemLength
+  WitnessStackTotalPayloadBytes
 }
 
 /// Get the byte offset where a parsing error occurred.
@@ -583,7 +618,7 @@ pub fn parse_error_kind(err: ParseError) -> ParseErrorKind {
 /// case decode(malformed_bytes) {
 ///   Error(ParseFailed(err)) -> {
 ///     let ctx = parse_error_ctx(err)
-///     // ctx: [InTransaction, InInputs, AtInput(2), AtField("scriptSig_len")]
+///     // ctx: [InTransaction, InInputs, AtInput(2), AtField(ScriptSigLength)]
 ///     // Means: error in the scriptSig_len field of input #2
 ///   }
 ///   _ -> // ...
@@ -608,14 +643,14 @@ fn with_contexts(err: ParseError, ctxs: List(ParseContext)) -> ParseError {
 /// point the error to a specific byte location, such as the start of a field,
 /// rather than the current reader position.
 fn make_field_error(
-  field_name: String,
+  field: Field,
   offset: Int,
   ctx: List(ParseContext),
 ) -> fn(ParseErrorKind) -> DecodeError {
   fn(kind) {
     kind
     |> new_parse_error(offset)
-    |> with_contexts([AtField(field_name), ..ctx])
+    |> with_contexts([AtField(field), ..ctx])
     |> ParseFailed
   }
 }
@@ -803,7 +838,7 @@ pub fn decode_with_policy(
   policy: DecodePolicy,
 ) -> Result(Transaction(Unvalidated), DecodeError) {
   let tx_parser = {
-    use version <- parser.then(read_field("version", reader.read_i32_le))
+    use version <- parser.then(read_field(Version, reader.read_i32_le))
     use is_segwit <- parser.then(detect_segwit())
     use inputs <- parser.then(parser.with_context(
       read_inputs(policy.max_vin_count, policy.max_script_size),
@@ -820,7 +855,7 @@ pub fn decode_with_policy(
 
       False -> parser.return(None)
     })
-    use lock_time <- parser.then(read_field("lock_time", reader.read_u32_le))
+    use lock_time <- parser.then(read_field(LockTime, reader.read_u32_le))
 
     parser.try_with_reader(parser.return(Nil), fn(_, reader, ctx) {
       let tx = case witnesses {
@@ -913,7 +948,7 @@ fn try_hex_to_bytes(hex: String) -> Result(BitArray, DecodeError) {
 
 /// Lift a reader operation into a Parser, adding error mapping and context wrapping.
 fn read_field(
-  field_name: String,
+  field: Field,
   read_fn: fn(Reader) -> Result(#(Reader, a), reader.ReaderError),
 ) -> Parser(ParseContext, a, DecodeError) {
   parser.new(fn(reader, ctx) {
@@ -923,16 +958,14 @@ fn read_field(
       err
       |> ReaderError
       |> new_parse_error(reader.get_offset(reader))
-      |> with_contexts([AtField(field_name), ..ctx])
+      |> with_contexts([AtField(field), ..ctx])
       |> ParseFailed
     })
   })
 }
 
 /// Lift a compact_size read into a Parser, adding error mapping and context wrapping.
-fn read_compact_size(
-  field_name: String,
-) -> Parser(ParseContext, Uint64, DecodeError) {
+fn read_compact_size(field: Field) -> Parser(ParseContext, Uint64, DecodeError) {
   parser.new(fn(reader, ctx) {
     reader
     |> compact_size.read
@@ -940,7 +973,7 @@ fn read_compact_size(
       err
       |> CompactSizeError
       |> new_parse_error(reader.get_offset(reader))
-      |> with_contexts([AtField(field_name), ..ctx])
+      |> with_contexts([AtField(field), ..ctx])
       |> ParseFailed
     })
   })
@@ -951,9 +984,9 @@ fn read_compact_size(
 /// This wraps `read_compact_size` and handles the common pattern of converting
 /// the `Uint64` result to `Int`, mapping conversion failures to `IntegerOutOfRange` errors.
 fn read_compact_size_as_int(
-  field_name: String,
+  field: Field,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  field_name
+  field
   |> read_compact_size
   |> parser.try_with_start_offset(fn(value_u64, start_offset, _, ctx) {
     value_u64
@@ -962,7 +995,7 @@ fn read_compact_size_as_int(
       value_u64
       |> uint64.to_string
       |> IntegerOutOfRange
-      |> make_field_error(field_name, start_offset, ctx)
+      |> make_field_error(field, start_offset, ctx)
     })
   })
 }
@@ -993,7 +1026,7 @@ fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
   // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
   parser.new(fn(reader, ctx) {
     let field_err =
-      make_field_error("segwit_discriminator", reader.get_offset(reader), ctx)
+      make_field_error(SegwitDiscriminator, reader.get_offset(reader), ctx)
 
     case reader.peek_bytes(reader, 2) {
       Ok(bytes) -> {
@@ -1025,8 +1058,7 @@ fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
 
 /// Helper parser that consumes the 2-byte segwit discriminator
 fn skip_marker_bytes() -> Parser(ParseContext, Nil, DecodeError) {
-  "segwit_marker"
-  |> read_field(fn(reader) {
+  read_field(SegwitMarker, fn(reader) {
     reader
     |> reader.skip_bytes(2)
     |> result.map(pair.new(_, Nil))
@@ -1046,14 +1078,12 @@ fn read_inputs(
 fn read_vin_count(
   max_vin_count_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  let field_name = "vin_count"
-
-  field_name
+  VinCount
   |> read_compact_size_as_int
   |> parser.try_with_start_offset(fn(vin_count_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(field_name, start_offset, ctx)
+      |> make_field_error(VinCount, start_offset, ctx)
       |> Error
     }
     validate_vin_count(vin_count_int, reader, max_vin_count_policy, on_invalid)
@@ -1116,16 +1146,16 @@ fn read_tx_in(
   // │ sequence (4 bytes)
   parser.map3(
     read_prev_out(),
-    read_script("scriptSig", max_script_size_policy),
-    read_field("sequence", reader.read_u32_le),
+    read_script(ScriptSig, max_script_size_policy),
+    read_field(Sequence, reader.read_u32_le),
     TxIn,
   )
 }
 
 fn read_prev_out() -> Parser(ParseContext, PrevOut, DecodeError) {
   parser.map2(
-    read_field("prev_txid", reader.read_bytes(_, 32)),
-    read_field("vout", reader.read_u32_le),
+    read_field(PrevTxId, reader.read_bytes(_, 32)),
+    read_field(Vout, reader.read_u32_le),
     fn(prev_txid_bytes, vout) {
       case prev_txid_bytes, vout {
         <<0:size(256)>>, 0xFFFFFFFF -> Coinbase
@@ -1153,14 +1183,12 @@ fn read_outputs(
 fn read_vout_count(
   max_vout_count_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  let field_name = "vout_count"
-
-  field_name
+  VoutCount
   |> read_compact_size_as_int
   |> parser.try_with_start_offset(fn(vout_count_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(field_name, start_offset, ctx)
+      |> make_field_error(VoutCount, start_offset, ctx)
       |> Error
     }
     validate_vout_count(
@@ -1228,15 +1256,13 @@ fn read_tx_out(
   // | scriptPubKey bytes
   parser.map2(
     read_satoshis(),
-    read_script("scriptPubKey", max_script_size_policy),
+    read_script(ScriptPubKey, max_script_size_policy),
     TxOut,
   )
 }
 
 fn read_satoshis() -> Parser(ParseContext, Int, DecodeError) {
-  let field_name = "value"
-
-  field_name
+  Value
   |> read_field(reader.read_bytes(_, 8))
   |> parser.map(fn(value_bytes) {
     let assert Ok(value_i64) = int64.from_bytes_le(value_bytes)
@@ -1252,21 +1278,30 @@ fn read_satoshis() -> Parser(ParseContext, Int, DecodeError) {
       value_i64
       |> int64.to_string
       |> IntegerOutOfRange
-      |> make_field_error(field_name, start_offset, ctx)
+      |> make_field_error(Value, start_offset, ctx)
     })
   })
 }
 
 fn read_script(
-  field_name: String,
+  field: Field,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, ScriptBytes, DecodeError) {
-  { field_name <> "_len" }
+  field
+  |> script_length_field
   |> read_script_length(max_script_size_policy)
   |> parser.then(fn(script_len) {
-    read_field(field_name, reader.read_bytes(_, script_len))
+    read_field(field, reader.read_bytes(_, script_len))
   })
   |> parser.map(ScriptBytes)
+}
+
+fn script_length_field(script_field: Field) -> Field {
+  case script_field {
+    ScriptSig -> ScriptSigLength
+    ScriptPubKey -> ScriptPubKeyLength
+    _ -> panic as "Invalid script field"
+  }
 }
 
 /// Read and validate a script length field.
@@ -1274,15 +1309,15 @@ fn read_script(
 /// Reads a CompactSize length, converts it to Int, validates it against
 /// max_script_size_policy, and ensures sufficient bytes remain.
 fn read_script_length(
-  field_name: String,
+  field: Field,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  field_name
+  field
   |> read_compact_size_as_int
   |> parser.try_with_start_offset(fn(script_len_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(field_name, start_offset, ctx)
+      |> make_field_error(field, start_offset, ctx)
       |> Error
     }
     validate_script_length(
@@ -1361,7 +1396,7 @@ fn read_witness_items_with_byte_tracking(
     max_total_bytes,
     fn(exceeded_val, start_offset, ctx) {
       PolicyLimitExceeded(exceeded_val, max_total_bytes)
-      |> make_field_error("witnessStack_total_payload_bytes", start_offset, ctx)
+      |> make_field_error(WitnessStackTotalPayloadBytes, start_offset, ctx)
     },
   )
 }
@@ -1385,7 +1420,17 @@ fn read_witness_item(
   max_item_size_policy
   |> read_witness_item_size
   |> parser.then(fn(length) {
-    read_field("witnessItem", reader.read_bytes(_, length))
+    parser.new(fn(reader, ctx) {
+      reader
+      |> reader.read_bytes(length)
+      |> result.map_error(fn(err) {
+        err
+        |> ReaderError
+        |> new_parse_error(reader.get_offset(reader))
+        |> with_contexts(ctx)
+        |> ParseFailed
+      })
+    })
   })
   |> parser.map(WitnessItem)
 }
@@ -1397,14 +1442,12 @@ fn read_witness_item(
 fn read_witness_stack_length(
   max_items_per_input_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  let field_name = "witnessStack_len"
-
-  field_name
+  WitnessStackLength
   |> read_compact_size_as_int
   |> parser.try_with_start_offset(fn(stack_len, start_offset, _, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(field_name, start_offset, ctx)
+      |> make_field_error(WitnessStackLength, start_offset, ctx)
       |> Error
     }
     validate_witness_stack_length(
@@ -1432,14 +1475,12 @@ fn validate_witness_stack_length(
 fn read_witness_item_size(
   max_item_size_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  let field_name = "witnessItem_len"
-
-  field_name
+  WitnessItemLength
   |> read_compact_size_as_int
   |> parser.try_with_start_offset(fn(length, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(field_name, start_offset, ctx)
+      |> make_field_error(WitnessItemLength, start_offset, ctx)
       |> Error
     }
     validate_witness_item_size(length, reader, max_item_size_policy, on_invalid)
