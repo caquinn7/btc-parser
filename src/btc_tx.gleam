@@ -177,7 +177,7 @@ pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
 /// **Requires validation**: This function accepts only `Transaction(Validated)`,
 /// ensuring the transaction has passed all consensus checks via `validate_consensus`.
 ///
-/// For a structural check without validation, use `has_coinbase_input`.
+/// For a structural check without validation, use `has_coinbase_marker`.
 ///
 /// Returns `True` if this is a valid coinbase transaction, `False` otherwise.
 pub fn is_coinbase(tx: Transaction(Validated)) -> Bool {
@@ -210,8 +210,8 @@ pub fn get_lock_time(tx: Transaction(v)) -> Int {
 
 /// Get the witness stacks from a SegWit transaction.
 ///
-/// Returns `Ok(witnesses)` if this is a `SegWit` transaction, or `Error(Nil)` if
-/// it's a `Legacy` transaction (which has no witness data).
+/// Returns `Ok(witnesses)` if the transaction uses SegWit format, or `Error(Nil)`
+/// if it's a legacy transaction (which has no witness data).
 ///
 /// The witness stacks are returned in order, corresponding 1-to-1 with the
 /// transaction inputs by position (witness stack at index N corresponds to
@@ -277,8 +277,7 @@ pub opaque type PrevOut {
 
 /// Get the transaction ID from a previous output reference.
 ///
-/// For a regular `OutPoint`, returns the transaction ID of the referenced output.
-/// For a `Coinbase` input, returns an all-zero hash.
+/// For coinbase inputs (which don't reference a previous output), returns an all-zero hash.
 pub fn get_prev_out_txid(prev_out: PrevOut) -> TxId {
   case prev_out {
     NullOutPoint -> {
@@ -291,9 +290,9 @@ pub fn get_prev_out_txid(prev_out: PrevOut) -> TxId {
 
 /// Get the output index from a previous output reference.
 ///
-/// For a regular `OutPoint`, returns the zero-based index of the output within
-/// the referenced transaction. For a `Coinbase` input, returns `0xFFFFFFFF` (the
-/// special sentinel value indicating no previous output).
+/// Returns the zero-based index of the output within the referenced transaction.
+/// For coinbase inputs (which don't reference a previous output), returns `0xFFFFFFFF`,
+/// a special sentinel value indicating no previous output.
 pub fn get_prev_out_vout(prev_out: PrevOut) -> Int {
   case prev_out {
     NullOutPoint -> 0xFFFFFFFF
@@ -302,9 +301,6 @@ pub fn get_prev_out_vout(prev_out: PrevOut) -> Int {
 }
 
 /// Check whether a previous output reference is a coinbase marker.
-///
-/// Returns `True` if this is a `NullOutPoint` (which does not reference any
-/// previous transaction output), `False` if it is a regular `OutPoint`.
 fn prev_out_is_coinbase_marker(prev_out: PrevOut) -> Bool {
   case prev_out {
     NullOutPoint -> True
@@ -1028,10 +1024,10 @@ fn read_compact_size_as_int(
   })
 }
 
-/// Detect whether this is a SegWit transaction by peeking at the marker/flag bytes.
+/// Detect whether this transaction uses SegWit format by peeking at the marker/flag bytes.
 ///
-/// Returns `True` if SegWit marker (0x00, 0x01) is present,`False` otherwise.
-/// Side effect: consumes the marker/flag bytes if SegWit is detected.
+/// Returns `True` if the marker/flag bytes (0x00, 0x01) are present, `False` otherwise.
+/// Side effect: consumes the marker/flag bytes if present.
 fn detect_segwit() -> Parser(ParseContext, Bool, DecodeError) {
   peek_segwit()
   |> parser.then(fn(is_segwit) {
@@ -1048,8 +1044,9 @@ fn detect_segwit() -> Parser(ParseContext, Bool, DecodeError) {
 
 /// Peek ahead at the next two bytes to check for SegWit marker/flag.
 ///
-/// Returns `True` if next bytes are 0x00 0x01, `False` if they don't start with 0x00
-/// or on EOF. Returns an error if marker is 0x00 but flag is invalid.
+/// Returns `True` if next bytes are 0x00 0x01 (SegWit marker/flag), `False` if they don't
+/// start with 0x00 or on EOF. Returns an error if the first byte is 0x00 but the flag
+/// byte is invalid.
 fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
   // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
   parser.new(fn(reader, ctx) {
