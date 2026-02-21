@@ -1546,32 +1546,45 @@ fn validate_witness_item_size(
 pub type ValidationError {
   /// The transaction has no inputs.
   ///
-  /// All Bitcoin transactions must have at least one input.
+  /// Every Bitcoin transaction must contain at least one input.
+  /// Transactions with zero inputs are invalid under consensus rules.
   NoInputs
 
   /// The transaction has no outputs.
   ///
-  /// All Bitcoin transactions must have at least one output.
+  /// Every Bitcoin transaction must contain at least one output.
+  /// Transactions with zero outputs are invalid under consensus rules.
   NoOutputs
 
-  /// An output has a negative value.
+  /// An output value is outside the valid money range.
   ///
-  /// Output values must be non-negative.
-  NegativeOutputValue(index: Int, value: Int)
+  /// Consensus requires each output value to satisfy:
+  ///
+  ///     0 <= value <= MAX_MONEY
+  ///
+  /// where MAX_MONEY is 21,000,000 BTC expressed in satoshis.
+  ///
+  /// The `index` field indicates the zero-based position of the output,
+  /// and `value` is the invalid amount.
+  OutputValueOutOfRange(index: Int, value: Int)
 
-  /// An individual output's value exceeds the maximum possible supply.
+  /// The cumulative sum of output values exceeds the valid money range.
   ///
-  /// No single output can contain more than 21 million BTC (2.1 quadrillion satoshis).
-  OutputValueExceedsSupply(index: Int, value: Int)
+  /// During validation, Bitcoin nodes maintain a running total of all
+  /// output values and require that the cumulative sum never exceed MAX_MONEY.
+  ///
+  /// The `index` field indicates the zero-based position of the output
+  /// at which the running total first exceeded MAX_MONEY.
+  ///
+  /// The `total` field is the cumulative output value at that point.
+  TotalOutputValueOutOfRange(index: Int, total: Int)
 
-  /// The sum of all output values exceeds the maximum possible supply.
+  /// A transaction identified as a coinbase transaction contains
+  /// more than one input.
   ///
-  /// The total value of all outputs cannot exceed 21 million BTC (2.1 quadrillion satoshis).
-  TotalOutputValueExceedsSupply(total: Int)
-
-  /// A coinbase transaction has more than one input.
-  ///
-  /// Coinbase transactions (those with a coinbase input) must have exactly one input.
+  /// A coinbase transaction is defined as a transaction whose single
+  /// input has a null prevout. Under consensus rules, such a transaction
+  /// must contain exactly one input.
   CoinbaseWithMultipleInputs
 
   /// A coinbase transaction's scriptSig length is invalid.
@@ -1580,25 +1593,23 @@ pub type ValidationError {
   InvalidCoinbaseScriptSigLength
 }
 
-/// Validate a transaction against Bitcoin consensus rules.
+/// Validate a transaction against selected Bitcoin consensus rules.
 ///
-/// This function performs a subset of Bitcoin's transaction validation checks,
-/// including rules that must be satisfied for a transaction to be considered
-/// valid on the Bitcoin network. If all validation checks pass, the transaction
-/// is marked as `Validated`.
+/// This function performs structural and monetary checks that are
+/// required for a transaction to be considered valid by fully
+/// validating Bitcoin nodes.
 ///
-/// The following consensus rules are checked:
-/// - Must have at least one input
-/// - Must have at least one output
-/// - All output values must be non-negative
-/// - No single output value may exceed the maximum supply (21M BTC)
-/// - The sum of all output values cannot exceed the maximum supply
-/// - Coinbase transactions must have exactly one input
-/// - Transactions cannot have multiple coinbase inputs
-/// - Coinbase scriptSig must be between 2 and 100 bytes (inclusive)
+/// The following consensus rules are enforced:
 ///
-/// Returns the transaction as `Validated` on success, or a list of all
-/// validation errors encountered if any checks fail.
+///   - At least one input
+///   - At least one output
+///   - Output values satisfy MoneyRange (0 <= value <= MAX_MONEY)
+///   - Cumulative output value does not exceed MAX_MONEY
+///   - Coinbase transactions contain exactly one input
+///   - Coinbase scriptSig length is 2–100 bytes (inclusive)
+///
+/// This function does not perform script execution, signature
+/// verification, or input-spend validation.
 pub fn validate_consensus(
   tx: Transaction(Unvalidated),
 ) -> Result(Transaction(Validated), List(ValidationError)) {
@@ -1665,17 +1676,20 @@ fn validate_output_values_loop(
   max_satoshis: Int,
 ) -> Result(Nil, ValidationError) {
   case outputs {
-    [] ->
-      case sum > max_satoshis {
-        True -> Error(TotalOutputValueExceedsSupply(sum))
-        False -> Ok(Nil)
-      }
+    [] -> Ok(Nil)
 
     [output, ..rest] ->
       case output.value {
-        v if v < 0 -> Error(NegativeOutputValue(index, v))
-        v if v > max_satoshis -> Error(OutputValueExceedsSupply(index, v))
-        v -> validate_output_values_loop(rest, index + 1, sum + v, max_satoshis)
+        v if v < 0 -> Error(OutputValueOutOfRange(index, v))
+        v if v > max_satoshis -> Error(OutputValueOutOfRange(index, v))
+        v -> {
+          let sum = sum + v
+          case sum > max_satoshis {
+            True -> Error(TotalOutputValueOutOfRange(index, sum))
+            False ->
+              validate_output_values_loop(rest, index + 1, sum, max_satoshis)
+          }
+        }
       }
   }
 }
