@@ -2168,7 +2168,7 @@ pub fn validate_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
 pub fn validate_consensus_returns_multiple_errors_test() {
   // Build a transaction that violates multiple consensus rules:
   // 1. Coinbase with multiple inputs (should trigger CoinbaseWithMultipleInputs)
-  // 2. Negative output value (should trigger NegativeOutputValue)
+  // 2. Negative output value (should trigger OutputValueOutOfRange)
   let vin_count = compact_size(2)
 
   // Coinbase input + regular input (violates "exactly one input" rule)
@@ -2197,7 +2197,7 @@ pub fn validate_consensus_returns_multiple_errors_test() {
   // Validate consensus rules - should fail with multiple errors
   let assert Error(errors) = btc_tx.validate_consensus(unvalidated_tx)
 
-  // Should contain both CoinbaseWithMultipleInputs and NegativeOutputValue
+  // Should contain both CoinbaseWithMultipleInputs and OutputValueOutOfRange
   assert list.contains(errors, CoinbaseWithMultipleInputs)
   assert list.contains(errors, OutputValueOutOfRange(0, -1))
   assert list.length(errors) == 2
