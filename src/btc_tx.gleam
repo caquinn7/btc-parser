@@ -145,16 +145,43 @@ pub fn is_segwit(tx: Transaction(v)) -> Bool {
   }
 }
 
-/// Check whether a transaction is a coinbase transaction.
+/// Check whether a transaction has a coinbase input marker (structural check).
+///
+/// This function performs a **structural check only**, determining whether any
+/// input has the coinbase marker (null previous outpoint). It does not verify
+/// that the transaction satisfies coinbase consensus rules.
+///
+/// A transaction may have a coinbase input but fail validation due to:
+/// - Having multiple inputs (coinbase transactions must have exactly one input)
+/// - Invalid scriptSig length (must be 2-100 bytes for coinbase)
+///
+/// For a consensus-validated check, use `is_coinbase` after calling
+/// `validate_consensus`.
+///
+/// Returns `True` if any input has a coinbase marker, `False` otherwise.
+pub fn has_coinbase_input(tx: Transaction(v)) -> Bool {
+  list.any(tx.inputs, fn(txin) { prev_out_is_coinbase(txin.prev_out) })
+}
+
+/// Check whether a transaction is a valid coinbase transaction.
+///
+/// This function returns `True` only for transactions that have been validated
+/// against Bitcoin consensus rules and confirmed to be valid coinbase transactions.
 ///
 /// A coinbase transaction is the first transaction in a block, which creates new
-/// bitcoins as a block reward and does not spend any previous outputs. Coinbase
-/// transactions have exactly one input with a special `Coinbase` marker instead
-/// of a reference to a previous transaction output.
+/// bitcoins as a block reward and does not spend any previous outputs. Valid
+/// coinbase transactions must:
+/// - Have exactly one input with a coinbase marker (null previous outpoint)
+/// - Have a scriptSig between 2 and 100 bytes in length
 ///
-/// Returns `True` if this is a coinbase transaction, `False` otherwise.
+/// **Requires validation**: This function accepts only `Transaction(Validated)`,
+/// ensuring the transaction has passed all consensus checks via `validate_consensus`.
+///
+/// For a structural check without validation, use `has_coinbase_input`.
+///
+/// Returns `True` if this is a valid coinbase transaction, `False` otherwise.
 pub fn is_coinbase(tx: Transaction(Validated)) -> Bool {
-  list.any(tx.inputs, fn(txin) { prev_out_is_coinbase(txin.prev_out) })
+  has_coinbase_input(tx)
 }
 
 /// Get the transaction inputs.
@@ -850,7 +877,8 @@ pub fn decode_with_policy(
     ))
     use witnesses <- parser.then(case is_segwit {
       True ->
-        read_witness_stacks(list.length(inputs), policy.witness_policy)
+        list.length(inputs)
+        |> read_witness_stacks(policy.witness_policy)
         |> parser.map(Some)
 
       False -> parser.return(None)
@@ -914,7 +942,7 @@ pub fn decode_with_policy(
 /// ```
 pub fn decode_hex(hex: String) -> Result(Transaction(Unvalidated), DecodeError) {
   hex
-  |> try_hex_to_bytes
+  |> hex_to_bytes
   |> result.try(decode)
 }
 
@@ -936,11 +964,11 @@ pub fn decode_hex_with_policy(
   policy: DecodePolicy,
 ) -> Result(Transaction(Unvalidated), DecodeError) {
   hex
-  |> try_hex_to_bytes
+  |> hex_to_bytes
   |> result.try(decode_with_policy(_, policy))
 }
 
-fn try_hex_to_bytes(hex: String) -> Result(BitArray, DecodeError) {
+fn hex_to_bytes(hex: String) -> Result(BitArray, DecodeError) {
   hex
   |> hex.hex_to_bytes
   |> result.map_error(HexToBytesFailed)
