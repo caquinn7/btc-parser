@@ -159,8 +159,8 @@ pub fn is_segwit(tx: Transaction(v)) -> Bool {
 /// `validate_consensus`.
 ///
 /// Returns `True` if any input has a coinbase marker, `False` otherwise.
-pub fn has_coinbase_input(tx: Transaction(v)) -> Bool {
-  list.any(tx.inputs, fn(txin) { prev_out_is_coinbase(txin.prev_out) })
+pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
+  list.any(tx.inputs, fn(txin) { prev_out_is_coinbase_marker(txin.prev_out) })
 }
 
 /// Check whether a transaction is a valid coinbase transaction.
@@ -181,7 +181,7 @@ pub fn has_coinbase_input(tx: Transaction(v)) -> Bool {
 ///
 /// Returns `True` if this is a valid coinbase transaction, `False` otherwise.
 pub fn is_coinbase(tx: Transaction(Validated)) -> Bool {
-  has_coinbase_input(tx)
+  has_coinbase_marker(tx)
 }
 
 /// Get the transaction inputs.
@@ -266,7 +266,7 @@ pub opaque type PrevOut {
   /// A special marker used by coinbase transactions.
   ///
   /// Coinbase inputs do not reference a previous transaction output.
-  Coinbase
+  NullOutPoint
 
   /// A reference to a specific output of a previous transaction.
   ///
@@ -275,24 +275,13 @@ pub opaque type PrevOut {
   OutPoint(txid: TxId, vout: Int)
 }
 
-/// Check whether a previous output reference is a coinbase marker.
-///
-/// Returns `True` if this is a `Coinbase`  input (which does not reference any
-/// previous transaction output), `False` if it is a regular `OutPoint`.
-pub fn prev_out_is_coinbase(prev_out: PrevOut) -> Bool {
-  case prev_out {
-    Coinbase -> True
-    OutPoint(..) -> False
-  }
-}
-
 /// Get the transaction ID from a previous output reference.
 ///
 /// For a regular `OutPoint`, returns the transaction ID of the referenced output.
 /// For a `Coinbase` input, returns an all-zero hash.
 pub fn get_prev_out_txid(prev_out: PrevOut) -> TxId {
   case prev_out {
-    Coinbase -> {
+    NullOutPoint -> {
       let assert Ok(hash32) = hash32.from_bytes_le(<<0:size(256)>>)
       TxId(hash32)
     }
@@ -307,8 +296,19 @@ pub fn get_prev_out_txid(prev_out: PrevOut) -> TxId {
 /// special sentinel value indicating no previous output).
 pub fn get_prev_out_vout(prev_out: PrevOut) -> Int {
   case prev_out {
-    Coinbase -> 0xFFFFFFFF
+    NullOutPoint -> 0xFFFFFFFF
     OutPoint(vout:, ..) -> vout
+  }
+}
+
+/// Check whether a previous output reference is a coinbase marker.
+///
+/// Returns `True` if this is a `NullOutPoint` (which does not reference any
+/// previous transaction output), `False` if it is a regular `OutPoint`.
+fn prev_out_is_coinbase_marker(prev_out: PrevOut) -> Bool {
+  case prev_out {
+    NullOutPoint -> True
+    OutPoint(..) -> False
   }
 }
 
@@ -1186,7 +1186,7 @@ fn read_prev_out() -> Parser(ParseContext, PrevOut, DecodeError) {
     read_field(Vout, reader.read_u32_le),
     fn(prev_txid_bytes, vout) {
       case prev_txid_bytes, vout {
-        <<0:size(256)>>, 0xFFFFFFFF -> Coinbase
+        <<0:size(256)>>, 0xFFFFFFFF -> NullOutPoint
 
         _, _ -> {
           // Safe: read_bytes(_, 32) guarantees exactly 32 bytes on success
@@ -1686,7 +1686,7 @@ fn validate_output_values_loop(
 fn validate_coinbase_structure(
   tx: Transaction(Unvalidated),
 ) -> Result(Nil, ValidationError) {
-  case has_coinbase_input(tx) {
+  case has_coinbase_marker(tx) {
     True ->
       case tx.inputs {
         [_] -> Ok(Nil)
@@ -1703,7 +1703,7 @@ fn validate_coinbase_scriptsig_length(
     [] -> Ok(Nil)
 
     [input] ->
-      case prev_out_is_coinbase(input.prev_out) {
+      case prev_out_is_coinbase_marker(input.prev_out) {
         True -> {
           let ScriptBytes(bytes) = input.script_sig
           let script_sig_size = bit_array.byte_size(bytes)

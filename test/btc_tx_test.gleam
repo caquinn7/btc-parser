@@ -389,7 +389,7 @@ pub fn decode_parses_single_input_test() {
   assert actual_script_sig_bytes == script_sig_bytes
 }
 
-pub fn decode_parses_coinbase_input_test() {
+pub fn decode_parses_coinbase_marker_input_test() {
   let vin_count = compact_size(1)
 
   let prev_txid_bytes = <<0:size(256)>>
@@ -411,12 +411,7 @@ pub fn decode_parses_coinbase_input_test() {
       lock_time:bits,
     >>)
 
-  let inputs = btc_tx.get_inputs(tx)
-  let assert [first_input] = inputs
-
-  let prev_out = btc_tx.get_input_prev_out(first_input)
-
-  assert btc_tx.prev_out_is_coinbase(prev_out)
+  assert btc_tx.has_coinbase_marker(tx)
 }
 
 pub fn decode_parses_empty_scriptsig_test() {
