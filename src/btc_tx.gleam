@@ -1665,17 +1665,20 @@ fn validate_output_values_loop(
   max_satoshis: Int,
 ) -> Result(Nil, ValidationError) {
   case outputs {
-    [] ->
-      case sum > max_satoshis {
-        True -> Error(TotalOutputValueExceedsSupply(sum))
-        False -> Ok(Nil)
-      }
+    [] -> Ok(Nil)
 
     [output, ..rest] ->
       case output.value {
         v if v < 0 -> Error(NegativeOutputValue(index, v))
         v if v > max_satoshis -> Error(OutputValueExceedsSupply(index, v))
-        v -> validate_output_values_loop(rest, index + 1, sum + v, max_satoshis)
+        v -> {
+          let sum = sum + v
+          case sum > max_satoshis {
+            True -> Error(TotalOutputValueExceedsSupply(sum))
+            False ->
+              validate_output_values_loop(rest, index + 1, sum, max_satoshis)
+          }
+        }
       }
   }
 }
