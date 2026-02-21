@@ -2,9 +2,9 @@ import btc_tx.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack,
   CoinbaseWithMultipleInputs, CompactSizeError, DecodePolicy, InInputs,
   InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
-  InvalidSegWitMarkerFlag, MultipleCoinbaseInputs, NegativeOutputValue, NoInputs,
-  NoOutputs, OutputValueExceedsSupply, ParseFailed, PolicyLimitExceeded,
-  ReaderError, ScriptPubKeyLength, ScriptSigLength, SegwitDiscriminator,
+  InvalidSegWitMarkerFlag, NegativeOutputValue, NoInputs, NoOutputs,
+  OutputValueExceedsSupply, ParseFailed, PolicyLimitExceeded, ReaderError,
+  ScriptPubKeyLength, ScriptSigLength, SegwitDiscriminator,
   TotalOutputValueExceedsSupply, TrailingBytes, Version, VinCount, VoutCount,
   WitnessItemLength, WitnessPolicy, WitnessStackLength,
   WitnessStackTotalPayloadBytes,
@@ -389,7 +389,7 @@ pub fn decode_parses_single_input_test() {
   assert actual_script_sig_bytes == script_sig_bytes
 }
 
-pub fn decode_parses_coinbase_input_test() {
+pub fn decode_parses_coinbase_marker_input_test() {
   let vin_count = compact_size(1)
 
   let prev_txid_bytes = <<0:size(256)>>
@@ -411,12 +411,7 @@ pub fn decode_parses_coinbase_input_test() {
       lock_time:bits,
     >>)
 
-  let inputs = btc_tx.get_inputs(tx)
-  let assert [first_input] = inputs
-
-  let prev_out = btc_tx.get_input_prev_out(first_input)
-
-  assert btc_tx.prev_out_is_coinbase(prev_out)
+  assert btc_tx.has_coinbase_marker(tx)
 }
 
 pub fn decode_parses_empty_scriptsig_test() {
@@ -2034,11 +2029,15 @@ pub fn validate_consensus_rejects_coinbase_with_multiple_inputs_test() {
     == Error([CoinbaseWithMultipleInputs])
 }
 
-pub fn validate_consensus_rejects_tx_with_multiple_coinbase_inputs_test() {
+pub fn validate_consensus_rejects_multiple_coinbase_inputs_test() {
   // Build a transaction with 2 coinbase inputs
-  // This violates the rule that a transaction can only have one coinbase input
+  // This should also be rejected as coinbase transactions must have exactly 1 input
   let vin_count = compact_size(2)
-  let coinbase_input = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+
+  // Two coinbase inputs (both have prev_txid=all zeros, vout=0xFFFFFFFF)
+  let coinbase_input1 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+  let coinbase_input2 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+
   let vout_count = compact_size(1)
   let value = <<1000:little-size(64)>>
   let script_pubkey_len = compact_size(0)
@@ -2047,8 +2046,8 @@ pub fn validate_consensus_rejects_tx_with_multiple_coinbase_inputs_test() {
   let tx_bytes = <<
     version1:bits,
     vin_count:bits,
-    coinbase_input:bits,
-    coinbase_input:bits,
+    coinbase_input1:bits,
+    coinbase_input2:bits,
     vout_count:bits,
     value:bits,
     script_pubkey_len:bits,
@@ -2058,7 +2057,7 @@ pub fn validate_consensus_rejects_tx_with_multiple_coinbase_inputs_test() {
   let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
 
   assert btc_tx.validate_consensus(unvalidated_tx)
-    == Error([MultipleCoinbaseInputs])
+    == Error([CoinbaseWithMultipleInputs])
 }
 
 pub fn validate_consensus_rejects_coinbase_with_scriptsig_too_short_test() {
@@ -2169,13 +2168,13 @@ pub fn validate_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
 
 pub fn validate_consensus_returns_multiple_errors_test() {
   // Build a transaction that violates multiple consensus rules:
-  // 1. Two coinbase inputs (should trigger MultipleCoinbaseInputs)
+  // 1. Coinbase with multiple inputs (should trigger CoinbaseWithMultipleInputs)
   // 2. Negative output value (should trigger NegativeOutputValue)
   let vin_count = compact_size(2)
 
-  // Two coinbase inputs
+  // Coinbase input + regular input (violates "exactly one input" rule)
   let coinbase_input1 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
-  let coinbase_input2 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+  let regular_input = build_input(<<1:size(256)>>, 0, <<0, 0>>, 0)
 
   let vout_count = compact_size(1)
   // Negative value: 0xFFFFFFFFFFFFFFFF = -1 as signed int64
@@ -2187,7 +2186,7 @@ pub fn validate_consensus_returns_multiple_errors_test() {
     version1:bits,
     vin_count:bits,
     coinbase_input1:bits,
-    coinbase_input2:bits,
+    regular_input:bits,
     vout_count:bits,
     negative_value:bits,
     script_pubkey_len:bits,
@@ -2199,10 +2198,131 @@ pub fn validate_consensus_returns_multiple_errors_test() {
   // Validate consensus rules - should fail with multiple errors
   let assert Error(errors) = btc_tx.validate_consensus(unvalidated_tx)
 
-  // Should contain both MultipleCoinbaseInputs and NegativeOutputValue
-  assert list.contains(errors, MultipleCoinbaseInputs)
+  // Should contain both CoinbaseWithMultipleInputs and NegativeOutputValue
+  assert list.contains(errors, CoinbaseWithMultipleInputs)
   assert list.contains(errors, NegativeOutputValue(0, -1))
   assert list.length(errors) == 2
+}
+
+// ============================================================================
+// has_coinbase_marker and is_coinbase
+// ============================================================================
+
+pub fn has_coinbase_marker_regular_inputs_returns_false_test() {
+  // Multiple inputs, none with coinbase marker
+  let vin_count = compact_size(2)
+  let input1 = build_input(repeat_byte(1, 32), 0, <<0>>, 0xFFFFFFFE)
+  let input2 = build_input(repeat_byte(2, 32), 1, <<0>>, 0xFFFFFFFE)
+  let vout_count = compact_size(1)
+  let output = build_output(<<100_000_000:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    input1:bits,
+    input2:bits,
+    vout_count:bits,
+    output:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  assert !btc_tx.has_coinbase_marker(tx)
+}
+
+pub fn has_coinbase_marker_multiple_inputs_one_coinbase_returns_true_test() {
+  // Multiple inputs where one has coinbase marker (function checks "any")
+  let vin_count = compact_size(3)
+  let regular_input1 = build_input(repeat_byte(1, 32), 5, <<0>>, 0xFFFFFFFE)
+  let coinbase_input = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+  let regular_input2 = build_input(repeat_byte(2, 32), 10, <<0>>, 0xFFFFFFFE)
+  let vout_count = compact_size(1)
+  let output = build_output(<<5_000_000_000:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    regular_input1:bits,
+    coinbase_input:bits,
+    regular_input2:bits,
+    vout_count:bits,
+    output:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  assert btc_tx.has_coinbase_marker(tx)
+}
+
+pub fn has_coinbase_marker_all_inputs_coinbase_returns_true_test() {
+  // All inputs have coinbase marker (edge case)
+  let vin_count = compact_size(2)
+  let coinbase_input1 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+  let coinbase_input2 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 1>>, 0)
+  let vout_count = compact_size(1)
+  let output = build_output(<<5_000_000_000:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    coinbase_input1:bits,
+    coinbase_input2:bits,
+    vout_count:bits,
+    output:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  assert btc_tx.has_coinbase_marker(tx)
+}
+
+pub fn is_coinbase_regular_transaction_returns_false_test() {
+  // Regular (non-coinbase) transaction with valid inputs and outputs
+  let vin_count = compact_size(1)
+  let regular_input =
+    build_input(repeat_byte(1, 32), 42, <<0, 1, 2>>, 0xFFFFFFFE)
+  let vout_count = compact_size(1)
+  let output = build_output(<<50_000_000:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    regular_input:bits,
+    vout_count:bits,
+    output:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(unvalidated_tx)
+  assert !btc_tx.is_coinbase(validated_tx)
+}
+
+pub fn is_coinbase_coinbase_transaction_test() {
+  // Valid coinbase: exactly 1 input with coinbase marker and 50-byte scriptSig
+  let vin_count = compact_size(1)
+  let coinbase_input =
+    build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(400)>>, 0)
+  let vout_count = compact_size(1)
+  let output = build_output(<<5_000_000_000:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    coinbase_input:bits,
+    vout_count:bits,
+    output:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(unvalidated_tx)
+  assert btc_tx.is_coinbase(validated_tx)
 }
 
 // ============================================================================

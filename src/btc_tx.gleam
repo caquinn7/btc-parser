@@ -145,16 +145,43 @@ pub fn is_segwit(tx: Transaction(v)) -> Bool {
   }
 }
 
-/// Check whether a transaction is a coinbase transaction.
+/// Check whether a transaction has a coinbase input marker (structural check).
+///
+/// This function performs a **structural check only**, determining whether any
+/// input has the coinbase marker (null previous outpoint). It does not verify
+/// that the transaction satisfies coinbase consensus rules.
+///
+/// A transaction may have a coinbase input but fail validation due to:
+/// - Having multiple inputs (coinbase transactions must have exactly one input)
+/// - Invalid scriptSig length (must be 2-100 bytes for coinbase)
+///
+/// For a consensus-validated check, use `is_coinbase` after calling
+/// `validate_consensus`.
+///
+/// Returns `True` if any input has a coinbase marker, `False` otherwise.
+pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
+  list.any(tx.inputs, fn(txin) { prev_out_is_coinbase_marker(txin.prev_out) })
+}
+
+/// Check whether a transaction is a valid coinbase transaction.
+///
+/// This function returns `True` only for transactions that have been validated
+/// against Bitcoin consensus rules and confirmed to be valid coinbase transactions.
 ///
 /// A coinbase transaction is the first transaction in a block, which creates new
-/// bitcoins as a block reward and does not spend any previous outputs. Coinbase
-/// transactions have exactly one input with a special `Coinbase` marker instead
-/// of a reference to a previous transaction output.
+/// bitcoins as a block reward and does not spend any previous outputs. Valid
+/// coinbase transactions must:
+/// - Have exactly one input with a coinbase marker (null previous outpoint)
+/// - Have a scriptSig between 2 and 100 bytes in length
 ///
-/// Returns `True` if this is a coinbase transaction, `False` otherwise.
+/// **Requires validation**: This function accepts only `Transaction(Validated)`,
+/// ensuring the transaction has passed all consensus checks via `validate_consensus`.
+///
+/// For a structural check without validation, use `has_coinbase_marker`.
+///
+/// Returns `True` if this is a valid coinbase transaction, `False` otherwise.
 pub fn is_coinbase(tx: Transaction(Validated)) -> Bool {
-  list.any(tx.inputs, fn(txin) { prev_out_is_coinbase(txin.prev_out) })
+  has_coinbase_marker(tx)
 }
 
 /// Get the transaction inputs.
@@ -183,8 +210,8 @@ pub fn get_lock_time(tx: Transaction(v)) -> Int {
 
 /// Get the witness stacks from a SegWit transaction.
 ///
-/// Returns `Ok(witnesses)` if this is a `SegWit` transaction, or `Error(Nil)` if
-/// it's a `Legacy` transaction (which has no witness data).
+/// Returns `Ok(witnesses)` if the transaction uses SegWit format, or `Error(Nil)`
+/// if it's a legacy transaction (which has no witness data).
 ///
 /// The witness stacks are returned in order, corresponding 1-to-1 with the
 /// transaction inputs by position (witness stack at index N corresponds to
@@ -239,7 +266,7 @@ pub opaque type PrevOut {
   /// A special marker used by coinbase transactions.
   ///
   /// Coinbase inputs do not reference a previous transaction output.
-  Coinbase
+  NullOutPoint
 
   /// A reference to a specific output of a previous transaction.
   ///
@@ -248,24 +275,12 @@ pub opaque type PrevOut {
   OutPoint(txid: TxId, vout: Int)
 }
 
-/// Check whether a previous output reference is a coinbase marker.
-///
-/// Returns `True` if this is a `Coinbase`  input (which does not reference any
-/// previous transaction output), `False` if it is a regular `OutPoint`.
-pub fn prev_out_is_coinbase(prev_out: PrevOut) -> Bool {
-  case prev_out {
-    Coinbase -> True
-    OutPoint(..) -> False
-  }
-}
-
 /// Get the transaction ID from a previous output reference.
 ///
-/// For a regular `OutPoint`, returns the transaction ID of the referenced output.
-/// For a `Coinbase` input, returns an all-zero hash.
+/// For coinbase inputs (which don't reference a previous output), returns an all-zero hash.
 pub fn get_prev_out_txid(prev_out: PrevOut) -> TxId {
   case prev_out {
-    Coinbase -> {
+    NullOutPoint -> {
       let assert Ok(hash32) = hash32.from_bytes_le(<<0:size(256)>>)
       TxId(hash32)
     }
@@ -275,13 +290,21 @@ pub fn get_prev_out_txid(prev_out: PrevOut) -> TxId {
 
 /// Get the output index from a previous output reference.
 ///
-/// For a regular `OutPoint`, returns the zero-based index of the output within
-/// the referenced transaction. For a `Coinbase` input, returns `0xFFFFFFFF` (the
-/// special sentinel value indicating no previous output).
+/// Returns the zero-based index of the output within the referenced transaction.
+/// For coinbase inputs (which don't reference a previous output), returns `0xFFFFFFFF`,
+/// a special sentinel value indicating no previous output.
 pub fn get_prev_out_vout(prev_out: PrevOut) -> Int {
   case prev_out {
-    Coinbase -> 0xFFFFFFFF
+    NullOutPoint -> 0xFFFFFFFF
     OutPoint(vout:, ..) -> vout
+  }
+}
+
+/// Check whether a previous output reference is a coinbase marker.
+fn prev_out_is_coinbase_marker(prev_out: PrevOut) -> Bool {
+  case prev_out {
+    NullOutPoint -> True
+    OutPoint(..) -> False
   }
 }
 
@@ -850,7 +873,8 @@ pub fn decode_with_policy(
     ))
     use witnesses <- parser.then(case is_segwit {
       True ->
-        read_witness_stacks(list.length(inputs), policy.witness_policy)
+        list.length(inputs)
+        |> read_witness_stacks(policy.witness_policy)
         |> parser.map(Some)
 
       False -> parser.return(None)
@@ -914,7 +938,7 @@ pub fn decode_with_policy(
 /// ```
 pub fn decode_hex(hex: String) -> Result(Transaction(Unvalidated), DecodeError) {
   hex
-  |> try_hex_to_bytes
+  |> hex_to_bytes
   |> result.try(decode)
 }
 
@@ -936,11 +960,11 @@ pub fn decode_hex_with_policy(
   policy: DecodePolicy,
 ) -> Result(Transaction(Unvalidated), DecodeError) {
   hex
-  |> try_hex_to_bytes
+  |> hex_to_bytes
   |> result.try(decode_with_policy(_, policy))
 }
 
-fn try_hex_to_bytes(hex: String) -> Result(BitArray, DecodeError) {
+fn hex_to_bytes(hex: String) -> Result(BitArray, DecodeError) {
   hex
   |> hex.hex_to_bytes
   |> result.map_error(HexToBytesFailed)
@@ -1000,10 +1024,10 @@ fn read_compact_size_as_int(
   })
 }
 
-/// Detect whether this is a SegWit transaction by peeking at the marker/flag bytes.
+/// Detect whether this transaction uses SegWit format by peeking at the marker/flag bytes.
 ///
-/// Returns `True` if SegWit marker (0x00, 0x01) is present,`False` otherwise.
-/// Side effect: consumes the marker/flag bytes if SegWit is detected.
+/// Returns `True` if the marker/flag bytes (0x00, 0x01) are present, `False` otherwise.
+/// Side effect: consumes the marker/flag bytes if present.
 fn detect_segwit() -> Parser(ParseContext, Bool, DecodeError) {
   peek_segwit()
   |> parser.then(fn(is_segwit) {
@@ -1020,8 +1044,9 @@ fn detect_segwit() -> Parser(ParseContext, Bool, DecodeError) {
 
 /// Peek ahead at the next two bytes to check for SegWit marker/flag.
 ///
-/// Returns `True` if next bytes are 0x00 0x01, `False` if they don't start with 0x00
-/// or on EOF. Returns an error if marker is 0x00 but flag is invalid.
+/// Returns `True` if next bytes are 0x00 0x01 (SegWit marker/flag), `False` if they don't
+/// start with 0x00 or on EOF. Returns an error if the first byte is 0x00 but the flag
+/// byte is invalid.
 fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
   // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
   parser.new(fn(reader, ctx) {
@@ -1158,7 +1183,7 @@ fn read_prev_out() -> Parser(ParseContext, PrevOut, DecodeError) {
     read_field(Vout, reader.read_u32_le),
     fn(prev_txid_bytes, vout) {
       case prev_txid_bytes, vout {
-        <<0:size(256)>>, 0xFFFFFFFF -> Coinbase
+        <<0:size(256)>>, 0xFFFFFFFF -> NullOutPoint
 
         _, _ -> {
           // Safe: read_bytes(_, 32) guarantees exactly 32 bytes on success
@@ -1549,11 +1574,6 @@ pub type ValidationError {
   /// Coinbase transactions (those with a coinbase input) must have exactly one input.
   CoinbaseWithMultipleInputs
 
-  /// A transaction has multiple coinbase inputs.
-  ///
-  /// A transaction cannot contain more than one coinbase input.
-  MultipleCoinbaseInputs
-
   /// A coinbase transaction's scriptSig length is invalid.
   ///
   /// Coinbase scriptSig must be between 2 and 100 bytes (inclusive).
@@ -1663,17 +1683,13 @@ fn validate_output_values_loop(
 fn validate_coinbase_structure(
   tx: Transaction(Unvalidated),
 ) -> Result(Nil, ValidationError) {
-  let coinbase_count =
-    list.count(tx.inputs, fn(txin) { prev_out_is_coinbase(txin.prev_out) })
-
-  case coinbase_count {
-    0 -> Ok(Nil)
-    1 ->
-      case list.length(tx.inputs) == 1 {
-        True -> Ok(Nil)
-        False -> Error(CoinbaseWithMultipleInputs)
+  case has_coinbase_marker(tx) {
+    True ->
+      case tx.inputs {
+        [_] -> Ok(Nil)
+        _ -> Error(CoinbaseWithMultipleInputs)
       }
-    _ -> Error(MultipleCoinbaseInputs)
+    False -> Ok(Nil)
   }
 }
 
@@ -1684,7 +1700,7 @@ fn validate_coinbase_scriptsig_length(
     [] -> Ok(Nil)
 
     [input] ->
-      case prev_out_is_coinbase(input.prev_out) {
+      case prev_out_is_coinbase_marker(input.prev_out) {
         True -> {
           let ScriptBytes(bytes) = input.script_sig
           let script_sig_size = bit_array.byte_size(bytes)
