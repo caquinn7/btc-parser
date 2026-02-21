@@ -1577,11 +1577,6 @@ pub type ValidationError {
   /// Coinbase transactions (those with a coinbase input) must have exactly one input.
   CoinbaseWithMultipleInputs
 
-  /// A transaction has multiple coinbase inputs.
-  ///
-  /// A transaction cannot contain more than one coinbase input.
-  MultipleCoinbaseInputs
-
   /// A coinbase transaction's scriptSig length is invalid.
   ///
   /// Coinbase scriptSig must be between 2 and 100 bytes (inclusive).
@@ -1691,17 +1686,13 @@ fn validate_output_values_loop(
 fn validate_coinbase_structure(
   tx: Transaction(Unvalidated),
 ) -> Result(Nil, ValidationError) {
-  let coinbase_count =
-    list.count(tx.inputs, fn(txin) { prev_out_is_coinbase(txin.prev_out) })
-
-  case coinbase_count {
-    0 -> Ok(Nil)
-    1 ->
-      case list.length(tx.inputs) == 1 {
-        True -> Ok(Nil)
-        False -> Error(CoinbaseWithMultipleInputs)
+  case has_coinbase_input(tx) {
+    True ->
+      case tx.inputs {
+        [_] -> Ok(Nil)
+        _ -> Error(CoinbaseWithMultipleInputs)
       }
-    _ -> Error(MultipleCoinbaseInputs)
+    False -> Ok(Nil)
   }
 }
 

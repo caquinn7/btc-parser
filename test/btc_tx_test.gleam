@@ -2,9 +2,9 @@ import btc_tx.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack,
   CoinbaseWithMultipleInputs, CompactSizeError, DecodePolicy, InInputs,
   InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
-  InvalidSegWitMarkerFlag, MultipleCoinbaseInputs, NegativeOutputValue, NoInputs,
-  NoOutputs, OutputValueExceedsSupply, ParseFailed, PolicyLimitExceeded,
-  ReaderError, ScriptPubKeyLength, ScriptSigLength, SegwitDiscriminator,
+  InvalidSegWitMarkerFlag, NegativeOutputValue, NoInputs, NoOutputs,
+  OutputValueExceedsSupply, ParseFailed, PolicyLimitExceeded, ReaderError,
+  ScriptPubKeyLength, ScriptSigLength, SegwitDiscriminator,
   TotalOutputValueExceedsSupply, TrailingBytes, Version, VinCount, VoutCount,
   WitnessItemLength, WitnessPolicy, WitnessStackLength,
   WitnessStackTotalPayloadBytes,
@@ -2034,11 +2034,15 @@ pub fn validate_consensus_rejects_coinbase_with_multiple_inputs_test() {
     == Error([CoinbaseWithMultipleInputs])
 }
 
-pub fn validate_consensus_rejects_tx_with_multiple_coinbase_inputs_test() {
+pub fn validate_consensus_rejects_multiple_coinbase_inputs_test() {
   // Build a transaction with 2 coinbase inputs
-  // This violates the rule that a transaction can only have one coinbase input
+  // This should also be rejected as coinbase transactions must have exactly 1 input
   let vin_count = compact_size(2)
-  let coinbase_input = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+
+  // Two coinbase inputs (both have prev_txid=all zeros, vout=0xFFFFFFFF)
+  let coinbase_input1 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+  let coinbase_input2 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+
   let vout_count = compact_size(1)
   let value = <<1000:little-size(64)>>
   let script_pubkey_len = compact_size(0)
@@ -2047,8 +2051,8 @@ pub fn validate_consensus_rejects_tx_with_multiple_coinbase_inputs_test() {
   let tx_bytes = <<
     version1:bits,
     vin_count:bits,
-    coinbase_input:bits,
-    coinbase_input:bits,
+    coinbase_input1:bits,
+    coinbase_input2:bits,
     vout_count:bits,
     value:bits,
     script_pubkey_len:bits,
@@ -2058,7 +2062,7 @@ pub fn validate_consensus_rejects_tx_with_multiple_coinbase_inputs_test() {
   let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
 
   assert btc_tx.validate_consensus(unvalidated_tx)
-    == Error([MultipleCoinbaseInputs])
+    == Error([CoinbaseWithMultipleInputs])
 }
 
 pub fn validate_consensus_rejects_coinbase_with_scriptsig_too_short_test() {
@@ -2169,13 +2173,13 @@ pub fn validate_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
 
 pub fn validate_consensus_returns_multiple_errors_test() {
   // Build a transaction that violates multiple consensus rules:
-  // 1. Two coinbase inputs (should trigger MultipleCoinbaseInputs)
+  // 1. Coinbase with multiple inputs (should trigger CoinbaseWithMultipleInputs)
   // 2. Negative output value (should trigger NegativeOutputValue)
   let vin_count = compact_size(2)
 
-  // Two coinbase inputs
+  // Coinbase input + regular input (violates "exactly one input" rule)
   let coinbase_input1 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
-  let coinbase_input2 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+  let regular_input = build_input(<<1:size(256)>>, 0, <<0, 0>>, 0)
 
   let vout_count = compact_size(1)
   // Negative value: 0xFFFFFFFFFFFFFFFF = -1 as signed int64
@@ -2187,7 +2191,7 @@ pub fn validate_consensus_returns_multiple_errors_test() {
     version1:bits,
     vin_count:bits,
     coinbase_input1:bits,
-    coinbase_input2:bits,
+    regular_input:bits,
     vout_count:bits,
     negative_value:bits,
     script_pubkey_len:bits,
@@ -2199,8 +2203,8 @@ pub fn validate_consensus_returns_multiple_errors_test() {
   // Validate consensus rules - should fail with multiple errors
   let assert Error(errors) = btc_tx.validate_consensus(unvalidated_tx)
 
-  // Should contain both MultipleCoinbaseInputs and NegativeOutputValue
-  assert list.contains(errors, MultipleCoinbaseInputs)
+  // Should contain both CoinbaseWithMultipleInputs and NegativeOutputValue
+  assert list.contains(errors, CoinbaseWithMultipleInputs)
   assert list.contains(errors, NegativeOutputValue(0, -1))
   assert list.length(errors) == 2
 }
