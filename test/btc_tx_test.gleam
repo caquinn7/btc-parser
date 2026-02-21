@@ -2,12 +2,11 @@ import btc_tx.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack,
   CoinbaseWithMultipleInputs, CompactSizeError, DecodePolicy, InInputs,
   InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
-  InvalidSegWitMarkerFlag, NegativeOutputValue, NoInputs, NoOutputs,
-  OutputValueExceedsSupply, ParseFailed, PolicyLimitExceeded, ReaderError,
-  ScriptPubKeyLength, ScriptSigLength, SegwitDiscriminator,
-  TotalOutputValueExceedsSupply, TrailingBytes, Version, VinCount, VoutCount,
-  WitnessItemLength, WitnessPolicy, WitnessStackLength,
-  WitnessStackTotalPayloadBytes,
+  InvalidSegWitMarkerFlag, NoInputs, NoOutputs, OutputValueOutOfRange,
+  ParseFailed, PolicyLimitExceeded, ReaderError, ScriptPubKeyLength,
+  ScriptSigLength, SegwitDiscriminator, TotalOutputValueOutOfRange,
+  TrailingBytes, Version, VinCount, VoutCount, WitnessItemLength, WitnessPolicy,
+  WitnessStackLength, WitnessStackTotalPayloadBytes,
 }
 import gleam/bit_array
 import gleam/list
@@ -1938,7 +1937,7 @@ pub fn validate_consensus_rejects_tx_with_negative_output_value_test() {
   let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
 
   assert btc_tx.validate_consensus(unvalidated_tx)
-    == Error([NegativeOutputValue(0, -1)])
+    == Error([OutputValueOutOfRange(0, -1)])
 }
 
 pub fn validate_consensus_rejects_tx_with_output_exceeding_supply_test() {
@@ -1964,7 +1963,7 @@ pub fn validate_consensus_rejects_tx_with_output_exceeding_supply_test() {
   let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
 
   assert btc_tx.validate_consensus(unvalidated_tx)
-    == Error([OutputValueExceedsSupply(0, 2_100_000_000_000_001)])
+    == Error([OutputValueOutOfRange(0, 2_100_000_000_000_001)])
 }
 
 pub fn validate_consensus_rejects_tx_with_total_outputs_exceeding_supply_test() {
@@ -1993,7 +1992,7 @@ pub fn validate_consensus_rejects_tx_with_total_outputs_exceeding_supply_test() 
   let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
 
   assert btc_tx.validate_consensus(unvalidated_tx)
-    == Error([TotalOutputValueExceedsSupply(2_200_000_000_000_000)])
+    == Error([TotalOutputValueOutOfRange(1, 2_200_000_000_000_000)])
 }
 
 pub fn validate_consensus_rejects_coinbase_with_multiple_inputs_test() {
@@ -2200,7 +2199,7 @@ pub fn validate_consensus_returns_multiple_errors_test() {
 
   // Should contain both CoinbaseWithMultipleInputs and NegativeOutputValue
   assert list.contains(errors, CoinbaseWithMultipleInputs)
-  assert list.contains(errors, NegativeOutputValue(0, -1))
+  assert list.contains(errors, OutputValueOutOfRange(0, -1))
   assert list.length(errors) == 2
 }
 
