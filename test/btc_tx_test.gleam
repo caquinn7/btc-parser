@@ -2205,6 +2205,127 @@ pub fn validate_consensus_returns_multiple_errors_test() {
 }
 
 // ============================================================================
+// has_coinbase_marker and is_coinbase
+// ============================================================================
+
+pub fn has_coinbase_marker_regular_inputs_returns_false_test() {
+  // Multiple inputs, none with coinbase marker
+  let vin_count = compact_size(2)
+  let input1 = build_input(repeat_byte(1, 32), 0, <<0>>, 0xFFFFFFFE)
+  let input2 = build_input(repeat_byte(2, 32), 1, <<0>>, 0xFFFFFFFE)
+  let vout_count = compact_size(1)
+  let output = build_output(<<100_000_000:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    input1:bits,
+    input2:bits,
+    vout_count:bits,
+    output:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  assert !btc_tx.has_coinbase_marker(tx)
+}
+
+pub fn has_coinbase_marker_multiple_inputs_one_coinbase_returns_true_test() {
+  // Multiple inputs where one has coinbase marker (function checks "any")
+  let vin_count = compact_size(3)
+  let regular_input1 = build_input(repeat_byte(1, 32), 5, <<0>>, 0xFFFFFFFE)
+  let coinbase_input = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+  let regular_input2 = build_input(repeat_byte(2, 32), 10, <<0>>, 0xFFFFFFFE)
+  let vout_count = compact_size(1)
+  let output = build_output(<<5_000_000_000:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    regular_input1:bits,
+    coinbase_input:bits,
+    regular_input2:bits,
+    vout_count:bits,
+    output:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  assert btc_tx.has_coinbase_marker(tx)
+}
+
+pub fn has_coinbase_marker_all_inputs_coinbase_returns_true_test() {
+  // All inputs have coinbase marker (edge case)
+  let vin_count = compact_size(2)
+  let coinbase_input1 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
+  let coinbase_input2 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 1>>, 0)
+  let vout_count = compact_size(1)
+  let output = build_output(<<5_000_000_000:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    coinbase_input1:bits,
+    coinbase_input2:bits,
+    vout_count:bits,
+    output:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  assert btc_tx.has_coinbase_marker(tx)
+}
+
+pub fn is_coinbase_regular_transaction_returns_false_test() {
+  // Regular (non-coinbase) transaction with valid inputs and outputs
+  let vin_count = compact_size(1)
+  let regular_input =
+    build_input(repeat_byte(1, 32), 42, <<0, 1, 2>>, 0xFFFFFFFE)
+  let vout_count = compact_size(1)
+  let output = build_output(<<50_000_000:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    regular_input:bits,
+    vout_count:bits,
+    output:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(unvalidated_tx)
+  assert !btc_tx.is_coinbase(validated_tx)
+}
+
+pub fn is_coinbase_coinbase_transaction_test() {
+  // Valid coinbase: exactly 1 input with coinbase marker and 50-byte scriptSig
+  let vin_count = compact_size(1)
+  let coinbase_input =
+    build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(400)>>, 0)
+  let vout_count = compact_size(1)
+  let output = build_output(<<5_000_000_000:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    coinbase_input:bits,
+    vout_count:bits,
+    output:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(unvalidated_tx)
+  assert btc_tx.is_coinbase(validated_tx)
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
