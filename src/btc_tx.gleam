@@ -441,8 +441,7 @@ pub opaque type ParseError {
 
 /// The specific kind of error that occurred during parsing.
 ///
-/// This type categorizes parsing failures into distinct categories, ranging from
-/// low-level binary reading errors to semantic constraint violations.
+/// This type categorizes parsing failures into distinct categories.
 pub type ParseErrorKind {
   /// A low-level binary reader operation failed.
   ///
@@ -455,7 +454,7 @@ pub type ParseErrorKind {
   /// This error wraps failures from CompactSize decoding operations, such as
   /// encountering an unexpected end of input or detecting a non-minimal encoding
   /// that violates Bitcoin's canonical serialization rules.
-  CompactSizeError(compact_size.CompactSizeError)
+  CompactSizeError(compact_size.ReadError)
 
   /// An error variant indicating that an invalid SegWit marker flag was encountered.
   InvalidSegWitMarkerFlag(marker: Int, flag: Int)
@@ -679,7 +678,7 @@ fn make_field_error(
 }
 
 // ==============================================================================
-// Decoding functions
+// Decoding
 // ==============================================================================
 
 /// Configuration policy for transaction decoding limits.

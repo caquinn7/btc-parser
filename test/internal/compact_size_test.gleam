@@ -2,6 +2,10 @@ import internal/compact_size.{NonMinimalCompactSize}
 import internal/fixed_int/uint64
 import internal/reader
 
+// ===============================
+// Read
+// ===============================
+
 // Single-byte encoding (values 0-252)
 
 pub fn read_returns_single_byte_value_test() {
@@ -149,4 +153,101 @@ pub fn read_errors_on_partial_ff_read_test() {
         remaining: 7,
       )),
     )
+}
+
+// ===============================
+// Write
+// ===============================
+
+// Single-byte encoding (values 0-252)
+
+pub fn write_encodes_single_byte_value_test() {
+  let assert Ok(input) = uint64.from_bytes_le(<<0x01, 0, 0, 0, 0, 0, 0, 0>>)
+  assert compact_size.write(input) == <<0x01>>
+}
+
+pub fn write_encodes_max_single_byte_value_test() {
+  // 252
+  let assert Ok(input) = uint64.from_bytes_le(<<0xFC, 0, 0, 0, 0, 0, 0, 0>>)
+  assert compact_size.write(input) == <<0xFC>>
+}
+
+pub fn write_encodes_zero_test() {
+  let assert Ok(input) = uint64.from_bytes_le(<<0, 0, 0, 0, 0, 0, 0, 0>>)
+  assert compact_size.write(input) == <<0>>
+}
+
+// 0xfd prefix (2-byte encoding, values 253-65535)
+
+pub fn write_encodes_fd_threshold_value_test() {
+  let assert Ok(input) = uint64.from_bytes_le(<<0xFD, 0, 0, 0, 0, 0, 0, 0>>)
+
+  assert uint64.to_int(input) == Ok(253)
+  assert compact_size.write(input) == <<0xFD, 0xFD, 0>>
+}
+
+pub fn write_encodes_fd_prefixed_value_test() {
+  let assert Ok(input) = uint64.from_bytes_le(<<0xE8, 0x03, 0, 0, 0, 0, 0, 0>>)
+
+  assert uint64.to_int(input) == Ok(1000)
+  assert compact_size.write(input) == <<0xFD, 0xE8, 0x03>>
+}
+
+pub fn write_encodes_max_fd_value_test() {
+  let assert Ok(input) = uint64.from_bytes_le(<<0xFF, 0xFF, 0, 0, 0, 0, 0, 0>>)
+
+  assert uint64.to_int(input) == Ok(65_535)
+  assert compact_size.write(input) == <<0xFD, 0xFF, 0xFF>>
+}
+
+// 0xfe prefix (4-byte encoding, values 65536-4294967295)
+
+pub fn write_encodes_fe_threshold_value_test() {
+  let assert Ok(input) = uint64.from_bytes_le(<<0, 0, 1, 0, 0, 0, 0, 0>>)
+
+  assert uint64.to_int(input) == Ok(65_536)
+  assert compact_size.write(input) == <<0xFE, 0, 0, 1, 0>>
+}
+
+pub fn write_encodes_fe_prefixed_value_test() {
+  let assert Ok(input) =
+    uint64.from_bytes_le(<<0x40, 0x42, 0x0F, 0x00, 0, 0, 0, 0>>)
+
+  assert uint64.to_int(input) == Ok(1_000_000)
+  assert compact_size.write(input) == <<0xFE, 0x40, 0x42, 0x0F, 0x00>>
+}
+
+pub fn write_encodes_max_fe_value_test() {
+  let assert Ok(input) =
+    uint64.from_bytes_le(<<0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0>>)
+
+  assert uint64.to_int(input) == Ok(4_294_967_295)
+  assert compact_size.write(input) == <<0xFE, 0xFF, 0xFF, 0xFF, 0xFF>>
+}
+
+// 0xff prefix (8-byte encoding, values 4294967296+)
+
+pub fn write_encodes_ff_threshold_value_test() {
+  let assert Ok(input) = uint64.from_bytes_le(<<0, 0, 0, 0, 1, 0, 0, 0>>)
+
+  assert uint64.to_int(input) == Ok(4_294_967_296)
+  assert compact_size.write(input) == <<0xFF, 0, 0, 0, 0, 1, 0, 0, 0>>
+}
+
+pub fn write_encodes_ff_prefixed_value_test() {
+  let assert Ok(input) =
+    uint64.from_bytes_le(<<0x00, 0x10, 0xA5, 0xD4, 0xE8, 0x00, 0x00, 0x00>>)
+
+  assert uint64.to_int(input) == Ok(1_000_000_000_000)
+  assert compact_size.write(input)
+    == <<0xFF, 0x00, 0x10, 0xA5, 0xD4, 0xE8, 0x00, 0x00, 0x00>>
+}
+
+pub fn write_encodes_max_ff_value_test() {
+  let assert Ok(input) =
+    uint64.from_bytes_le(<<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>)
+
+  assert uint64.to_string(input) == "18446744073709551615"
+  assert compact_size.write(input)
+    == <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
 }
