@@ -1,4 +1,4 @@
-import { Result$Ok, Result$Error } from '../../gleam.mjs';
+import { Result$Ok, Result$Error, BitArray } from '../../gleam.mjs';
 
 export function uint64LeToInt(bytes_le) {
   /*
@@ -94,5 +94,38 @@ function toBigIntSigned(u8) {
     x -= 0x10000000000000000n;
   }
   return x;
+}
+
+export function int64FromInt(i) {
+  // On JavaScript, validate that the value is within the safe integer range.
+  // Even though all valid Int values from parsing fit in 64 bits, user code
+  // or computations can produce values outside the safe range (±2^53 - 1),
+  // which will have already lost precision. We must reject these to prevent
+  // silent data corruption.
+
+  if (typeof i !== 'number' || !Number.isInteger(i)) {
+    throw new Error("Expected an integer");
+  }
+
+  // Check safe integer range to prevent precision loss
+  if (i < Number.MIN_SAFE_INTEGER || i > Number.MAX_SAFE_INTEGER) {
+    return Result$Error(undefined);
+  }
+
+  // Convert to BigInt for proper two's complement encoding
+  const x = BigInt(i);
+
+  // Encode to 8 bytes little-endian, two's complement
+  let u = x;
+  if (u < 0n) {
+    u = (1n << 64n) + u;  // Two's complement for negative values
+  }
+
+  const u8 = new Uint8Array(8);
+  for (let k = 0; k < 8; k++) {
+    u8[k] = Number((u >> (8n * BigInt(k))) & 0xffn);
+  }
+
+  return Result$Ok(new BitArray(u8));
 }
 
