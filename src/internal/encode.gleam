@@ -1,5 +1,7 @@
 import gleam/bool
 import gleam/int
+import gleam/result
+import internal/fixed_int/int64
 
 /// Represents errors that can occur when encoding an integer.
 pub type EncodeError {
@@ -29,6 +31,38 @@ pub fn i32_le(i: Int) -> Result(BitArray, EncodeError) {
   i_le(i, 32)
 }
 
+pub fn i64_le(i: Int) -> Result(BitArray, EncodeError) {
+  i
+  |> int64.from_int
+  |> result.map_error(fn(err) {
+    case err {
+      int64.ValueOutOfRange(_) -> ValueOutOfRange(i)
+    }
+  })
+  |> result.map(int64.to_bytes_le)
+}
+
+/// Encodes an unsigned 32-bit integer as a little-endian `BitArray`.
+///
+/// Returns `Error(ValueOutOfRange(i))` if `i` is outside the range
+/// `0` to `4,294,967,295`.
+///
+/// ## Examples
+///
+/// ```gleam
+/// u32_le(1)
+/// // -> Ok(<<1, 0, 0, 0>>)
+///
+/// u32_le(4_294_967_295)
+/// // -> Ok(<<0xFF, 0xFF, 0xFF, 0xFF>>)
+///
+/// u32_le(-1)
+/// // -> Error(ValueOutOfRange(-1))
+/// ```
+pub fn u32_le(i: Int) -> Result(BitArray, EncodeError) {
+  u_le(i, 32)
+}
+
 fn i_le(i: Int, bit_count: Int) -> Result(BitArray, EncodeError) {
   let #(min, max) = compute_limits(bit_count)
   let in_range = min <= i && i <= max
@@ -45,6 +79,14 @@ fn i_le(i: Int, bit_count: Int) -> Result(BitArray, EncodeError) {
   }
 
   Ok(to_bytes(unsigned_value, bit_count))
+}
+
+fn u_le(i: Int, bit_count: Int) -> Result(BitArray, EncodeError) {
+  let max = pow_2(bit_count) - 1
+  let in_range = 0 <= i && i <= max
+  use <- bool.guard(!in_range, Error(ValueOutOfRange(i)))
+
+  Ok(to_bytes(i, bit_count))
 }
 
 fn compute_limits(bit_count: Int) -> #(Int, Int) {
