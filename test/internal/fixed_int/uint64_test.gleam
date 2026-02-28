@@ -87,3 +87,57 @@ pub fn to_string_max_value_test() {
   let assert Ok(x) = uint64.from_bytes_le(max_u64_bytes)
   assert uint64.to_string(x) == "18446744073709551615"
 }
+
+// from_int
+
+pub fn from_int_zero_test() {
+  let assert Ok(x) = uint64.from_int(0)
+  assert uint64.to_bytes_le(x) == <<0, 0, 0, 0, 0, 0, 0, 0>>
+}
+
+pub fn from_int_one_test() {
+  let assert Ok(x) = uint64.from_int(1)
+  assert uint64.to_bytes_le(x) == <<1, 0, 0, 0, 0, 0, 0, 0>>
+}
+
+pub fn from_int_large_test() {
+  // 2^32 = 4_294_967_296
+  let assert Ok(x) = uint64.from_int(4_294_967_296)
+  assert uint64.to_bytes_le(x) == <<0, 0, 0, 0, 1, 0, 0, 0>>
+}
+
+pub fn from_int_max_safe_js_int_test() {
+  // 2^53 - 1 = 9_007_199_254_740_991
+  let assert Ok(x) = uint64.from_int(9_007_199_254_740_991)
+  assert uint64.to_bytes_le(x)
+    == <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x1F, 0x00>>
+}
+
+pub fn from_int_negative_returns_error_test() {
+  assert uint64.from_int(-1) == Error(uint64.ValueOutOfRange(-1))
+}
+
+pub fn from_int_round_trip_test() {
+  let original = 42
+  let assert Ok(x) = uint64.from_int(original)
+  assert uint64.to_int(x) == Ok(original)
+}
+
+@target(javascript)
+pub fn from_int_js_out_of_range_above_test() {
+  // 2^53 = MAX_SAFE_INTEGER + 1
+  assert uint64.from_int(9_007_199_254_740_992)
+    == Error(uint64.ValueOutOfRange(9_007_199_254_740_992))
+}
+
+@target(erlang)
+pub fn from_int_erlang_max_value_test() {
+  let assert Ok(x) = uint64.from_int(18_446_744_073_709_551_615)
+  assert uint64.to_bytes_le(x) == max_u64_bytes
+}
+
+@target(erlang)
+pub fn from_int_erlang_out_of_range_above_test() {
+  assert uint64.from_int(18_446_744_073_709_551_616)
+    == Error(uint64.ValueOutOfRange(18_446_744_073_709_551_616))
+}

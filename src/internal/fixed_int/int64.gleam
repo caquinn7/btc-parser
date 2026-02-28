@@ -80,10 +80,12 @@ fn do_to_int(bytes_le: BitArray) -> Result(Int, Nil) {
   Ok(i)
 }
 
+/// Errors that can occur when constructing an `Int64` from an `Int`.
 pub type FromIntError {
   /// The value cannot be represented as a signed 64-bit integer.
   ///
   /// On Erlang: Value is outside the range [-2^63, 2^63 - 1]
+  /// 
   /// On JavaScript: Value is outside the safe integer range [-(2^53 - 1), 2^53 - 1]
   ValueOutOfRange(Int)
 }
@@ -127,7 +129,7 @@ pub fn from_int(i: Int) -> Result(Int64, FromIntError) {
 fn do_from_int(i: Int) -> Result(BitArray, Nil) {
   // On Erlang, integers are arbitrary precision, so we must check bounds.
   // The valid range for signed 64-bit is [-2^63, 2^63 - 1].
-  case i >= -9_223_372_036_854_775_808 && i <= 9_223_372_036_854_775_807 {
+  case -9_223_372_036_854_775_808 <= i && i <= 9_223_372_036_854_775_807 {
     True -> Ok(<<i:little-size(64)>>)
     False -> Error(Nil)
   }

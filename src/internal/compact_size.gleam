@@ -2,7 +2,7 @@ import gleam/result
 import internal/fixed_int/uint64.{type Uint64}
 import internal/reader.{type Reader}
 
-/// Represents errors that can occur when reading a CompactSize-encoded integer.
+/// Errors that can occur when reading a CompactSize-encoded integer.
 pub type ReadError {
   /// Indicates insufficient bytes were available in the reader to decode the CompactSize value.
   ///

@@ -1,7 +1,10 @@
 import gleam/bool
 import gleam/int
 
+/// Represents errors that can occur when encoding an integer.
 pub type EncodeError {
+  /// The integer value is outside the valid range for the target encoding.
+  /// Contains the invalid value that was attempted.
   ValueOutOfRange(Int)
 }
 
@@ -34,8 +37,8 @@ fn i_le(i: Int, bit_count: Int) -> Result(BitArray, EncodeError) {
   let unsigned_value = case i >= 0 {
     True -> i
     False -> {
-      // Reinterpret as two's complement unsigned value, e.g. -1 with 32 bits
-      // becomes 2^32 + (-1) = 0xFFFFFFFF
+      // Reinterpret as two's complement unsigned value,
+      // e.g. -1 with 32 bits becomes 2^32 + (-1) = 0xFFFFFFFF
       let modulus = pow_2(bit_count)
       modulus + i
     }

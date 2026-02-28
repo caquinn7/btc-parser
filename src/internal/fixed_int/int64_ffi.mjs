@@ -96,6 +96,31 @@ function toBigIntSigned(u8) {
   return x;
 }
 
+export function uint64FromInt(i) {
+  // On JavaScript, validate that the value is within the safe integer range.
+  // Even though list lengths and similar values will never approach this limit,
+  // we guard explicitly so that any out-of-range value produces an explicit
+  // error rather than silently encoding a precision-lost number.
+
+  if (typeof i !== 'number' || !Number.isInteger(i)) {
+    throw new Error("Expected an integer");
+  }
+
+  // Unsigned: reject negative values and values beyond safe integer range
+  if (i < 0 || i > Number.MAX_SAFE_INTEGER) {
+    return Result$Error(undefined);
+  }
+
+  const x = BigInt(i);
+
+  const u8 = new Uint8Array(8);
+  for (let k = 0; k < 8; k++) {
+    u8[k] = Number((x >> (8n * BigInt(k))) & 0xffn);
+  }
+
+  return Result$Ok(new BitArray(u8));
+}
+
 export function int64FromInt(i) {
   // On JavaScript, validate that the value is within the safe integer range.
   // Even though all valid Int values from parsing fit in 64 bits, user code
