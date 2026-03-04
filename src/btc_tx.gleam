@@ -46,6 +46,7 @@
 //// - `is_segwit`, `is_coinbase` - Query transaction properties
 
 import gleam/bit_array
+import gleam/crypto.{Sha256}
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/pair
@@ -281,7 +282,7 @@ pub opaque type PrevOut {
 pub fn get_prev_out_txid(prev_out: PrevOut) -> TxId {
   case prev_out {
     NullOutPoint -> {
-      let assert Ok(hash32) = hash32.from_bytes_le(<<0:size(256)>>)
+      let assert Ok(hash32) = hash32.from_bytes_le(<<0:256>>)
       TxId(hash32)
     }
     OutPoint(txid:, ..) -> txid
@@ -383,12 +384,29 @@ pub fn get_raw_script_bytes(script: ScriptBytes) -> BitArray {
   bytes
 }
 
+pub fn get_script_length(script: ScriptBytes) -> Int {
+  script
+  |> get_raw_script_bytes
+  |> bit_array.byte_size
+}
+
 /// The transaction identifier (txid).
 ///
 /// This is the double SHA-256 hash of the transaction’s
 /// non-witness serialization and is distinct from the wtxid.
 pub opaque type TxId {
   TxId(Hash32)
+}
+
+pub fn compute_txid(tx: Transaction(Validated)) -> Result(TxId, TxIdError) {
+  tx
+  |> compute_txid_hash
+  |> result.map_error(fn(err) {
+    case err {
+      hash32.InvalidByteCount(n) -> InvalidHashLength(n)
+    }
+  })
+  |> result.map(TxId)
 }
 
 /// Convert a transaction ID to its raw byte representation.
@@ -408,9 +426,23 @@ pub opaque type WtxId {
   WtxId(Hash32)
 }
 
+pub fn compute_wtxid(tx: Transaction(Validated)) -> WtxId {
+  todo
+}
+
 // ==============================================================================
 // Error handling
 // ==============================================================================
+
+/// An error that occurred while computing a transaction ID.
+pub type TxIdError {
+  /// The hash function returned an unexpected number of bytes.
+  ///
+  /// SHA-256 must return exactly 32 bytes. This variant exists to surface
+  /// a contract violation if the underlying crypto library behaves unexpectedly,
+  /// rather than panicking.
+  InvalidHashLength(Int)
+}
 
 /// An error that occurred while decoding a Bitcoin transaction.
 ///
@@ -496,9 +528,7 @@ pub type ParseErrorKind {
 
   /// A catch-all error for unexpected or internal parsing failures that do not
   /// fit any of the structured error categories.
-  ///
-  /// This should be used sparingly and primarily for truly exceptional cases.
-  Other(message: String)
+  Other(String)
 }
 
 /// Contextual information about where in the transaction structure a parsing error occurred.
@@ -1182,7 +1212,7 @@ fn read_prev_out() -> Parser(ParseContext, PrevOut, DecodeError) {
     read_field(Vout, reader.read_u32_le),
     fn(prev_txid_bytes, vout) {
       case prev_txid_bytes, vout {
-        <<0:size(256)>>, 0xFFFFFFFF -> NullOutPoint
+        <<0:256>>, 0xFFFFFFFF -> NullOutPoint
 
         _, _ -> {
           // Safe: read_bytes(_, 32) guarantees exactly 32 bytes on success
@@ -1311,21 +1341,18 @@ fn read_script(
   field: Field,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, ScriptBytes, DecodeError) {
-  field
-  |> script_length_field
+  let script_length_field = case field {
+    ScriptSig -> ScriptSigLength
+    ScriptPubKey -> ScriptPubKeyLength
+    _ -> panic as "Invalid script field"
+  }
+
+  script_length_field
   |> read_script_length(max_script_size_policy)
   |> parser.then(fn(script_len) {
     read_field(field, reader.read_bytes(_, script_len))
   })
   |> parser.map(ScriptBytes)
-}
-
-fn script_length_field(script_field: Field) -> Field {
-  case script_field {
-    ScriptSig -> ScriptSigLength
-    ScriptPubKey -> ScriptPubKeyLength
-    _ -> panic as "Invalid script field"
-  }
 }
 
 /// Read and validate a script length field.
@@ -1617,16 +1644,14 @@ pub fn validate_consensus(
     validate_at_least_one_output,
     validate_output_values,
     validate_coinbase_structure,
-    validate_coinbase_scriptsig_length,
+    validate_coinbase_script_sig_length,
   ]
 
   let errors =
-    validators
-    |> list.map(fn(validator) { validator(tx) })
-    |> list.filter_map(fn(result) {
-      case result {
-        Error(err) -> Ok(err)
+    list.filter_map(validators, fn(validator) {
+      case validator(tx) {
         Ok(_) -> Error(Nil)
+        Error(err) -> Ok(err)
       }
     })
 
@@ -1706,7 +1731,7 @@ fn validate_coinbase_structure(
   }
 }
 
-fn validate_coinbase_scriptsig_length(
+fn validate_coinbase_script_sig_length(
   tx: Transaction(Unvalidated),
 ) -> Result(Nil, ValidationError) {
   case tx.inputs {
@@ -1729,4 +1754,131 @@ fn validate_coinbase_scriptsig_length(
 
     _ -> Ok(Nil)
   }
+}
+
+// ==============================================================================
+// Serialization
+// ==============================================================================
+
+// Legacy (also txid-serialzation for SegWit)
+
+// version (4 LE)
+// vin_count (CompactSize)
+// vin[]:
+//   prev_txid (32 LE)
+//   vout (4 LE)
+//   scriptSig_len (CompactSize)
+//   scriptSig bytes
+//   sequence (4 LE)
+// vout_count (CompactSize)
+// vout[]:
+//   value (8 LE signed in your model, but serialize as 8 bytes LE)
+//   scriptPubKey_len (CompactSize)
+//   scriptPubKey bytes
+// lock_time (4 LE)
+
+// Segwit full (wtxid-serialization)
+
+// version (4 LE)
+// marker 0x00
+// flag   0x01
+// vin_count + vin[]     (same as above)
+// vout_count + vout[]   (same as above)
+// witnesses[] for each input:
+//   stack_len (CompactSize)
+//   items[]:
+//     item_len (CompactSize)
+//     item bytes
+// lock_time (4 LE)
+
+fn compute_txid_hash(
+  tx: Transaction(Validated),
+) -> Result(Hash32, hash32.Hash32Error) {
+  // safe: parser guarantees these lengths fit in compact_size
+  let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
+  let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
+
+  dsha256(<<
+    tx.version:32-little,
+    compact_size.write(vin_count):bits,
+    serialize_inputs(tx.inputs):bits,
+    compact_size.write(vout_count):bits,
+    serialize_outputs(tx.outputs):bits,
+    tx.lock_time:32-little,
+  >>)
+}
+
+fn compute_wtxid_hash(tx: Transaction(Validated)) -> BitArray {
+  todo
+}
+
+fn serialize_inputs(inputs: List(TxIn)) -> BitArray {
+  inputs
+  |> list.map(serialize_tx_in)
+  |> bit_array.concat
+}
+
+fn serialize_tx_in(txin: TxIn) -> BitArray {
+  let prev_out_bytes = serialize_prev_out(txin.prev_out)
+
+  let script_sig_len_bytes = {
+    let assert Ok(len_u64) =
+      txin.script_sig
+      |> get_script_length
+      |> uint64.from_int
+
+    compact_size.write(len_u64)
+  }
+
+  <<
+    prev_out_bytes:bits,
+    script_sig_len_bytes:bits,
+    get_raw_script_bytes(txin.script_sig):bits,
+    txin.sequence:32-little,
+  >>
+}
+
+fn serialize_prev_out(prev_out: PrevOut) -> BitArray {
+  let prev_txid_bytes = {
+    let prev_txid = get_prev_out_txid(prev_out)
+    let TxId(hash32) = prev_txid
+    hash32.to_bytes_le(hash32)
+  }
+
+  <<
+    prev_txid_bytes:bits,
+    get_prev_out_vout(prev_out):32-little,
+  >>
+}
+
+fn serialize_outputs(outputs: List(TxOut)) -> BitArray {
+  outputs
+  |> list.map(serialize_tx_out)
+  |> bit_array.concat
+}
+
+fn serialize_tx_out(txout: TxOut) -> BitArray {
+  let assert Ok(satoshis_bytes) = int64.int_to_bytes_le(txout.value)
+
+  let script_pubkey_len_bytes = {
+    let assert Ok(len_u64) =
+      txout.script_pubkey
+      |> get_script_length
+      |> uint64.from_int
+
+    compact_size.write(len_u64)
+  }
+
+  <<
+    satoshis_bytes:bits,
+    script_pubkey_len_bytes:bits,
+    get_raw_script_bytes(txout.script_pubkey):bits,
+  >>
+}
+
+fn dsha256(bytes: BitArray) -> Result(Hash32, hash32.Hash32Error) {
+  bytes
+  |> crypto.hash(Sha256, _)
+  |> crypto.hash(Sha256, _)
+  |> hash32.from_bytes_le
 }

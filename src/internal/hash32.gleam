@@ -1,6 +1,9 @@
 import gleam/bit_array
 
-/// A 32-byte hash value stored in little-endian byte order.
+/// A 32-byte hash used as a Bitcoin transaction identifier.
+///
+/// Bitcoin encodes these hashes in little-endian byte order on the wire,
+/// which is the order this type stores and exposes them in.
 pub opaque type Hash32 {
   Hash32(bytes_le: BitArray)
 }

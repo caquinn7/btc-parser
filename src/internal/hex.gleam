@@ -57,9 +57,7 @@ pub fn hex_to_bytes(hex: String) -> Result(BitArray, HexToBytesError) {
   // Convert each pair to a byte
   |> result.try(list.try_map(_, parse_hex_pair))
   // Pack all bytes into a BitArray
-  |> result.map(
-    list.fold(_, <<>>, fn(acc, byte) { <<acc:bits, byte:int-size(8)>> }),
-  )
+  |> result.map(list.fold(_, <<>>, fn(acc, byte) { <<acc:bits, byte:8>> }))
 }
 
 /// Converts a pair of hex characters into a single byte (0..255).

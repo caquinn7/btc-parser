@@ -45,7 +45,7 @@ pub type Uint64Error {
 /// ```
 pub fn from_bytes_le(bytes: BitArray) -> Result(Uint64, Uint64Error) {
   case bytes {
-    <<_:bytes-size(8)>> -> Ok(Uint64(bytes))
+    <<_:bytes-8>> -> Ok(Uint64(bytes))
     _ -> Error(InvalidByteCount(bit_array.byte_size(bytes)))
   }
 }
@@ -103,7 +103,7 @@ fn do_from_int(i: Int) -> Result(BitArray, Nil) {
   // On Erlang, integers are arbitrary precision, so we must check bounds.
   // The valid range for unsigned 64-bit is [0, 2^64 - 1].
   case 0 <= i && i <= 18_446_744_073_709_551_615 {
-    True -> Ok(<<i:little-size(64)>>)
+    True -> Ok(<<i:64-little>>)
     False -> Error(Nil)
   }
 }
@@ -131,7 +131,7 @@ pub fn to_int(u: Uint64) -> Result(Int, Nil) {
 
 @external(javascript, "./int64_ffi.mjs", "uint64LeToInt")
 fn do_to_int(bytes_le: BitArray) -> Result(Int, Nil) {
-  let assert <<u:unsigned-little-size(64)>> = bytes_le
+  let assert <<u:64-unsigned-little>> = bytes_le
   Ok(u)
 }
 
@@ -147,6 +147,6 @@ pub fn to_string(u: Uint64) -> String {
 
 @external(javascript, "./int64_ffi.mjs", "uint64LeToString")
 fn do_to_string(bytes_le: BitArray) -> String {
-  let assert <<u:unsigned-little-size(64)>> = bytes_le
+  let assert <<u:64-unsigned-little>> = bytes_le
   int.to_string(u)
 }

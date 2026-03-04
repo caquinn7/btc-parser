@@ -48,7 +48,7 @@ pub type Int64Error {
 /// ```
 pub fn from_bytes_le(bytes: BitArray) -> Result(Int64, Int64Error) {
   case bytes {
-    <<_:bytes-size(8)>> -> Ok(Int64(bytes))
+    <<_:bytes-8>> -> Ok(Int64(bytes))
     _ -> Error(InvalidByteCount(bit_array.byte_size(bytes)))
   }
 }
@@ -76,7 +76,7 @@ pub fn to_int(i: Int64) -> Result(Int, Nil) {
 
 @external(javascript, "./int64_ffi.mjs", "int64LeToInt")
 fn do_to_int(bytes_le: BitArray) -> Result(Int, Nil) {
-  let assert <<i:signed-little-size(64)>> = bytes_le
+  let assert <<i:64-signed-little>> = bytes_le
   Ok(i)
 }
 
@@ -130,7 +130,7 @@ fn do_from_int(i: Int) -> Result(BitArray, Nil) {
   // On Erlang, integers are arbitrary precision, so we must check bounds.
   // The valid range for signed 64-bit is [-2^63, 2^63 - 1].
   case -9_223_372_036_854_775_808 <= i && i <= 9_223_372_036_854_775_807 {
-    True -> Ok(<<i:little-size(64)>>)
+    True -> Ok(<<i:64-little>>)
     False -> Error(Nil)
   }
 }
@@ -147,6 +147,33 @@ pub fn to_string(i: Int64) -> String {
 
 @external(javascript, "./int64_ffi.mjs", "int64LeToString")
 fn do_to_string(bytes_le: BitArray) -> String {
-  let assert <<i:signed-little-size(64)>> = bytes_le
+  let assert <<i:64-signed-little>> = bytes_le
   int.to_string(i)
+}
+
+/// Converts a Gleam `Int` directly to its little-endian byte representation.
+///
+/// This is a convenience wrapper around `from_int` and `to_bytes_le`.
+/// The returned `BitArray` is always exactly 8 bytes long.
+///
+/// Returns `Error(ValueOutOfRange)` under the same conditions as `from_int`:
+/// - **Erlang**: Value is outside the signed 64-bit range [-2^63, 2^63 - 1]
+/// - **JavaScript**: Value is outside the safe integer range [-(2^53 - 1), 2^53 - 1]
+///
+/// ## Examples
+///
+/// ```gleam
+/// int_to_bytes_le(1)
+/// // -> Ok(<<1, 0, 0, 0, 0, 0, 0, 0>>)
+///
+/// int_to_bytes_le(-1)
+/// // -> Ok(<<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>)
+///
+/// int_to_bytes_le(9_223_372_036_854_775_808)  // 2^63, exceeds max on Erlang
+/// // -> Error(ValueOutOfRange(9223372036854775808))
+/// ```
+pub fn int_to_bytes_le(i: Int) -> Result(BitArray, FromIntError) {
+  i
+  |> from_int
+  |> result.map(to_bytes_le)
 }

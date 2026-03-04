@@ -51,7 +51,7 @@ pub fn read(reader: Reader) -> Result(#(Reader, Uint64), ReadError) {
       case value < 253 {
         True -> Error(NonMinimalCompactSize(encoded: 3, value: value))
         False -> {
-          let assert Ok(u) = uint64.from_bytes_le(<<value:little-size(64)>>)
+          let assert Ok(u) = uint64.from_bytes_le(<<value:64-little>>)
           Ok(#(reader, u))
         }
       }
@@ -63,7 +63,7 @@ pub fn read(reader: Reader) -> Result(#(Reader, Uint64), ReadError) {
       case value < 65_536 {
         True -> Error(NonMinimalCompactSize(encoded: 5, value:))
         False -> {
-          let assert Ok(u) = uint64.from_bytes_le(<<value:little-size(64)>>)
+          let assert Ok(u) = uint64.from_bytes_le(<<value:64-little>>)
           Ok(#(reader, u))
         }
       }
@@ -74,10 +74,7 @@ pub fn read(reader: Reader) -> Result(#(Reader, Uint64), ReadError) {
         read_from(reader, reader.read_bytes(_, 8)),
       )
 
-      let assert <<
-        lower:unsigned-little-size(32),
-        upper:unsigned-little-size(32),
-      >> = bytes
+      let assert <<lower:32-unsigned-little, upper:32-unsigned-little>> = bytes
 
       // If upper 32 bits are all zeros, the value fits in 32 bits
       // and should have used the 0xFE prefix instead
@@ -117,9 +114,9 @@ fn read_from(
 /// - 4294967296+: 0xFF followed by 8 bytes (little-endian)
 pub fn write(value: Uint64) -> BitArray {
   case uint64.to_int(value) {
-    Ok(v) if v <= 252 -> <<v:size(8)>>
-    Ok(v) if v <= 65_535 -> <<0xFD, v:little-size(16)>>
-    Ok(v) if v <= 4_294_967_295 -> <<0xFE, v:little-size(32)>>
+    Ok(v) if v <= 252 -> <<v:8>>
+    Ok(v) if v <= 65_535 -> <<0xFD, v:16-little>>
+    Ok(v) if v <= 4_294_967_295 -> <<0xFE, v:32-little>>
     Ok(_) | Error(Nil) -> {
       // Value is > 4_294_967_295 or too large for Int on JS target
       let bytes = uint64.to_bytes_le(value)
