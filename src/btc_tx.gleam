@@ -386,62 +386,9 @@ pub fn get_script_length(script: ScriptBytes) -> Int {
   |> bit_array.byte_size
 }
 
-/// Compute the transaction identifier (txid) for a validated transaction.
-///
-/// Returns the 32 bytes of the txid in little-endian byte order, as they
-/// appear in Bitcoin transactions and on the wire.
-///
-/// **Requires validation**: Accepts only `Transaction(Validated)` to ensure
-/// the transaction has passed consensus checks via `validate_consensus`.
-///
-/// Returns `Error(InvalidHashLength(_))` if the underlying hash function
-/// produces an unexpected output length, which should never occur in practice.
-pub fn compute_txid(tx: Transaction(Validated)) -> Result(BitArray, TxIdError) {
-  tx
-  |> compute_txid_hash
-  |> result.map_error(fn(err) {
-    case err {
-      hash32.InvalidByteCount(n) -> InvalidHashLength(n)
-    }
-  })
-  |> result.map(hash32.to_bytes_le)
-}
-
-/// Compute the witness transaction identifier (wtxid) for a validated transaction.
-///
-/// Returns the 32 bytes of the wtxid in little-endian byte order, as they
-/// appear in Bitcoin transactions and on the wire. For legacy transactions,
-/// the wtxid is identical to the txid.
-///
-/// **Requires validation**: Accepts only `Transaction(Validated)` to ensure
-/// the transaction has passed consensus checks via `validate_consensus`.
-/// 
-/// Returns `Error(InvalidHashLength(_))` if the underlying hash function
-/// produces an unexpected output length, which should never occur in practice.
-pub fn compute_wtxid(tx: Transaction(Validated)) -> Result(BitArray, TxIdError) {
-  tx
-  |> compute_wtxid_hash
-  |> result.map_error(fn(err) {
-    case err {
-      hash32.InvalidByteCount(n) -> InvalidHashLength(n)
-    }
-  })
-  |> result.map(hash32.to_bytes_le)
-}
-
 // ==============================================================================
 // Error handling
 // ==============================================================================
-
-/// An error that occurred while computing a transaction ID.
-pub type TxIdError {
-  /// The hash function returned an unexpected number of bytes.
-  ///
-  /// SHA-256 must return exactly 32 bytes. This variant exists to surface
-  /// a contract violation if the underlying crypto library behaves unexpectedly,
-  /// rather than panicking.
-  InvalidHashLength(Int)
-}
 
 /// An error that occurred while decoding a Bitcoin transaction.
 ///
@@ -1759,28 +1706,40 @@ fn validate_coinbase_script_sig_length(
 // Serialization
 // ==============================================================================
 
-fn compute_txid_hash(
-  tx: Transaction(Validated),
-) -> Result(Hash32, hash32.Hash32Error) {
+/// Compute the transaction identifier (txid) for a validated transaction.
+///
+/// Returns the 32 bytes of the txid in little-endian byte order, as they
+/// appear in Bitcoin transactions and on the wire.
+///
+/// **Requires validation**: Accepts only `Transaction(Validated)` to ensure
+/// the transaction has passed consensus checks via `validate_consensus`.
+pub fn compute_txid(tx: Transaction(Validated)) -> BitArray {
   // safe: parser guarantees these lengths fit in compact_size
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
   let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
 
-  <<
-    tx.version:32-little,
-    compact_size.write(vin_count):bits,
-    serialize_inputs(tx.inputs):bits,
-    compact_size.write(vout_count):bits,
-    serialize_outputs(tx.outputs):bits,
-    tx.lock_time:32-little,
-  >>
-  |> dsha256
-  |> hash32.from_bytes_le
+  let assert <<hash:256-bits>> =
+    dsha256(<<
+      tx.version:32-little,
+      compact_size.write(vin_count):bits,
+      serialize_inputs(tx.inputs):bits,
+      compact_size.write(vout_count):bits,
+      serialize_outputs(tx.outputs):bits,
+      tx.lock_time:32-little,
+    >>)
+
+  hash
 }
 
-fn compute_wtxid_hash(
-  tx: Transaction(Validated),
-) -> Result(Hash32, hash32.Hash32Error) {
+/// Compute the witness transaction identifier (wtxid) for a validated transaction.
+///
+/// Returns the 32 bytes of the wtxid in little-endian byte order, as they
+/// appear in Bitcoin transactions and on the wire. For legacy transactions,
+/// the wtxid is identical to the txid.
+///
+/// **Requires validation**: Accepts only `Transaction(Validated)` to ensure
+/// the transaction has passed consensus checks via `validate_consensus`.
+pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
   // safe: parser guarantees these lengths fit in compact_size
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
   let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
@@ -1790,18 +1749,19 @@ fn compute_wtxid_hash(
     SegWit(witnesses:, ..) -> #(<<0x00, 0x01>>, serialize_witnesses(witnesses))
   }
 
-  <<
-    tx.version:32-little,
-    segwit_discriminator:bits,
-    compact_size.write(vin_count):bits,
-    serialize_inputs(tx.inputs):bits,
-    compact_size.write(vout_count):bits,
-    serialize_outputs(tx.outputs):bits,
-    witnesses:bits,
-    tx.lock_time:32-little,
-  >>
-  |> dsha256
-  |> hash32.from_bytes_le
+  let assert <<hash:256-bits>> =
+    dsha256(<<
+      tx.version:32-little,
+      segwit_discriminator:bits,
+      compact_size.write(vin_count):bits,
+      serialize_inputs(tx.inputs):bits,
+      compact_size.write(vout_count):bits,
+      serialize_outputs(tx.outputs):bits,
+      witnesses:bits,
+      tx.lock_time:32-little,
+    >>)
+
+  hash
 }
 
 fn serialize_inputs(inputs: List(TxIn)) -> BitArray {
