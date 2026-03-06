@@ -55,7 +55,6 @@ import internal/compact_size
 import internal/fixed_int/int64
 import internal/fixed_int/uint64.{type Uint64}
 import internal/hash32.{type Hash32}
-import internal/hex
 import internal/parser.{type Parser}
 import internal/reader.{type Reader}
 
@@ -453,7 +452,7 @@ pub type DecodeError {
   ///
   /// This occurs before any transaction parsing begins, typically due to an
   /// odd-length hex string or the presence of invalid hexadecimal characters.
-  HexToBytesFailed(hex.HexToBytesError)
+  HexToBytesFailed
 
   /// The byte sequence could not be parsed as a Bitcoin transaction.
   ///
@@ -995,8 +994,8 @@ pub fn decode_hex_with_policy(
 
 fn hex_to_bytes(hex: String) -> Result(BitArray, DecodeError) {
   hex
-  |> hex.hex_to_bytes
-  |> result.map_error(HexToBytesFailed)
+  |> bit_array.base16_decode
+  |> result.replace_error(HexToBytesFailed)
 }
 
 /// Lift a reader operation into a Parser, adding error mapping and context wrapping.

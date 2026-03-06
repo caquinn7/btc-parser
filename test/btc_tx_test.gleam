@@ -1,12 +1,13 @@
 import btc_tx.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack,
-  CoinbaseWithMultipleInputs, CompactSizeError, DecodePolicy, InInputs,
-  InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
-  InvalidSegWitMarkerFlag, NoInputs, NoOutputs, OutputValueOutOfRange,
-  ParseFailed, PolicyLimitExceeded, ReaderError, ScriptPubKeyLength,
-  ScriptSigLength, SegwitDiscriminator, TotalOutputValueOutOfRange,
-  TrailingBytes, Version, VinCount, VoutCount, WitnessItemLength, WitnessPolicy,
-  WitnessStackLength, WitnessStackTotalPayloadBytes,
+  CoinbaseWithMultipleInputs, CompactSizeError, DecodePolicy, HexToBytesFailed,
+  InInputs, InOutputs, InTransaction, InsufficientBytes,
+  InvalidCoinbaseScriptSigLength, InvalidSegWitMarkerFlag, NoInputs, NoOutputs,
+  OutputValueOutOfRange, ParseFailed, PolicyLimitExceeded, ReaderError,
+  ScriptPubKeyLength, ScriptSigLength, SegwitDiscriminator,
+  TotalOutputValueOutOfRange, TrailingBytes, Version, VinCount, VoutCount,
+  WitnessItemLength, WitnessPolicy, WitnessStackLength,
+  WitnessStackTotalPayloadBytes,
 }
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -30,6 +31,22 @@ const min_txout_size_bytes = 9
 
 pub fn main() -> Nil {
   gleeunit.main()
+}
+
+// ============================================================================
+// decode_hex: invalid hex input
+// ============================================================================
+
+pub fn decode_hex_errors_on_odd_length_string_test() {
+  assert btc_tx.decode_hex("010") == Error(HexToBytesFailed)
+}
+
+pub fn decode_hex_errors_on_invalid_hex_characters_test() {
+  assert btc_tx.decode_hex("0102zz") == Error(HexToBytesFailed)
+}
+
+pub fn decode_hex_errors_on_string_with_whitespace_test() {
+  assert btc_tx.decode_hex("01 02 03 04") == Error(HexToBytesFailed)
 }
 
 // ============================================================================
@@ -65,6 +82,15 @@ pub fn decode_legacy_v2_parses_version_2_test() {
 
   assert btc_tx.get_version(result) == 2
   assert !btc_tx.is_segwit(result)
+}
+
+pub fn decode_errors_on_empty_string_test() {
+  let assert Error(ParseFailed(parse_err)) = btc_tx.decode_hex("")
+
+  assert btc_tx.parse_error_offset(parse_err) == 0
+  assert btc_tx.parse_error_kind(parse_err)
+    == ReaderError(reader.UnexpectedEof(bytes_needed: 4, remaining: 0))
+  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction, AtField(Version)]
 }
 
 pub fn decode_errors_when_input_shorter_than_4_bytes_test() {
