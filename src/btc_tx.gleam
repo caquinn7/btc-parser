@@ -47,6 +47,7 @@
 
 import gleam/bit_array
 import gleam/crypto.{Sha256}
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/pair
@@ -662,7 +663,10 @@ fn make_field_error(
 /// is never triggered by user-supplied data, so it is treated as a panic.
 fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
   case err {
-    reader.InvalidReadCount(_) -> panic
+    reader.InvalidReadCount(i) ->
+      panic as {
+        "tried to read an invalid number of bytes: " <> int.to_string(i) <> "."
+      }
     reader.UnexpectedEof(bytes_needed:, remaining:) ->
       UnexpectedEof(bytes_needed:, remaining:)
   }
@@ -1055,14 +1059,13 @@ fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
         }
       }
 
-      Error(err) ->
-        case err {
-          reader.InvalidReadCount(..) -> panic
-
-          // Ambiguity-aware: do not fail the whole decode just because we couldn't look ahead.
-          // Let the later parsing produce a better contextual EOF.
-          reader.UnexpectedEof(..) -> Ok(#(reader, False))
-        }
+      Error(err) -> {
+        // Panic on InvalidReadCount (library bug); silently treat UnexpectedEof
+        // as non-SegWit. We can't peek, so we fall through and let the
+        // subsequent field parsers produce a more contextual EOF error.
+        let _ = reader_error_to_kind(err)
+        Ok(#(reader, False))
+      }
     }
   })
 }
