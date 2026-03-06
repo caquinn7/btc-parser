@@ -2363,7 +2363,7 @@ fn compare_compute_txid_against_known_vector(
   let assert Ok(tx) = btc_tx.decode_hex(tx_hex)
   let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
 
-  let assert Ok(wire_txid) = btc_tx.compute_txid(validated_tx)
+  let wire_txid = btc_tx.compute_txid(validated_tx)
   assert get_display_hex(wire_txid) == known_txid
 }
 
@@ -2391,7 +2391,7 @@ pub fn compute_txid_matches_manual_dsha256_test() {
 
   let assert Ok(tx) = btc_tx.decode(tx_bytes)
   let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
-  let assert Ok(txid) = btc_tx.compute_txid(validated_tx)
+  let txid = btc_tx.compute_txid(validated_tx)
 
   assert txid == expected_txid
 }
@@ -2413,7 +2413,7 @@ fn compare_compute_wtxid_against_known_vector(
   let assert Ok(tx) = btc_tx.decode_hex(tx_hex)
   let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
 
-  let assert Ok(wire_txid) = btc_tx.compute_wtxid(validated_tx)
+  let wire_txid = btc_tx.compute_wtxid(validated_tx)
   assert get_display_hex(wire_txid) == known_txid
 }
 
@@ -2428,8 +2428,8 @@ pub fn compute_txid_differs_from_wtxid_for_segwit_test() {
   let assert Ok(tx) = btc_tx.decode_hex(segwit_v1_tx)
   let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
 
-  let assert Ok(txid) = btc_tx.compute_txid(validated_tx)
-  let assert Ok(wtxid) = btc_tx.compute_wtxid(validated_tx)
+  let txid = btc_tx.compute_txid(validated_tx)
+  let wtxid = btc_tx.compute_wtxid(validated_tx)
 
   assert txid != wtxid
 }
@@ -2438,8 +2438,8 @@ pub fn compute_txid_equals_compute_wtxid_for_legacy_tx_test() {
   let assert Ok(tx) = btc_tx.decode_hex(legacy_v1_tx)
   let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
 
-  let assert Ok(txid) = btc_tx.compute_txid(validated_tx)
-  let assert Ok(wtxid) = btc_tx.compute_wtxid(validated_tx)
+  let txid = btc_tx.compute_txid(validated_tx)
+  let wtxid = btc_tx.compute_wtxid(validated_tx)
 
   assert txid == wtxid
 }
