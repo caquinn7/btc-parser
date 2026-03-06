@@ -421,18 +421,21 @@ pub opaque type ParseError {
 ///
 /// This type categorizes parsing failures into distinct categories.
 pub type ParseErrorKind {
-  /// A low-level binary reader operation failed.
+  /// The input ended before enough bytes could be read.
   ///
-  /// This error wraps failures from the underlying `Reader`, such as attempting
-  /// to read beyond the end of the input or requesting an invalid number of bytes.
-  ReaderError(reader.ReaderError)
+  /// `bytes_needed` is the number of bytes the parser required, and `remaining`
+  /// is the number of bytes actually available at that point.
+  UnexpectedEof(bytes_needed: Int, remaining: Int)
 
-  /// A CompactSize-encoded integer could not be parsed.
+  /// A CompactSize-encoded integer used a non-minimal encoding.
   ///
-  /// This error wraps failures from CompactSize decoding operations, such as
-  /// encountering an unexpected end of input or detecting a non-minimal encoding
-  /// that violates Bitcoin's canonical serialization rules.
-  CompactSizeError(compact_size.ReadError)
+  /// Bitcoin's serialization rules require CompactSize integers to use the
+  /// shortest possible encoding. This error occurs when a value could have
+  /// been encoded in fewer bytes than were used.
+  ///
+  /// `encoded` is the prefix byte that determined the encoding width, and
+  /// `value` is the decoded integer value.
+  NonMinimalCompactSize(encoded: Int, value: Int)
 
   /// An error variant indicating that an invalid SegWit marker flag was encountered.
   InvalidSegWitMarkerFlag(marker: Int, flag: Int)
@@ -954,11 +957,15 @@ fn read_field(
     reader
     |> read_fn
     |> result.map_error(fn(err) {
-      err
-      |> ReaderError
-      |> new_parse_error(reader.get_offset(reader))
-      |> with_contexts([AtField(field), ..ctx])
-      |> ParseFailed
+      case err {
+        reader.InvalidReadCount(_) -> panic
+
+        reader.UnexpectedEof(bytes_needed:, remaining:) ->
+          UnexpectedEof(bytes_needed:, remaining:)
+          |> new_parse_error(reader.get_offset(reader))
+          |> with_contexts([AtField(field), ..ctx])
+          |> ParseFailed
+      }
     })
   })
 }
@@ -969,11 +976,21 @@ fn read_compact_size(field: Field) -> Parser(ParseContext, Uint64, DecodeError) 
     reader
     |> compact_size.read
     |> result.map_error(fn(err) {
-      err
-      |> CompactSizeError
-      |> new_parse_error(reader.get_offset(reader))
-      |> with_contexts([AtField(field), ..ctx])
-      |> ParseFailed
+      case err {
+        compact_size.ReaderError(reader.InvalidReadCount(_)) -> panic
+
+        compact_size.ReaderError(reader.UnexpectedEof(bytes_needed:, remaining:)) ->
+          UnexpectedEof(bytes_needed:, remaining:)
+          |> new_parse_error(reader.get_offset(reader))
+          |> with_contexts([AtField(field), ..ctx])
+          |> ParseFailed
+
+        compact_size.NonMinimalCompactSize(encoded:, value:) ->
+          NonMinimalCompactSize(encoded:, value:)
+          |> new_parse_error(reader.get_offset(reader))
+          |> with_contexts([AtField(field), ..ctx])
+          |> ParseFailed
+      }
     })
   })
 }
@@ -1043,14 +1060,11 @@ fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
 
       Error(err) ->
         case err {
+          reader.InvalidReadCount(..) -> panic
+
           // Ambiguity-aware: do not fail the whole decode just because we couldn't look ahead.
           // Let the later parsing produce a better contextual EOF.
           reader.UnexpectedEof(..) -> Ok(#(reader, False))
-          _ ->
-            err
-            |> ReaderError
-            |> field_err
-            |> Error
         }
     }
   })
@@ -1458,11 +1472,15 @@ fn read_witness_item(
       reader
       |> reader.read_bytes(length)
       |> result.map_error(fn(err) {
-        err
-        |> ReaderError
-        |> new_parse_error(reader.get_offset(reader))
-        |> with_contexts(ctx)
-        |> ParseFailed
+        case err {
+          reader.InvalidReadCount(_) -> panic
+
+          reader.UnexpectedEof(bytes_needed:, remaining:) ->
+            UnexpectedEof(bytes_needed:, remaining:)
+            |> new_parse_error(reader.get_offset(reader))
+            |> with_contexts(ctx)
+            |> ParseFailed
+        }
       })
     })
   })
