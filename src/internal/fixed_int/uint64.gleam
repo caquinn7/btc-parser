@@ -1,5 +1,6 @@
 import gleam/bit_array
 import gleam/int
+import gleam/result
 
 /// An unsigned 64-bit integer stored as 8 little-endian bytes.
 ///
@@ -44,8 +45,66 @@ pub type Uint64Error {
 /// ```
 pub fn from_bytes_le(bytes: BitArray) -> Result(Uint64, Uint64Error) {
   case bytes {
-    <<_:bytes-size(8)>> -> Ok(Uint64(bytes))
+    <<_:bytes-8>> -> Ok(Uint64(bytes))
     _ -> Error(InvalidByteCount(bit_array.byte_size(bytes)))
+  }
+}
+
+/// Errors that can occur when constructing an `Uint64` from an `Int`.
+pub type FromIntError {
+  /// The value cannot be represented as an unsigned 64-bit integer.
+  ///
+  /// On Erlang: Value is outside the range [0, 2^64 - 1]
+  /// 
+  /// On JavaScript: Value is outside the safe integer range [0, 2^53 - 1],
+  /// which prevents encoding values that have already lost precision
+  ValueOutOfRange(Int)
+}
+
+/// Constructs a `Uint64` from a Gleam `Int`.
+///
+/// **Target-specific behavior:**
+/// - **Erlang**: Returns `Error(ValueOutOfRange)` if the value is negative or
+///   exceeds the unsigned 64-bit range [0, 2^64 - 1]
+/// - **JavaScript**: Returns `Error(ValueOutOfRange)` if the value is negative
+///   or exceeds the safe integer range [0, 2^53 - 1], which prevents encoding
+///   values that have already lost precision
+///
+/// ## Examples
+///
+/// ```gleam
+/// from_int(42)
+/// // -> Ok(Uint64) representing 42
+///
+/// from_int(-1)
+/// // -> Error(ValueOutOfRange(-1))
+///
+/// // On Erlang:
+/// from_int(18_446_744_073_709_551_616)  // 2^64, exceeds max
+/// // -> Error(ValueOutOfRange(18446744073709551616))
+///
+/// // On JavaScript:
+/// from_int(9_007_199_254_740_992)  // 2^53, exceeds safe range
+/// // -> Error(ValueOutOfRange(9007199254740992))
+/// ```
+pub fn from_int(i: Int) -> Result(Uint64, FromIntError) {
+  use bytes <- result.try(
+    i
+    |> do_from_int
+    |> result.replace_error(ValueOutOfRange(i)),
+  )
+
+  let assert Ok(u64) = from_bytes_le(bytes)
+  Ok(u64)
+}
+
+@external(javascript, "./int64_ffi.mjs", "uint64FromInt")
+fn do_from_int(i: Int) -> Result(BitArray, Nil) {
+  // On Erlang, integers are arbitrary precision, so we must check bounds.
+  // The valid range for unsigned 64-bit is [0, 2^64 - 1].
+  case 0 <= i && i <= 18_446_744_073_709_551_615 {
+    True -> Ok(<<i:64-little>>)
+    False -> Error(Nil)
   }
 }
 
@@ -72,7 +131,7 @@ pub fn to_int(u: Uint64) -> Result(Int, Nil) {
 
 @external(javascript, "./int64_ffi.mjs", "uint64LeToInt")
 fn do_to_int(bytes_le: BitArray) -> Result(Int, Nil) {
-  let assert <<u:unsigned-little-size(64)>> = bytes_le
+  let assert <<u:64-unsigned-little>> = bytes_le
   Ok(u)
 }
 
@@ -88,6 +147,6 @@ pub fn to_string(u: Uint64) -> String {
 
 @external(javascript, "./int64_ffi.mjs", "uint64LeToString")
 fn do_to_string(bytes_le: BitArray) -> String {
-  let assert <<u:unsigned-little-size(64)>> = bytes_le
+  let assert <<u:64-unsigned-little>> = bytes_le
   int.to_string(u)
 }

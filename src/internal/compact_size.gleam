@@ -2,6 +2,22 @@ import gleam/result
 import internal/fixed_int/uint64.{type Uint64}
 import internal/reader.{type Reader}
 
+/// Errors that can occur when reading a CompactSize-encoded integer.
+pub type ReadError {
+  /// Indicates insufficient bytes were available in the reader to decode the CompactSize value.
+  ///
+  /// This occurs when the prefix indicates a certain number of bytes should follow,
+  /// but the reader does not have enough remaining bytes to read them.
+  ReaderError(reader.ReaderError)
+
+  /// A CompactSize was encoded using more bytes than necessary for its value,
+  /// violating Bitcoin’s minimal encoding rules
+  ///
+  /// `encoded` is the length of the encoded CompactSize in bytes, and `value` is the
+  /// decoded integer value.
+  NonMinimalCompactSize(encoded: Int, value: Int)
+}
+
 /// Read a CompactSize-encoded integer from the reader.
 ///
 /// CompactSize is a variable-length encoding used in Bitcoin transactions to efficiently
@@ -25,7 +41,7 @@ import internal/reader.{type Reader}
 /// - `Ok(#(reader, value))` - The updated reader and the decoded U64 value
 /// - `Error(ReaderError(_))` - Not enough bytes available to read the encoded value
 /// - `Error(NonMinimalCompactSize(_, _))` - The value used non-minimal encoding
-pub fn read(reader: Reader) -> Result(#(Reader, Uint64), CompactSizeError) {
+pub fn read(reader: Reader) -> Result(#(Reader, Uint64), ReadError) {
   use #(reader, prefix) <- result.try(read_from(reader, reader.read_u8))
 
   case prefix {
@@ -35,7 +51,7 @@ pub fn read(reader: Reader) -> Result(#(Reader, Uint64), CompactSizeError) {
       case value < 253 {
         True -> Error(NonMinimalCompactSize(encoded: 3, value: value))
         False -> {
-          let assert Ok(u) = uint64.from_bytes_le(<<value:little-size(64)>>)
+          let assert Ok(u) = uint64.from_bytes_le(<<value:64-little>>)
           Ok(#(reader, u))
         }
       }
@@ -47,7 +63,7 @@ pub fn read(reader: Reader) -> Result(#(Reader, Uint64), CompactSizeError) {
       case value < 65_536 {
         True -> Error(NonMinimalCompactSize(encoded: 5, value:))
         False -> {
-          let assert Ok(u) = uint64.from_bytes_le(<<value:little-size(64)>>)
+          let assert Ok(u) = uint64.from_bytes_le(<<value:64-little>>)
           Ok(#(reader, u))
         }
       }
@@ -58,10 +74,7 @@ pub fn read(reader: Reader) -> Result(#(Reader, Uint64), CompactSizeError) {
         read_from(reader, reader.read_bytes(_, 8)),
       )
 
-      let assert <<
-        lower:unsigned-little-size(32),
-        upper:unsigned-little-size(32),
-      >> = bytes
+      let assert <<lower:32-unsigned-little, upper:32-unsigned-little>> = bytes
 
       // If upper 32 bits are all zeros, the value fits in 32 bits
       // and should have used the 0xFE prefix instead
@@ -86,24 +99,28 @@ pub fn read(reader: Reader) -> Result(#(Reader, Uint64), CompactSizeError) {
 fn read_from(
   reader: Reader,
   read_fn: fn(Reader) -> Result(#(Reader, a), reader.ReaderError),
-) -> Result(#(Reader, a), CompactSizeError) {
+) -> Result(#(Reader, a), ReadError) {
   reader
   |> read_fn
   |> result.map_error(ReaderError)
 }
 
-/// Represents errors that can occur when reading a CompactSize-encoded integer.
-pub type CompactSizeError {
-  /// Indicates insufficient bytes were available in the reader to decode the CompactSize value.
-  ///
-  /// This occurs when the prefix indicates a certain number of bytes should follow,
-  /// but the reader does not have enough remaining bytes to read them.
-  ReaderError(reader.ReaderError)
-
-  /// A CompactSize was encoded using more bytes than necessary for its value,
-  /// violating Bitcoin’s minimal encoding rules
-  ///
-  /// `encoded` is the length of the encoded CompactSize in bytes, and `value` is the
-  /// decoded integer value.
-  NonMinimalCompactSize(encoded: Int, value: Int)
+/// Encode an unsigned 64-bit integer as a CompactSize byte array.
+///
+/// This helper matches the Bitcoin CompactSize encoding rules:
+/// - 0-252: single byte
+/// - 253-65535: 0xFD followed by 2 bytes (little-endian)
+/// - 65536-4294967295: 0xFE followed by 4 bytes (little-endian)
+/// - 4294967296+: 0xFF followed by 8 bytes (little-endian)
+pub fn write(value: Uint64) -> BitArray {
+  case uint64.to_int(value) {
+    Ok(v) if v <= 252 -> <<v:8>>
+    Ok(v) if v <= 65_535 -> <<0xFD, v:16-little>>
+    Ok(v) if v <= 4_294_967_295 -> <<0xFE, v:32-little>>
+    Ok(_) | Error(Nil) -> {
+      // Value is > 4_294_967_295 or too large for Int on JS target
+      let bytes = uint64.to_bytes_le(value)
+      <<0xFF, bytes:bits>>
+    }
+  }
 }

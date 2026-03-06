@@ -39,6 +39,25 @@ pub fn get_offset(reader: Reader) -> Int {
   reader.offset
 }
 
+/// Represents errors that can occur during reader operations.
+pub type ReaderError {
+  /// The number of bytes requested to read is invalid.
+  ///
+  /// This error occurs when a negative value is provided as the byte count
+  /// for a read operation. Byte counts must always be non-negative.
+  ///
+  /// The `Int` value represents the invalid byte count that was requested.
+  InvalidReadCount(Int)
+
+  /// The reader reached the end of the input before enough bytes were available
+  /// to complete the current read operation.
+  UnexpectedEof(bytes_needed: Int, remaining: Int)
+}
+
+fn eof_error(reader: Reader, bytes_needed: Int) {
+  UnexpectedEof(bytes_needed:, remaining: bytes_remaining(reader))
+}
+
 /// Read the specified number of bytes from the reader.
 ///
 /// Returns the updated reader along with the bytes read, or an error if
@@ -172,23 +191,4 @@ fn read_int_le(
 
     _ -> Error(eof_error(reader, bytes_needed))
   }
-}
-
-/// Represents errors that can occur during reader operations.
-pub type ReaderError {
-  /// The number of bytes requested to read is invalid.
-  ///
-  /// This error occurs when a negative value is provided as the byte count
-  /// for a read operation. Byte counts must always be non-negative.
-  ///
-  /// The `Int` value represents the invalid byte count that was requested.
-  InvalidReadCount(Int)
-
-  /// The reader reached the end of the input before enough bytes were available
-  /// to complete the current read operation.
-  UnexpectedEof(bytes_needed: Int, remaining: Int)
-}
-
-fn eof_error(reader: Reader, bytes_needed: Int) {
-  UnexpectedEof(bytes_needed:, remaining: bytes_remaining(reader))
 }

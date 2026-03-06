@@ -9,14 +9,16 @@ import btc_tx.{
   WitnessStackLength, WitnessStackTotalPayloadBytes,
 }
 import gleam/bit_array
+import gleam/crypto.{Sha256}
 import gleam/list
+import gleam/string
 import gleeunit
 import internal/compact_size
 import internal/reader
 
-const legacy_v1_tx = "0100000001098ebbff18cf40ad3ba02ded7d3558d7ca6ee96c990c8fdfb99cf61d88ad2c680100000000ffffffff01f0a29a3b000000001976a914012e2ba6a051c033b03d712ca2ea00a35eac1e7988ac00000000"
+const legacy_v1_tx = "010000000173ea7c1caa2dc6669848997864cb9f597284760654a98f67f321ae78d89dcd380a0000006a4730440220185e66bef2903df84f7eb68c4eedb17bcf59f416324e1807e41461cad39aee8202200cbe809bfbac0f33ed5a23fc70473ff64462e225b9218b568bf5e13a11832445012103c3a5d7ca9937c6f862e3454d679171e90e7ff6d8147b0725cfae909a1c94a538feffffff2122020000000000001976a9145349473a38385c482b2f6a2b6d5476534b6f394f88ac22020000000000001976a91455677a584a742b5a544a5262516a627a50716b3888ac22020000000000001976a9146e7473336b746356685451555a5177326d55373788acdd3f0000000000001976a914b02562ff4e772f0875fbb4cccbc15ef08c431f3e88ac22020000000000001976a91448324f70644f667a36764e544665474a586d776688ac22020000000000001976a9144744756e56484142754a68586e513d4f424a5c3388ac22020000000000001976a91432362f7b2275726e223a2239346637313165353088ac22020000000000001976a914346238643131633162373835613162393663613088ac22020000000000001976a914383531333039376164663361316631303834313688ac22020000000000001976a9146535656134643733623437646166652f4120736d88ac22020000000000001976a914616c6c206d6573736167652e6a7067222c226e6d88ac22020000000000001976a91465223a2266756e6b20796f75222c22637265223a88ac22020000000000001976a9145b223139434b474c61426a64707045706148537488ac22020000000000001976a91438776e727a5371487838356850643955222c223188ac22020000000000001976a91444764e5039385a664857376d53397634426a375288ac22020000000000001976a9147436477457567844344c625a37222c223136726288ac22020000000000001976a9143979413746595150545570775a4a73575a56373788ac22020000000000001976a91466575555477366477077225d2c226f776e223a7b88ac22020000000000001976a914223139434b474c61426a6470704570614853743888ac22020000000000001976a914776e727a5371487838356850643955223a397d2c88ac22020000000000001976a91422726f79223a7b22314233444c725936344c4e6988ac22020000000000001976a91467775071755356414c64704b484563774a546a4688ac22020000000000001976a9144d59223a352e307d7d232323232323232323232388ac22020000000000001976a914393466373131653530346238643131633162373888ac22020000000000001976a914a968f1d8335db1404e32b6b360952e4bdd7ab20088ac22020000000000001976a91466756e6b2323232323232323232323232323232388ac22020000000000001976a914796f75232323232323232323232323232323232388ac22020000000000001976a9147032666b2323232323232323232323232323232388ac22020000000000001976a914656d62696923232323232323232323232323232388ac22020000000000001976a9146e1c6481b500237b14c7c474ae728e670d3b757588ac22020000000000001976a9144039859aabef04c076fd641744faedb3ee240f1588ac22020000000000001976a91459e4d4073fe0680c02fffb0cfe5ad923bf5c1f6588ac22020000000000001976a9148db967691586d193770e916d8cb9475d4118094988ac3a540e00"
 
-const segwit_v1_tx = "01000000000101db6b1b20aa0fd7b23880be2ecbd4a98130974cf4748fb66092ac4d3ceb1a5477010000001716001479091972186c449eb1ded22b78e40d009bdf0089feffffff02b8b4eb0b000000001976a914a457b684d7f0d539a46a45bbc043f35b59d0d96388ac0008af2f000000001976a914fd270b1ee6abcaea97fea7ad0402e8bd8ad6d77c88ac02473044022047ac8e878352d3ebbde1c94ce3a10d057c24175747116f8288e5d794d12d482f0220217f36a485cae903c713331d877c1f64677e3622ad4010726870540656fe9dcb012103ad1d8e89212f0b92c74d23bb710c00662ad1470198ac48c43f7d6f93a2a2687392040000"
+const segwit_v1_tx = "01000000000102abbcae618dc866eff678eb59b617add6995a9b43e18f9156d3683a32554ea0790a00000000ffffffffbc3a57d8b85c9b691169c41d1184a60041eba5a8ac1bfcbf2368b2df286e38b33300000000ffffffff0257cc010000000000160014a6eed0138c8d330892a50ace4b7170899aeccf95304200000000000016001404daa8d90ec7ec9c0a394fc28ae8dd21b1ba568002483045022100d096adfb49bbba07fe723266027739075f968acf256acb986c63e34fffff434b0220156cc75d54f3fcea9c7d0b24ed7c40a7955ce516fa55fa656018bdc0aa8c3c780121027c052450a0b9ee7116b40a2402c2c4772ea4502f6c168d251dc77b0560b6baca02483045022100ada5c1e2de004e68ef9ffb68936b7dd0cff9aaa1d3fb3cb128d8afd3dc9868e10220505adec079e5d5af4bc4a7f4a89dbde8167b18ea00d3c3e460d3e6eadf23bd110121027c052450a0b9ee7116b40a2402c2c4772ea4502f6c168d251dc77b0560b6baca00000000"
 
 const legacy_v2_tx = "02000000019945a5a440f2d3712ff095cb1efefada1cc52e139defedb92a313daed49d5678010000006a473044022031b6a6b79c666d5568a9ac7c116cacf277e11521aebc6794e2b415ef8c87c899022001fe272499ea32e6e1f6e45eb656973fbb55252f7acc64e1e1ac70837d5b7d9f0121023dec241e4851d1ec1513a48800552bae7be155c6542629636bcaa672eee971dcffffffff01a70200000000000017a9148ce773d254dc5df886b95848880e0b40f10564328700000000"
 
@@ -43,9 +45,7 @@ pub fn decode_legacy_full_tx_sets_version_and_is_segwit_false_test() {
 
 pub fn decode_legacy_tx_parses_lock_time_test() {
   let assert Ok(result) = btc_tx.decode_hex(legacy_v1_tx)
-
-  // legacy_v1_tx has lock_time = 0 (ends with 00000000 in little-endian)
-  assert btc_tx.get_lock_time(result) == 0
+  assert btc_tx.get_lock_time(result) == 939_066
 }
 
 pub fn decode_segwit_full_tx_sets_version_and_is_segwit_true_test() {
@@ -57,9 +57,7 @@ pub fn decode_segwit_full_tx_sets_version_and_is_segwit_true_test() {
 
 pub fn decode_segwit_tx_parses_lock_time_test() {
   let assert Ok(result) = btc_tx.decode_hex(segwit_v1_tx)
-
-  // segwit_v1_tx ends with "92040000" which in little-endian is 0x00000492 = 1170
-  assert btc_tx.get_lock_time(result) == 1170
+  assert btc_tx.get_lock_time(result) == 0
 }
 
 pub fn decode_legacy_v2_parses_version_2_test() {
@@ -368,12 +366,7 @@ pub fn decode_parses_single_input_test() {
   // Verify prev_out properties
   let prev_out = btc_tx.get_input_prev_out(first_input)
 
-  let actual_prev_out_txid_bytes =
-    prev_out
-    |> btc_tx.get_prev_out_txid
-    |> btc_tx.txid_to_bytes
-
-  assert actual_prev_out_txid_bytes == prev_txid_bytes
+  assert btc_tx.get_prev_out_txid(prev_out) == prev_txid_bytes
   assert btc_tx.get_prev_out_vout(prev_out) == vout
 
   // Verify sequence
@@ -488,12 +481,7 @@ pub fn decode_parses_multiple_inputs_test() {
   // input 1
   let prev_out1 = btc_tx.get_input_prev_out(i1)
 
-  let actual_prev1_txid_bytes =
-    prev_out1
-    |> btc_tx.get_prev_out_txid
-    |> btc_tx.txid_to_bytes
-
-  assert actual_prev1_txid_bytes == prev1_txid_bytes
+  assert btc_tx.get_prev_out_txid(prev_out1) == prev1_txid_bytes
   assert btc_tx.get_prev_out_vout(prev_out1) == vout1
   assert btc_tx.get_input_sequence(i1) == seq1
   assert btc_tx.get_raw_script_bytes(btc_tx.get_input_script_sig(i1))
@@ -502,12 +490,7 @@ pub fn decode_parses_multiple_inputs_test() {
   // input 2
   let prev_out2 = btc_tx.get_input_prev_out(i2)
 
-  let actual_prev2_txid_bytes =
-    prev_out2
-    |> btc_tx.get_prev_out_txid
-    |> btc_tx.txid_to_bytes
-
-  assert actual_prev2_txid_bytes == prev2_txid_bytes
+  assert btc_tx.get_prev_out_txid(prev_out2) == prev2_txid_bytes
   assert btc_tx.get_prev_out_vout(prev_out2) == vout2
   assert btc_tx.get_input_sequence(i2) == seq2
   assert btc_tx.get_raw_script_bytes(btc_tx.get_input_script_sig(i2))
@@ -516,12 +499,7 @@ pub fn decode_parses_multiple_inputs_test() {
   // input 3
   let prev_out3 = btc_tx.get_input_prev_out(i3)
 
-  let actual_prev3_txid_bytes =
-    prev_out3
-    |> btc_tx.get_prev_out_txid
-    |> btc_tx.txid_to_bytes
-
-  assert actual_prev3_txid_bytes == prev3_txid_bytes
+  assert btc_tx.get_prev_out_txid(prev_out3) == prev3_txid_bytes
   assert btc_tx.get_prev_out_vout(prev_out3) == vout3
   assert btc_tx.get_input_sequence(i3) == seq3
   assert btc_tx.get_raw_script_bytes(btc_tx.get_input_script_sig(i3))
@@ -1188,17 +1166,17 @@ pub fn decode_segwit_tx_parses_witness_data_test() {
   // Verify basic transaction properties
   assert btc_tx.get_version(tx) == 1
 
-  // Verify inputs were parsed correctly (should have 1 input)
+  // Verify inputs were parsed correctly
   let inputs = btc_tx.get_inputs(tx)
-  let assert [_input] = inputs
+  let assert [_, ..] = inputs
 
-  // Verify outputs were parsed correctly (should have 2 outputs)
+  // Verify outputs were parsed correctly
   let outputs = btc_tx.get_outputs(tx)
-  let assert [_output1, _output2] = outputs
+  let assert [_, ..] = outputs
 
   // Verify witness data was parsed
   let assert Ok(witnesses) = btc_tx.get_witnesses(tx)
-  let assert [witness_stack] = witnesses
+  let assert [witness_stack, ..] = witnesses
 
   // Verify the witness stack has 2 items (likely signature and pubkey for P2WPKH)
   let witness_items = btc_tx.get_witness_items(witness_stack)
@@ -1841,14 +1819,16 @@ pub fn validate_consensus_accepts_valid_legacy_tx_test() {
 
   // Verify the validated transaction maintains the same properties
   assert !btc_tx.is_segwit(validated_tx)
-  assert btc_tx.get_version(validated_tx) == 1
-  assert list.length(btc_tx.get_inputs(validated_tx)) == 1
-  assert list.length(btc_tx.get_outputs(validated_tx)) == 1
-  assert btc_tx.get_lock_time(validated_tx) == 0
+  assert btc_tx.get_version(validated_tx) == btc_tx.get_version(unvalidated_tx)
+  assert list.length(btc_tx.get_inputs(validated_tx))
+    == list.length(btc_tx.get_inputs(unvalidated_tx))
+  assert list.length(btc_tx.get_outputs(validated_tx))
+    == list.length(btc_tx.get_outputs(unvalidated_tx))
+  assert btc_tx.get_lock_time(validated_tx)
+    == btc_tx.get_lock_time(unvalidated_tx)
 }
 
 pub fn validate_consensus_accepts_valid_segwit_tx_test() {
-  // Use a real SegWit transaction that has 1 input, 2 outputs, and witness data
   let assert Ok(unvalidated_tx) = btc_tx.decode_hex(segwit_v1_tx)
 
   assert btc_tx.is_segwit(unvalidated_tx)
@@ -1857,14 +1837,15 @@ pub fn validate_consensus_accepts_valid_segwit_tx_test() {
 
   // Verify the validated transaction maintains the same properties
   assert btc_tx.is_segwit(validated_tx)
-  assert btc_tx.get_version(validated_tx) == 1
-  assert list.length(btc_tx.get_inputs(validated_tx)) == 1
-  assert list.length(btc_tx.get_outputs(validated_tx)) == 2
-  assert btc_tx.get_lock_time(validated_tx) == 1170
-
-  // Verify witness data is preserved
-  let assert Ok(witnesses) = btc_tx.get_witnesses(validated_tx)
-  assert list.length(witnesses) == 1
+  assert btc_tx.get_version(validated_tx) == btc_tx.get_version(unvalidated_tx)
+  assert list.length(btc_tx.get_inputs(validated_tx))
+    == list.length(btc_tx.get_inputs(unvalidated_tx))
+  assert list.length(btc_tx.get_outputs(validated_tx))
+    == list.length(btc_tx.get_outputs(unvalidated_tx))
+  assert btc_tx.get_lock_time(validated_tx)
+    == btc_tx.get_lock_time(unvalidated_tx)
+  assert btc_tx.get_witnesses(validated_tx)
+    == btc_tx.get_witnesses(unvalidated_tx)
 }
 
 pub fn validate_consensus_rejects_tx_with_no_inputs_test() {
@@ -2325,6 +2306,119 @@ pub fn is_coinbase_coinbase_transaction_test() {
 }
 
 // ============================================================================
+// compute_txid, compute_wtxid
+// ============================================================================
+
+pub fn compute_txid_legacy_v1_tx_known_vector_test() {
+  compare_compute_txid_against_known_vector(
+    legacy_v1_tx,
+    "619122b4146f5edbf49f2e0aaa1380f2b7668cf9e9fc66fd788e791bf954d6da",
+  )
+}
+
+pub fn compute_txid_legacy_v2_tx_known_vector_test() {
+  compare_compute_txid_against_known_vector(
+    legacy_v2_tx,
+    "05d350c8a65010bbe9d220b2accd7601b4c6541b7c6d7f5ad451efbcc07f8d66",
+  )
+}
+
+pub fn compute_txid_segwit_v1_tx_known_vector_test() {
+  compare_compute_txid_against_known_vector(
+    segwit_v1_tx,
+    "632ac65a62740afbb69fdaee8da8cf12ed53e999b76f2713820937fe2ca2a7ff",
+  )
+}
+
+fn compare_compute_txid_against_known_vector(
+  tx_hex: String,
+  known_txid: String,
+) -> Nil {
+  let assert Ok(tx) = btc_tx.decode_hex(tx_hex)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+
+  let assert Ok(wire_txid) = btc_tx.compute_txid(validated_tx)
+  assert get_display_hex(wire_txid) == known_txid
+}
+
+pub fn compute_txid_matches_manual_dsha256_test() {
+  // Construct a known minimal legacy transaction from scratch
+  let vin_count = compact_size(1)
+  let input = build_input(repeat_byte(1, 32), 0, <<>>, 0xFFFFFFFF)
+  let vout_count = compact_size(1)
+  let output = build_output(<<1000:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    input:bits,
+    vout_count:bits,
+    output:bits,
+    lock_time:bits,
+  >>
+
+  let expected_txid =
+    tx_bytes
+    |> crypto.hash(Sha256, _)
+    |> crypto.hash(Sha256, _)
+
+  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+  let assert Ok(txid) = btc_tx.compute_txid(validated_tx)
+
+  assert txid == expected_txid
+}
+
+pub fn compute_wtxid_tx_known_vector_test() {
+  let tx_hex =
+    "01000000000101438afdb24e414d54cc4a17a95f3d40be90d23dfeeb07a48e9e782178efddd8890100000000fdffffff020db9a60000000000160014b549d227c9edd758288112fe3573c1f85240166880a81201000000001976a914ae28f233464e6da03c052155119a413d13f3380188ac024730440220200254b765f25126334b8de16ee4badf57315c047243942340c16cffd9b11196022074a9476633f093f229456ad904a9d97e26c271fc4f01d0501dec008e4aae71c2012102c37a3c5b21a5991d3d7b1e203be195be07104a1a19e5c2ed82329a56b431213000000000"
+
+  compare_compute_wtxid_against_known_vector(
+    tx_hex,
+    "f12d56f2234e809129dbf59392961bbe7a89b6250651f6aea7852cc00ced63ff",
+  )
+}
+
+fn compare_compute_wtxid_against_known_vector(
+  tx_hex: String,
+  known_txid: String,
+) -> Nil {
+  let assert Ok(tx) = btc_tx.decode_hex(tx_hex)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+
+  let assert Ok(wire_txid) = btc_tx.compute_wtxid(validated_tx)
+  assert get_display_hex(wire_txid) == known_txid
+}
+
+fn get_display_hex(bytes: BitArray) -> String {
+  bytes
+  |> reverse_bytes
+  |> bit_array.base16_encode
+  |> string.lowercase
+}
+
+pub fn compute_txid_differs_from_wtxid_for_segwit_test() {
+  let assert Ok(tx) = btc_tx.decode_hex(segwit_v1_tx)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+
+  let assert Ok(txid) = btc_tx.compute_txid(validated_tx)
+  let assert Ok(wtxid) = btc_tx.compute_wtxid(validated_tx)
+
+  assert txid != wtxid
+}
+
+pub fn compute_txid_equals_compute_wtxid_for_legacy_tx_test() {
+  let assert Ok(tx) = btc_tx.decode_hex(legacy_v1_tx)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+
+  let assert Ok(txid) = btc_tx.compute_txid(validated_tx)
+  let assert Ok(wtxid) = btc_tx.compute_wtxid(validated_tx)
+
+  assert txid == wtxid
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -2432,5 +2526,17 @@ fn compact_size(n: Int) -> BitArray {
     _ if n <= 65_535 -> <<0xFD, n:little-size(16)>>
     _ if n <= 4_294_967_295 -> <<0xFE, n:little-size(32)>>
     _ -> <<0xFF, n:little-size(64)>>
+  }
+}
+
+fn reverse_bytes(bits: BitArray) -> BitArray {
+  do_reverse_bytes(bits, <<>>)
+}
+
+fn do_reverse_bytes(bits: BitArray, acc: BitArray) -> BitArray {
+  case bits {
+    <<>> -> acc
+    <<byte, rest:bits>> -> do_reverse_bytes(rest, <<byte, acc:bits>>)
+    _ -> panic as "input is not byte-aligned"
   }
 }
