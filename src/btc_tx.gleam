@@ -583,7 +583,7 @@ pub fn parse_error_offset(err: ParseError) -> Int {
 /// Get the specific kind of parsing error that occurred.
 ///
 /// Returns the `ParseErrorKind` variant that categorizes what went wrong,
-/// such as `ReaderError`, `CompactSizeError`, `PolicyLimitExceeded`, etc.
+/// such as `UnexpectedEof`, `NonMinimalCompactSize`, `PolicyLimitExceeded`, etc.
 /// This allows you to handle different error types differently.
 ///
 /// ## Examples
@@ -653,6 +653,18 @@ fn make_field_error(
     |> new_parse_error(offset)
     |> with_contexts([AtField(field), ..ctx])
     |> ParseFailed
+  }
+}
+
+/// Maps an internal `ReaderError` to a public `ParseErrorKind`.
+///
+/// `InvalidReadCount` is an internal invariant violation (a library bug) and
+/// is never triggered by user-supplied data, so it is treated as a panic.
+fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
+  case err {
+    reader.InvalidReadCount(_) -> panic
+    reader.UnexpectedEof(bytes_needed:, remaining:) ->
+      UnexpectedEof(bytes_needed:, remaining:)
   }
 }
 
@@ -957,15 +969,9 @@ fn read_field(
     reader
     |> read_fn
     |> result.map_error(fn(err) {
-      case err {
-        reader.InvalidReadCount(_) -> panic
-
-        reader.UnexpectedEof(bytes_needed:, remaining:) ->
-          UnexpectedEof(bytes_needed:, remaining:)
-          |> new_parse_error(reader.get_offset(reader))
-          |> with_contexts([AtField(field), ..ctx])
-          |> ParseFailed
-      }
+      err
+      |> reader_error_to_kind
+      |> make_field_error(field, reader.get_offset(reader), ctx)
     })
   })
 }
@@ -977,20 +983,11 @@ fn read_compact_size(field: Field) -> Parser(ParseContext, Uint64, DecodeError) 
     |> compact_size.read
     |> result.map_error(fn(err) {
       case err {
-        compact_size.ReaderError(reader.InvalidReadCount(_)) -> panic
-
-        compact_size.ReaderError(reader.UnexpectedEof(bytes_needed:, remaining:)) ->
-          UnexpectedEof(bytes_needed:, remaining:)
-          |> new_parse_error(reader.get_offset(reader))
-          |> with_contexts([AtField(field), ..ctx])
-          |> ParseFailed
-
+        compact_size.ReaderError(re) -> reader_error_to_kind(re)
         compact_size.NonMinimalCompactSize(encoded:, value:) ->
           NonMinimalCompactSize(encoded:, value:)
-          |> new_parse_error(reader.get_offset(reader))
-          |> with_contexts([AtField(field), ..ctx])
-          |> ParseFailed
       }
+      |> make_field_error(field, reader.get_offset(reader), ctx)
     })
   })
 }
@@ -1472,15 +1469,11 @@ fn read_witness_item(
       reader
       |> reader.read_bytes(length)
       |> result.map_error(fn(err) {
-        case err {
-          reader.InvalidReadCount(_) -> panic
-
-          reader.UnexpectedEof(bytes_needed:, remaining:) ->
-            UnexpectedEof(bytes_needed:, remaining:)
-            |> new_parse_error(reader.get_offset(reader))
-            |> with_contexts(ctx)
-            |> ParseFailed
-        }
+        err
+        |> reader_error_to_kind
+        |> new_parse_error(reader.get_offset(reader))
+        |> with_contexts(ctx)
+        |> ParseFailed
       })
     })
   })
