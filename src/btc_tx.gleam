@@ -1718,14 +1718,17 @@ pub fn compute_txid(tx: Transaction(Validated)) -> BitArray {
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
   let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
 
-  dsha256(<<
-    tx.version:32-little,
-    compact_size.write(vin_count):bits,
-    serialize_inputs(tx.inputs):bits,
-    compact_size.write(vout_count):bits,
-    serialize_outputs(tx.outputs):bits,
-    tx.lock_time:32-little,
-  >>)
+  let assert <<hash:256-bits>> =
+    dsha256(<<
+      tx.version:32-little,
+      compact_size.write(vin_count):bits,
+      serialize_inputs(tx.inputs):bits,
+      compact_size.write(vout_count):bits,
+      serialize_outputs(tx.outputs):bits,
+      tx.lock_time:32-little,
+    >>)
+
+  hash
 }
 
 /// Compute the witness transaction identifier (wtxid) for a validated transaction.
@@ -1746,16 +1749,19 @@ pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
     SegWit(witnesses:, ..) -> #(<<0x00, 0x01>>, serialize_witnesses(witnesses))
   }
 
-  dsha256(<<
-    tx.version:32-little,
-    segwit_discriminator:bits,
-    compact_size.write(vin_count):bits,
-    serialize_inputs(tx.inputs):bits,
-    compact_size.write(vout_count):bits,
-    serialize_outputs(tx.outputs):bits,
-    witnesses:bits,
-    tx.lock_time:32-little,
-  >>)
+  let assert <<hash:256-bits>> =
+    dsha256(<<
+      tx.version:32-little,
+      segwit_discriminator:bits,
+      compact_size.write(vin_count):bits,
+      serialize_inputs(tx.inputs):bits,
+      compact_size.write(vout_count):bits,
+      serialize_outputs(tx.outputs):bits,
+      witnesses:bits,
+      tx.lock_time:32-little,
+    >>)
+
+  hash
 }
 
 fn serialize_inputs(inputs: List(TxIn)) -> BitArray {
