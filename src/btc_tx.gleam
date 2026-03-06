@@ -47,6 +47,7 @@
 
 import gleam/bit_array
 import gleam/crypto.{Sha256}
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/pair
@@ -421,18 +422,21 @@ pub opaque type ParseError {
 ///
 /// This type categorizes parsing failures into distinct categories.
 pub type ParseErrorKind {
-  /// A low-level binary reader operation failed.
+  /// The input ended before enough bytes could be read.
   ///
-  /// This error wraps failures from the underlying `Reader`, such as attempting
-  /// to read beyond the end of the input or requesting an invalid number of bytes.
-  ReaderError(reader.ReaderError)
+  /// `bytes_needed` is the number of bytes the parser required, and `remaining`
+  /// is the number of bytes actually available at that point.
+  UnexpectedEof(bytes_needed: Int, remaining: Int)
 
-  /// A CompactSize-encoded integer could not be parsed.
+  /// A CompactSize-encoded integer used a non-minimal encoding.
   ///
-  /// This error wraps failures from CompactSize decoding operations, such as
-  /// encountering an unexpected end of input or detecting a non-minimal encoding
-  /// that violates Bitcoin's canonical serialization rules.
-  CompactSizeError(compact_size.ReadError)
+  /// Bitcoin's serialization rules require CompactSize integers to use the
+  /// shortest possible encoding. This error occurs when a value could have
+  /// been encoded in fewer bytes than were used.
+  ///
+  /// `encoded` is the length of the encoded CompactSize in bytes,
+  /// and `value` is the decoded integer value.
+  NonMinimalCompactSize(encoded: Int, value: Int)
 
   /// An error variant indicating that an invalid SegWit marker flag was encountered.
   InvalidSegWitMarkerFlag(marker: Int, flag: Int)
@@ -580,7 +584,7 @@ pub fn parse_error_offset(err: ParseError) -> Int {
 /// Get the specific kind of parsing error that occurred.
 ///
 /// Returns the `ParseErrorKind` variant that categorizes what went wrong,
-/// such as `ReaderError`, `CompactSizeError`, `PolicyLimitExceeded`, etc.
+/// such as `UnexpectedEof`, `NonMinimalCompactSize`, `PolicyLimitExceeded`, etc.
 /// This allows you to handle different error types differently.
 ///
 /// ## Examples
@@ -650,6 +654,21 @@ fn make_field_error(
     |> new_parse_error(offset)
     |> with_contexts([AtField(field), ..ctx])
     |> ParseFailed
+  }
+}
+
+/// Maps an internal `ReaderError` to a public `ParseErrorKind`.
+///
+/// `InvalidReadCount` is an internal invariant violation (a library bug) and
+/// is never triggered by user-supplied data, so it is treated as a panic.
+fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
+  case err {
+    reader.InvalidReadCount(i) ->
+      panic as {
+        "tried to read an invalid number of bytes: " <> int.to_string(i) <> "."
+      }
+    reader.UnexpectedEof(bytes_needed:, remaining:) ->
+      UnexpectedEof(bytes_needed:, remaining:)
   }
 }
 
@@ -955,10 +974,8 @@ fn read_field(
     |> read_fn
     |> result.map_error(fn(err) {
       err
-      |> ReaderError
-      |> new_parse_error(reader.get_offset(reader))
-      |> with_contexts([AtField(field), ..ctx])
-      |> ParseFailed
+      |> reader_error_to_kind
+      |> make_field_error(field, reader.get_offset(reader), ctx)
     })
   })
 }
@@ -969,11 +986,12 @@ fn read_compact_size(field: Field) -> Parser(ParseContext, Uint64, DecodeError) 
     reader
     |> compact_size.read
     |> result.map_error(fn(err) {
-      err
-      |> CompactSizeError
-      |> new_parse_error(reader.get_offset(reader))
-      |> with_contexts([AtField(field), ..ctx])
-      |> ParseFailed
+      case err {
+        compact_size.ReaderError(re) -> reader_error_to_kind(re)
+        compact_size.NonMinimalCompactSize(encoded:, value:) ->
+          NonMinimalCompactSize(encoded:, value:)
+      }
+      |> make_field_error(field, reader.get_offset(reader), ctx)
     })
   })
 }
@@ -1041,17 +1059,13 @@ fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
         }
       }
 
-      Error(err) ->
-        case err {
-          // Ambiguity-aware: do not fail the whole decode just because we couldn't look ahead.
-          // Let the later parsing produce a better contextual EOF.
-          reader.UnexpectedEof(..) -> Ok(#(reader, False))
-          _ ->
-            err
-            |> ReaderError
-            |> field_err
-            |> Error
-        }
+      Error(err) -> {
+        // Panic on InvalidReadCount (library bug); silently treat UnexpectedEof
+        // as non-SegWit. We can't peek, so we fall through and let the
+        // subsequent field parsers produce a more contextual EOF error.
+        let _ = reader_error_to_kind(err)
+        Ok(#(reader, False))
+      }
     }
   })
 }
@@ -1459,7 +1473,7 @@ fn read_witness_item(
       |> reader.read_bytes(length)
       |> result.map_error(fn(err) {
         err
-        |> ReaderError
+        |> reader_error_to_kind
         |> new_parse_error(reader.get_offset(reader))
         |> with_contexts(ctx)
         |> ParseFailed
