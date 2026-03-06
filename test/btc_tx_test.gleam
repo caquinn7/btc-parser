@@ -366,12 +366,7 @@ pub fn decode_parses_single_input_test() {
   // Verify prev_out properties
   let prev_out = btc_tx.get_input_prev_out(first_input)
 
-  let actual_prev_out_txid_bytes =
-    prev_out
-    |> btc_tx.get_prev_out_txid
-    |> btc_tx.txid_to_bytes
-
-  assert actual_prev_out_txid_bytes == prev_txid_bytes
+  assert btc_tx.get_prev_out_txid(prev_out) == prev_txid_bytes
   assert btc_tx.get_prev_out_vout(prev_out) == vout
 
   // Verify sequence
@@ -486,12 +481,7 @@ pub fn decode_parses_multiple_inputs_test() {
   // input 1
   let prev_out1 = btc_tx.get_input_prev_out(i1)
 
-  let actual_prev1_txid_bytes =
-    prev_out1
-    |> btc_tx.get_prev_out_txid
-    |> btc_tx.txid_to_bytes
-
-  assert actual_prev1_txid_bytes == prev1_txid_bytes
+  assert btc_tx.get_prev_out_txid(prev_out1) == prev1_txid_bytes
   assert btc_tx.get_prev_out_vout(prev_out1) == vout1
   assert btc_tx.get_input_sequence(i1) == seq1
   assert btc_tx.get_raw_script_bytes(btc_tx.get_input_script_sig(i1))
@@ -500,12 +490,7 @@ pub fn decode_parses_multiple_inputs_test() {
   // input 2
   let prev_out2 = btc_tx.get_input_prev_out(i2)
 
-  let actual_prev2_txid_bytes =
-    prev_out2
-    |> btc_tx.get_prev_out_txid
-    |> btc_tx.txid_to_bytes
-
-  assert actual_prev2_txid_bytes == prev2_txid_bytes
+  assert btc_tx.get_prev_out_txid(prev_out2) == prev2_txid_bytes
   assert btc_tx.get_prev_out_vout(prev_out2) == vout2
   assert btc_tx.get_input_sequence(i2) == seq2
   assert btc_tx.get_raw_script_bytes(btc_tx.get_input_script_sig(i2))
@@ -514,12 +499,7 @@ pub fn decode_parses_multiple_inputs_test() {
   // input 3
   let prev_out3 = btc_tx.get_input_prev_out(i3)
 
-  let actual_prev3_txid_bytes =
-    prev_out3
-    |> btc_tx.get_prev_out_txid
-    |> btc_tx.txid_to_bytes
-
-  assert actual_prev3_txid_bytes == prev3_txid_bytes
+  assert btc_tx.get_prev_out_txid(prev_out3) == prev3_txid_bytes
   assert btc_tx.get_prev_out_vout(prev_out3) == vout3
   assert btc_tx.get_input_sequence(i3) == seq3
   assert btc_tx.get_raw_script_bytes(btc_tx.get_input_script_sig(i3))
@@ -2326,7 +2306,7 @@ pub fn is_coinbase_coinbase_transaction_test() {
 }
 
 // ============================================================================
-// compute_txid
+// compute_txid, compute_wtxid
 // ============================================================================
 
 pub fn compute_txid_legacy_v1_tx_known_vector_test() {
@@ -2350,21 +2330,15 @@ pub fn compute_txid_segwit_v1_tx_known_vector_test() {
   )
 }
 
-fn compare_compute_txid_against_known_vector(tx_hex, known_txid) {
+fn compare_compute_txid_against_known_vector(
+  tx_hex: String,
+  known_txid: String,
+) -> Nil {
   let assert Ok(tx) = btc_tx.decode_hex(tx_hex)
   let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
 
   let assert Ok(wire_txid) = btc_tx.compute_txid(validated_tx)
-  assert get_txid_display(wire_txid) == known_txid
-}
-
-fn get_txid_display(wire_txid) {
-  // txid_to_bytes is little-endian; explorers show big-endian (reversed)
-  wire_txid
-  |> btc_tx.txid_to_bytes
-  |> reverse_bytes
-  |> bit_array.base16_encode
-  |> string.lowercase
+  assert get_display_hex(wire_txid) == known_txid
 }
 
 pub fn compute_txid_matches_manual_dsha256_test() {
@@ -2393,7 +2367,55 @@ pub fn compute_txid_matches_manual_dsha256_test() {
   let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
   let assert Ok(txid) = btc_tx.compute_txid(validated_tx)
 
-  assert btc_tx.txid_to_bytes(txid) == expected_txid
+  assert txid == expected_txid
+}
+
+pub fn compute_wtxid_tx_known_vector_test() {
+  let tx_hex =
+    "01000000000101438afdb24e414d54cc4a17a95f3d40be90d23dfeeb07a48e9e782178efddd8890100000000fdffffff020db9a60000000000160014b549d227c9edd758288112fe3573c1f85240166880a81201000000001976a914ae28f233464e6da03c052155119a413d13f3380188ac024730440220200254b765f25126334b8de16ee4badf57315c047243942340c16cffd9b11196022074a9476633f093f229456ad904a9d97e26c271fc4f01d0501dec008e4aae71c2012102c37a3c5b21a5991d3d7b1e203be195be07104a1a19e5c2ed82329a56b431213000000000"
+
+  compare_compute_wtxid_against_known_vector(
+    tx_hex,
+    "f12d56f2234e809129dbf59392961bbe7a89b6250651f6aea7852cc00ced63ff",
+  )
+}
+
+fn compare_compute_wtxid_against_known_vector(
+  tx_hex: String,
+  known_txid: String,
+) -> Nil {
+  let assert Ok(tx) = btc_tx.decode_hex(tx_hex)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+
+  let assert Ok(wire_txid) = btc_tx.compute_wtxid(validated_tx)
+  assert get_display_hex(wire_txid) == known_txid
+}
+
+fn get_display_hex(bytes: BitArray) -> String {
+  bytes
+  |> reverse_bytes
+  |> bit_array.base16_encode
+  |> string.lowercase
+}
+
+pub fn compute_txid_differs_from_wtxid_for_segwit_test() {
+  let assert Ok(tx) = btc_tx.decode_hex(segwit_v1_tx)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+
+  let assert Ok(txid) = btc_tx.compute_txid(validated_tx)
+  let assert Ok(wtxid) = btc_tx.compute_wtxid(validated_tx)
+
+  assert txid != wtxid
+}
+
+pub fn compute_txid_equals_compute_wtxid_for_legacy_tx_test() {
+  let assert Ok(tx) = btc_tx.decode_hex(legacy_v1_tx)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+
+  let assert Ok(txid) = btc_tx.compute_txid(validated_tx)
+  let assert Ok(wtxid) = btc_tx.compute_wtxid(validated_tx)
+
+  assert txid == wtxid
 }
 
 // ============================================================================
