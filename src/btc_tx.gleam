@@ -433,8 +433,8 @@ pub type ParseErrorKind {
   /// shortest possible encoding. This error occurs when a value could have
   /// been encoded in fewer bytes than were used.
   ///
-  /// `encoded` is the prefix byte that determined the encoding width, and
-  /// `value` is the decoded integer value.
+  /// `encoded` is the length of the encoded CompactSize in bytes,
+  /// and `value` is the decoded integer value.
   NonMinimalCompactSize(encoded: Int, value: Int)
 
   /// An error variant indicating that an invalid SegWit marker flag was encountered.
