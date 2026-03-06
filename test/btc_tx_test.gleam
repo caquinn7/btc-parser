@@ -2396,6 +2396,35 @@ pub fn compute_txid_matches_manual_dsha256_test() {
   assert txid == expected_txid
 }
 
+pub fn compute_wtxid_matches_manual_dsha256_test() {
+  // Construct a known minimal segwit transaction from scratch
+  let input = build_input(repeat_byte(1, 32), 0, <<>>, 0xFFFFFFFF)
+  let output = build_output(<<1000:little-size(64)>>, <<>>)
+
+  // Single-item witness stack with one byte of data
+  let witness_item = <<0x42>>
+  let witness_item_len = bit_array.byte_size(witness_item)
+  let witness_stack = <<
+    compact_size(1):bits,
+    compact_size(witness_item_len):bits,
+    witness_item:bits,
+  >>
+
+  let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
+
+  // wtxid is dsha256 of the full serialized bytes (including marker, flag, witness)
+  let expected_wtxid =
+    tx_bytes
+    |> crypto.hash(Sha256, _)
+    |> crypto.hash(Sha256, _)
+
+  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+  let wtxid = btc_tx.compute_wtxid(validated_tx)
+
+  assert wtxid == expected_wtxid
+}
+
 pub fn compute_wtxid_tx_known_vector_test() {
   let tx_hex =
     "01000000000101438afdb24e414d54cc4a17a95f3d40be90d23dfeeb07a48e9e782178efddd8890100000000fdffffff020db9a60000000000160014b549d227c9edd758288112fe3573c1f85240166880a81201000000001976a914ae28f233464e6da03c052155119a413d13f3380188ac024730440220200254b765f25126334b8de16ee4badf57315c047243942340c16cffd9b11196022074a9476633f093f229456ad904a9d97e26c271fc4f01d0501dec008e4aae71c2012102c37a3c5b21a5991d3d7b1e203be195be07104a1a19e5c2ed82329a56b431213000000000"
