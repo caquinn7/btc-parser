@@ -1456,7 +1456,7 @@ fn read_tx_in(
   // │ sequence (4 bytes)
   parser.map3(
     read_prev_out(),
-    read_script(ScriptSig, max_script_size_policy),
+    read_script_sig(max_script_size_policy),
     read_field(Sequence, reader.read_u32_le),
     TxIn,
   )
@@ -1566,7 +1566,7 @@ fn read_tx_out(
   // | scriptPubKey bytes
   parser.map2(
     read_satoshis(),
-    read_script(ScriptPubKey, max_script_size_policy),
+    read_script_pubkey(max_script_size_policy),
     TxOut,
   )
 }
@@ -1593,20 +1593,24 @@ fn read_satoshis() -> Parser(ParseContext, Int, DecodeError) {
   })
 }
 
-fn read_script(
-  field: Field,
+fn read_script_sig(
   max_script_size_policy: Int,
-) -> Parser(ParseContext, ScriptBytes(k), DecodeError) {
-  let script_length_field = case field {
-    ScriptSig -> ScriptSigLength
-    ScriptPubKey -> ScriptPubKeyLength
-    _ -> panic as "Invalid script field"
-  }
-
-  script_length_field
+) -> Parser(ParseContext, ScriptBytes(InputScript), DecodeError) {
+  ScriptSigLength
   |> read_script_length(max_script_size_policy)
   |> parser.then(fn(script_len) {
-    read_field(field, reader.read_bytes(_, script_len))
+    read_field(ScriptSig, reader.read_bytes(_, script_len))
+  })
+  |> parser.map(ScriptBytes)
+}
+
+fn read_script_pubkey(
+  max_script_size_policy: Int,
+) -> Parser(ParseContext, ScriptBytes(OutputScript), DecodeError) {
+  ScriptPubKeyLength
+  |> read_script_length(max_script_size_policy)
+  |> parser.then(fn(script_len) {
+    read_field(ScriptPubKey, reader.read_bytes(_, script_len))
   })
   |> parser.map(ScriptBytes)
 }
