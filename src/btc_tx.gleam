@@ -667,6 +667,7 @@ fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
       panic as {
         "tried to read an invalid number of bytes: " <> int.to_string(i) <> "."
       }
+
     reader.UnexpectedEof(bytes_needed:, remaining:) ->
       UnexpectedEof(bytes_needed:, remaining:)
   }
@@ -1700,10 +1701,8 @@ fn validate_coinbase_script_sig_length(
     [input] ->
       case prev_out_is_coinbase_marker(input.prev_out) {
         True -> {
-          let ScriptBytes(bytes) = input.script_sig
-          let script_sig_size = bit_array.byte_size(bytes)
-
-          case 2 <= script_sig_size && script_sig_size <= 100 {
+          let script_len = get_script_length(input.script_sig)
+          case 2 <= script_len && script_len <= 100 {
             True -> Ok(Nil)
             False -> Error(InvalidCoinbaseScriptSigLength)
           }
@@ -1733,7 +1732,7 @@ pub fn compute_txid(tx: Transaction(Validated)) -> BitArray {
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
   let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
 
-  let assert <<hash:256-bits>> =
+  let assert <<_:256-bits>> =
     dsha256(<<
       tx.version:32-little,
       compact_size.write(vin_count):bits,
@@ -1742,8 +1741,6 @@ pub fn compute_txid(tx: Transaction(Validated)) -> BitArray {
       serialize_outputs(tx.outputs):bits,
       tx.lock_time:32-little,
     >>)
-
-  hash
 }
 
 /// Compute the witness transaction identifier (wtxid) for a validated transaction.
@@ -1765,7 +1762,7 @@ pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
     SegWit(witnesses:, ..) -> #(<<0x00, 0x01>>, serialize_witnesses(witnesses))
   }
 
-  let assert <<hash:256-bits>> =
+  let assert <<_:256-bits>> =
     dsha256(<<
       tx.version:32-little,
       segwit_discriminator:bits,
@@ -1776,8 +1773,6 @@ pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
       witnesses:bits,
       tx.lock_time:32-little,
     >>)
-
-  hash
 }
 
 fn serialize_inputs(inputs: List(TxIn)) -> BitArray {

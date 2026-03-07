@@ -10,6 +10,7 @@ import btc_tx.{
 }
 import gleam/bit_array
 import gleam/crypto.{Sha256}
+import gleam/int
 import gleam/list
 import gleam/string
 import gleeunit
@@ -1545,9 +1546,9 @@ pub fn decode_witness_stack_at_max_items_per_input_succeeds_test() {
 
   // Build witness stack with exactly max_items_per_input items
   let witness_items =
-    list.range(0, max_items_per_input - 1)
-    |> list.map(fn(_) { <<compact_size(5):bits, 1, 2, 3, 4, 5>> })
-    |> list.fold(<<>>, fn(acc, item) { <<acc:bits, item:bits>> })
+    int.range(0, max_items_per_input, with: <<>>, run: fn(acc, _) {
+      <<acc:bits, compact_size(5):bits, 1, 2, 3, 4, 5>>
+    })
 
   let witness_stack = <<
     compact_size(max_items_per_input):bits,
@@ -1584,9 +1585,9 @@ pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
 
   // Build witness stack with max_items_per_input + 1 items
   let witness_items =
-    list.range(0, max_items_per_input)
-    |> list.map(fn(_) { <<compact_size(5):bits, 1, 2, 3, 4, 5>> })
-    |> list.fold(<<>>, fn(acc, item) { <<acc:bits, item:bits>> })
+    int.range(0, max_items_per_input + 1, with: <<>>, run: fn(acc, _) {
+      <<acc:bits, compact_size(5):bits, 1, 2, 3, 4, 5>>
+    })
 
   let witness_stack = <<
     compact_size(max_items_per_input + 1):bits,
