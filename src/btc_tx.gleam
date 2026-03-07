@@ -37,6 +37,10 @@
 //// - **Rich error context**: Detailed parse errors with byte offsets and context stacks
 //// - **Consensus validation**: Check transactions against Bitcoin's consensus rules
 //// - **Type safety**: Phantom types distinguish validated from unvalidated transactions
+//// - **Script classification**: Identify P2PKH, P2SH, P2WPKH, P2WSH, P2TR, and other
+////   standard output script templates (see `classify_output_script`)
+//// - **Transaction IDs**: Compute txid and wtxid for validated transactions
+////   (see `compute_txid` and `compute_wtxid`)
 ////
 //// ## Main Entry Points
 ////
@@ -44,6 +48,8 @@
 //// - `validate_consensus` - Validate against consensus rules
 //// - `get_inputs`, `get_outputs`, etc. - Access transaction components
 //// - `is_segwit`, `is_coinbase` - Query transaction properties
+//// - `classify_output_script` - Classify an output's `script_pubkey` type
+//// - `compute_txid` / `compute_wtxid` - Compute transaction identifiers
 
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -395,6 +401,230 @@ pub fn get_script_length(script: ScriptBytes(k)) -> Int {
   script
   |> get_raw_script_bytes
   |> bit_array.byte_size
+}
+
+// ==============================================================================
+// Output script classification
+// ==============================================================================
+
+/// The recognised script type of a transaction output's locking script.
+///
+/// Identifies which standard Bitcoin script template a `script_pubkey` matches,
+/// enabling type-safe dispatch when inspecting or spending outputs.
+pub type OutputScriptType {
+  /// Pay-to-public-key. The script directly commits to a public key and uses
+  /// `OP_CHECKSIG` for validation. Accepts both compressed (33-byte) and
+  /// uncompressed (65-byte) public keys.
+  P2PK
+
+  /// Pay-to-public-key-hash. The most common legacy output type.
+  P2PKH
+
+  /// Pay-to-script-hash. The hash of the redeem script is embedded in the
+  /// `scriptPubKey`; the actual spending conditions are revealed in the input's
+  /// `scriptSig`.
+  P2SH
+
+  /// Pay-to-witness-public-key-hash. SegWit v0 output for single-key spends.
+  P2WPKH
+
+  /// Pay-to-witness-script-hash. SegWit v0 output for script-based spends.
+  P2WSH
+
+  /// Pay-to-taproot. SegWit v1 output supporting key-path and script-path spends.
+  P2TR
+
+  /// Bare m-of-n multisig. Uses `OP_CHECKMULTISIG` directly in the
+  /// `scriptPubKey`. Bitcoin Core allows 1–3 keys and 1–3 required signatures.
+  Multisig
+
+  /// Standard null-data output as defined by Bitcoin Core's standardness rules.
+  ///
+  /// Matches scripts that begin with `OP_RETURN`, are followed only by push
+  /// opcodes, and have a total size of at most 83 bytes. The size limit is a
+  /// Bitcoin Core relay policy constraint, not a consensus rule — this variant
+  /// intentionally mirrors the standard template definition rather than the
+  /// looser structural shape of "any push-only `OP_RETURN` script".
+  ///
+  /// An `OP_RETURN` script that is push-only but exceeds 83 bytes, or that
+  /// contains non-push opcodes after `OP_RETURN`, will classify as
+  /// `NonStandard` instead.
+  NullData
+
+  /// A well-formed witness program whose version (1–16) does not map to a
+  /// named script type. `version` is the decoded witness version number
+  /// (1–16 — note version 1 with a 32-byte program is `P2TR` and never
+  /// appears here). Forward-compatible; should not be treated the same as
+  /// `NonStandard`.
+  UnknownWitness(version: Int)
+
+  /// Does not match any recognized standard output template.
+  NonStandard
+}
+
+/// Classify the script type of a transaction output's locking script.
+///
+/// Matches `script_pubkey` bytes against known Bitcoin script templates and
+/// returns the corresponding `OutputScriptType`.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let script_pubkey = get_output_script_pubkey(output)
+/// case classify_output_script(script_pubkey) {
+///   P2PKH       -> // legacy single-sig pay-to-pubkey-hash
+///   P2WPKH      -> // native SegWit single-sig
+///   P2TR        -> // taproot
+///   NonStandard -> // no matching template
+///   _           -> // other standard type
+/// }
+/// ```
+pub fn classify_output_script(
+  script: ScriptBytes(OutputScript),
+) -> OutputScriptType {
+  let bytes = get_raw_script_bytes(script)
+  case bytes {
+    // P2PKH: OP_DUP OP_HASH160 OP_DATA_20 <20-byte hash> OP_EQUALVERIFY OP_CHECKSIG
+    <<0x76, 0xA9, 0x14, _:bytes-size(20), 0x88, 0xAC>> -> P2PKH
+
+    // P2SH: OP_HASH160 OP_DATA_20 <20-byte hash> OP_EQUAL
+    <<0xA9, 0x14, _:bytes-size(20), 0x87>> -> P2SH
+
+    // P2WPKH: OP_0 OP_DATA_20 <20-byte witness program>
+    <<0x00, 0x14, _:bytes-size(20)>> -> P2WPKH
+
+    // P2WSH: OP_0 OP_DATA_32 <32-byte witness program>
+    <<0x00, 0x20, _:bytes-size(32)>> -> P2WSH
+
+    // P2TR: OP_1 OP_DATA_32 <32-byte x-only pubkey>
+    <<0x51, 0x20, _:bytes-size(32)>> -> P2TR
+
+    // P2PK: OP_DATA_33 <compressed pubkey> OP_CHECKSIG
+    <<0x21, _:bytes-size(33), 0xAC>> -> P2PK
+
+    // P2PK: OP_DATA_65 <uncompressed pubkey> OP_CHECKSIG
+    <<0x41, _:bytes-size(65), 0xAC>> -> P2PK
+
+    // NullData: OP_RETURN + push-only data, total ≤ 83 bytes (Bitcoin Core standard template).
+    <<0x6A, rest:bits>> ->
+      case bit_array.byte_size(bytes) <= 83 && do_is_push_only(rest) {
+        True -> NullData
+        False -> NonStandard
+      }
+
+    _ -> do_classify_non_template(bytes)
+  }
+}
+
+/// Classify scripts that did not match any fixed-length template.
+/// Checks for future witness versions and bare multisig.
+fn do_classify_non_template(bytes: BitArray) -> OutputScriptType {
+  case bytes {
+    // UnknownWitness: OP_1–OP_16 followed by a 2–40 byte witness program.
+    // OP_0 (P2WPKH/P2WSH) is already handled above.
+    // OP_1 with a 32-byte program is already handled above as P2TR.
+    <<version, push_len, _:bytes-size(push_len)>>
+      if version >= 0x51 && version <= 0x60 && push_len >= 2 && push_len <= 40
+    -> UnknownWitness(version: version - 0x50)
+
+    _ ->
+      case do_is_standard_multisig(bytes) {
+        True -> Multisig
+        False -> NonStandard
+      }
+  }
+}
+
+/// Return `True` if every opcode in `bytes` is a push opcode.
+/// Handles `OP_0`, `OP_1NEGATE`, `OP_1`–`OP_16`, direct pushes (1–75 bytes),
+/// `OP_PUSHDATA1`, `OP_PUSHDATA2`, and `OP_PUSHDATA4`.
+fn do_is_push_only(bytes: BitArray) -> Bool {
+  case bytes {
+    <<>> -> True
+    // OP_0: pushes empty array
+    <<0x00, rest:bits>> -> do_is_push_only(rest)
+    // OP_1NEGATE: pushes -1
+    <<0x4F, rest:bits>> -> do_is_push_only(rest)
+    // OP_1..OP_16: small integer pushes
+    <<opcode, rest:bits>> if opcode >= 0x51 && opcode <= 0x60 ->
+      do_is_push_only(rest)
+    // Direct push: 1–75 bytes follow immediately
+    <<push_len, rest:bits>> if push_len >= 0x01 && push_len <= 0x4B ->
+      case rest {
+        <<_:bytes-size(push_len), remainder:bits>> -> do_is_push_only(remainder)
+        _ -> False
+      }
+    // OP_PUSHDATA1: next byte is length, then data
+    <<0x4C, len, rest:bits>> ->
+      case rest {
+        <<_:bytes-size(len), remainder:bits>> -> do_is_push_only(remainder)
+        _ -> False
+      }
+    // OP_PUSHDATA2: next 2 bytes (LE) are length, then data
+    <<0x4D, len:little-size(16), rest:bits>> ->
+      case rest {
+        <<_:bytes-size(len), remainder:bits>> -> do_is_push_only(remainder)
+        _ -> False
+      }
+    // OP_PUSHDATA4: next 4 bytes (LE) are length, then data
+    <<0x4E, len:little-size(32), rest:bits>> ->
+      case rest {
+        <<_:bytes-size(len), remainder:bits>> -> do_is_push_only(remainder)
+        _ -> False
+      }
+    // Anything else is a non-push opcode
+    _ -> False
+  }
+}
+
+/// Return `True` if `bytes` is a standard bare multisig script:
+/// `OP_m { OP_DATA_33 <pubkey> | OP_DATA_65 <pubkey> }... OP_n OP_CHECKMULTISIG`
+/// where 1 ≤ m ≤ n ≤ 3.
+fn do_is_standard_multisig(bytes: BitArray) -> Bool {
+  let total = bit_array.byte_size(bytes)
+  // Minimum: OP_1 + (OP_DATA_33 + 33) + OP_1 + OP_CHECKMULTISIG = 37 bytes
+  case total < 37 {
+    True -> False
+    False ->
+      case
+        bit_array.slice(bytes, 0, 1),
+        bit_array.slice(bytes, total - 2, 1),
+        bit_array.slice(bytes, total - 1, 1)
+      {
+        Ok(<<m_opcode>>), Ok(<<n_opcode>>), Ok(<<0xAE>>) -> {
+          let m = m_opcode - 0x50
+          let n = n_opcode - 0x50
+          case m >= 1 && m <= 3 && n >= 1 && n <= 3 && m <= n {
+            False -> False
+            True ->
+              case bit_array.slice(bytes, 1, total - 3) {
+                Ok(pubkey_section) ->
+                  do_count_multisig_pubkeys(pubkey_section, 0) == n
+                Error(_) -> False
+              }
+          }
+        }
+        _, _, _ -> False
+      }
+  }
+}
+
+/// Count valid pubkey pushes in a bare multisig pubkey section.
+/// Returns -1 if the data contains anything other than valid pubkey pushes.
+fn do_count_multisig_pubkeys(bytes: BitArray, count: Int) -> Int {
+  case bytes {
+    <<>> -> count
+
+    // Compressed pubkey: OP_DATA_33 <33 bytes>
+    <<0x21, _:bytes-size(33), rest:bits>> ->
+      do_count_multisig_pubkeys(rest, count + 1)
+
+    // Uncompressed pubkey: OP_DATA_65 <65 bytes>
+    <<0x41, _:bytes-size(65), rest:bits>> ->
+      do_count_multisig_pubkeys(rest, count + 1)
+
+    _ -> -1
+  }
 }
 
 // ==============================================================================

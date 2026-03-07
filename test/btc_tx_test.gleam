@@ -2459,6 +2459,199 @@ pub fn compute_txid_equals_compute_wtxid_for_legacy_tx_test() {
 }
 
 // ============================================================================
+// classify_output_script
+// ============================================================================
+
+pub fn classify_output_script_p2pkh_test() {
+  let hash = repeat_byte(0xAA, 20)
+  let script_bytes = <<0x76, 0xA9, 0x14, hash:bits, 0x88, 0xAC>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.P2PKH
+}
+
+pub fn classify_output_script_p2sh_test() {
+  let hash = repeat_byte(0xBB, 20)
+  let script_bytes = <<0xA9, 0x14, hash:bits, 0x87>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.P2SH
+}
+
+pub fn classify_output_script_p2wpkh_test() {
+  let hash = repeat_byte(0xCC, 20)
+  let script_bytes = <<0x00, 0x14, hash:bits>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.P2WPKH
+}
+
+pub fn classify_output_script_p2wsh_test() {
+  let hash = repeat_byte(0xDD, 32)
+  let script_bytes = <<0x00, 0x20, hash:bits>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.P2WSH
+}
+
+pub fn classify_output_script_p2tr_test() {
+  let pubkey = repeat_byte(0xEE, 32)
+  let script_bytes = <<0x51, 0x20, pubkey:bits>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.P2TR
+}
+
+pub fn classify_output_script_p2pk_compressed_test() {
+  let pubkey = repeat_byte(0x02, 33)
+  let script_bytes = <<0x21, pubkey:bits, 0xAC>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.P2PK
+}
+
+pub fn classify_output_script_p2pk_uncompressed_test() {
+  let pubkey = repeat_byte(0x04, 65)
+  let script_bytes = <<0x41, pubkey:bits, 0xAC>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.P2PK
+}
+
+pub fn classify_output_script_nulldata_with_data_test() {
+  let script_bytes = <<0x6A, 0x04, 0xDE, 0xAD, 0xBE, 0xEF>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.NullData
+}
+
+pub fn classify_output_script_nulldata_empty_test() {
+  let script_bytes = <<0x6A>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.NullData
+}
+
+pub fn classify_output_script_nulldata_non_push_is_non_standard_test() {
+  // OP_RETURN OP_ADD — non-push opcode after OP_RETURN is not a standard null-data script
+  let script_bytes = <<0x6A, 0x93>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.NonStandard
+}
+
+pub fn classify_output_script_multisig_1of1_test() {
+  let pubkey = repeat_byte(0xAA, 33)
+  let script_bytes = <<0x51, 0x21, pubkey:bits, 0x51, 0xAE>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.Multisig
+}
+
+pub fn classify_output_script_multisig_2of3_test() {
+  let pubkey1 = repeat_byte(0xAA, 33)
+  let pubkey2 = repeat_byte(0xBB, 33)
+  let pubkey3 = repeat_byte(0xCC, 33)
+  let script_bytes = <<
+    0x52, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x21, pubkey3:bits, 0x53, 0xAE,
+  >>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.Multisig
+}
+
+pub fn classify_output_script_unknown_witness_v1_non_taproot_test() {
+  // OP_1 with a 20-byte program — valid witness v1 but not Taproot (which requires 32 bytes)
+  let program = repeat_byte(0xFF, 20)
+  let script_bytes = <<0x51, 0x14, program:bits>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.UnknownWitness(version: 1)
+}
+
+pub fn classify_output_script_unknown_witness_v2_test() {
+  let program = repeat_byte(0xFF, 32)
+  let script_bytes = <<0x52, 0x20, program:bits>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.UnknownWitness(version: 2)
+}
+
+pub fn classify_output_script_unknown_witness_v16_test() {
+  let program = repeat_byte(0xFF, 20)
+  let script_bytes = <<0x60, 0x14, program:bits>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.UnknownWitness(version: 16)
+}
+
+pub fn classify_output_script_non_standard_test() {
+  let script_bytes = <<0x00, 0x01, 0xAA>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.NonStandard
+}
+
+pub fn classify_output_script_empty_test() {
+  // Zero-length script — no pattern matches → NonStandard
+  let script_bytes = <<>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.NonStandard
+}
+
+pub fn classify_output_script_nulldata_at_max_size_test() {
+  // OP_RETURN (1) + OP_PUSHDATA1 (1) + len byte (1) + 80 bytes = 83 bytes total → NullData
+  let data = repeat_byte(0xAB, 80)
+  let script_bytes = <<0x6A, 0x4C, 80, data:bits>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.NullData
+}
+
+pub fn classify_output_script_nulldata_over_max_size_test() {
+  // OP_RETURN (1) + OP_PUSHDATA1 (1) + len byte (1) + 81 bytes = 84 bytes total → NonStandard
+  let data = repeat_byte(0xAB, 81)
+  let script_bytes = <<0x6A, 0x4C, 81, data:bits>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.NonStandard
+}
+
+pub fn classify_output_script_multisig_3of3_test() {
+  let pubkey1 = repeat_byte(0xAA, 33)
+  let pubkey2 = repeat_byte(0xBB, 33)
+  let pubkey3 = repeat_byte(0xCC, 33)
+  let script_bytes = <<
+    0x53, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x21, pubkey3:bits, 0x53, 0xAE,
+  >>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.Multisig
+}
+
+pub fn classify_output_script_multisig_invalid_m_gt_n_test() {
+  // OP_3 <2 pubkeys> OP_2 OP_CHECKMULTISIG — m(3) > n(2), invalid
+  let pubkey1 = repeat_byte(0xAA, 33)
+  let pubkey2 = repeat_byte(0xBB, 33)
+  let script_bytes = <<
+    0x53, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x52, 0xAE,
+  >>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.NonStandard
+}
+
+pub fn classify_output_script_multisig_too_many_keys_test() {
+  // OP_1 <4 pubkeys> OP_4 OP_CHECKMULTISIG — n(4) > 3, non-standard
+  let pubkey1 = repeat_byte(0xAA, 33)
+  let pubkey2 = repeat_byte(0xBB, 33)
+  let pubkey3 = repeat_byte(0xCC, 33)
+  let pubkey4 = repeat_byte(0xDD, 33)
+  let script_bytes = <<
+    0x51, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x21, pubkey3:bits, 0x21,
+    pubkey4:bits, 0x54, 0xAE,
+  >>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.NonStandard
+}
+
+pub fn classify_output_script_unknown_witness_v1_min_program_test() {
+  // OP_1 + OP_DATA_2 + 2-byte program — minimum valid witness program length
+  let program = repeat_byte(0xFF, 2)
+  let script_bytes = <<0x51, 0x02, program:bits>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.UnknownWitness(version: 1)
+}
+
+pub fn classify_output_script_unknown_witness_v1_max_program_test() {
+  // OP_1 + OP_DATA_40 + 40-byte program — maximum valid witness program length
+  let program = repeat_byte(0xFF, 40)
+  let script_bytes = <<0x51, 0x28, program:bits>>
+  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
+    == btc_tx.UnknownWitness(version: 1)
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -2579,4 +2772,24 @@ fn do_reverse_bytes(bits: BitArray, acc: BitArray) -> BitArray {
     <<byte, rest:bits>> -> do_reverse_bytes(rest, <<byte, acc:bits>>)
     _ -> panic as "input is not byte-aligned"
   }
+}
+
+/// Build and decode a minimal transaction containing only the given
+/// `script_pubkey_bytes`, returning a `ScriptBytes(OutputScript)` value
+/// ready to pass to `classify_output_script`.
+fn decode_script_pubkey(
+  script_pubkey_bytes: BitArray,
+) -> btc_tx.ScriptBytes(btc_tx.OutputScript) {
+  let output = build_output(<<0:little-size(64)>>, script_pubkey_bytes)
+  let lock_time = <<0:little-size(32)>>
+  let assert Ok(tx) =
+    btc_tx.decode(<<
+      version1:bits,
+      build_minimal_input():bits,
+      compact_size(1):bits,
+      output:bits,
+      lock_time:bits,
+    >>)
+  let assert [first_output] = btc_tx.get_outputs(tx)
+  btc_tx.get_output_script_pubkey(first_output)
 }
