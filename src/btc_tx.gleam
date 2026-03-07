@@ -1728,7 +1728,8 @@ fn validate_coinbase_script_sig_length(
 /// **Requires validation**: Accepts only `Transaction(Validated)` to ensure
 /// the transaction has passed consensus checks via `validate_consensus`.
 pub fn compute_txid(tx: Transaction(Validated)) -> BitArray {
-  // safe: parser guarantees these lengths fit in compact_size
+  // safe: input/output counts are non-negative Ints parsed from the wire,
+  // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
   let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
 
@@ -1754,7 +1755,8 @@ pub fn compute_txid(tx: Transaction(Validated)) -> BitArray {
 /// **Requires validation**: Accepts only `Transaction(Validated)` to ensure
 /// the transaction has passed consensus checks via `validate_consensus`.
 pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
-  // safe: parser guarantees these lengths fit in compact_size
+  // safe: input/output counts are non-negative Ints parsed from the wire,
+  // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
   let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
 
