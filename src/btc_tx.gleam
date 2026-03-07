@@ -235,7 +235,7 @@ pub opaque type TxIn {
     ///
     /// This script is evaluated together with the referenced output’s
     /// scriptPubKey during script execution.
-    script_sig: ScriptBytes,
+    script_sig: ScriptBytes(InputScript),
     /// The sequence number associated with this input.
     ///
     /// Sequence numbers are used for relative lock-time semantics and
@@ -255,7 +255,7 @@ pub fn get_input_sequence(input: TxIn) -> Int {
 }
 
 /// Get the scriptSig from an input.
-pub fn get_input_script_sig(input: TxIn) -> ScriptBytes {
+pub fn get_input_script_sig(input: TxIn) -> ScriptBytes(InputScript) {
   input.script_sig
 }
 
@@ -346,7 +346,7 @@ pub opaque type TxOut {
     /// The number of satoshis assigned to this output.
     value: Int,
     /// The locking script (scriptPubKey) defining the spending conditions.
-    script_pubkey: ScriptBytes,
+    script_pubkey: ScriptBytes(OutputScript),
   )
 }
 
@@ -363,25 +363,35 @@ pub fn get_output_value(output: TxOut) -> Int {
 /// Returns the scriptPubKey that defines the conditions under which this
 /// output may be spent. The script is interpreted together with a spending
 /// input's scriptSig during script validation.
-pub fn get_output_script_pubkey(output: TxOut) -> ScriptBytes {
+pub fn get_output_script_pubkey(output: TxOut) -> ScriptBytes(OutputScript) {
   output.script_pubkey
 }
 
+/// Phantom type tag for `ScriptBytes` — marks a scriptSig (input unlocking script).
+pub type InputScript
+
+/// Phantom type tag for `ScriptBytes` — marks a scriptPubKey (output locking script).
+pub type OutputScript
+
 /// Raw Bitcoin script bytes.
+///
+/// The `kind` type parameter is a phantom tag distinguishing input scripts
+/// (`ScriptBytes(InputScript)`) from output scripts (`ScriptBytes(OutputScript)`).
+/// It carries no runtime representation.
 ///
 /// This type represents an uninterpreted script as it appears on the wire.
 /// No validation or opcode parsing is performed at this level.
-pub opaque type ScriptBytes {
+pub opaque type ScriptBytes(kind) {
   ScriptBytes(BitArray)
 }
 
 /// Get the raw bytes from a `ScriptBytes`.
-pub fn get_raw_script_bytes(script: ScriptBytes) -> BitArray {
+pub fn get_raw_script_bytes(script: ScriptBytes(k)) -> BitArray {
   let ScriptBytes(bytes) = script
   bytes
 }
 
-pub fn get_script_length(script: ScriptBytes) -> Int {
+pub fn get_script_length(script: ScriptBytes(k)) -> Int {
   script
   |> get_raw_script_bytes
   |> bit_array.byte_size
@@ -1301,7 +1311,7 @@ fn read_satoshis() -> Parser(ParseContext, Int, DecodeError) {
 fn read_script(
   field: Field,
   max_script_size_policy: Int,
-) -> Parser(ParseContext, ScriptBytes, DecodeError) {
+) -> Parser(ParseContext, ScriptBytes(k), DecodeError) {
   let script_length_field = case field {
     ScriptSig -> ScriptSigLength
     ScriptPubKey -> ScriptPubKeyLength
