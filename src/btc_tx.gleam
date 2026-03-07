@@ -52,6 +52,7 @@
 //// - `compute_txid` / `compute_wtxid` - Compute transaction identifiers
 
 import gleam/bit_array
+import gleam/bool
 import gleam/crypto.{Sha256}
 import gleam/int
 import gleam/list
@@ -467,6 +468,26 @@ pub type OutputScriptType {
 /// Matches `script_pubkey` bytes against known Bitcoin script templates and
 /// returns the corresponding `OutputScriptType`.
 ///
+/// ## Classification
+///
+/// ```
+/// ├─ 76 A9 14 [×20] 88 AC                  → P2PKH
+/// ├─ A9 14 [×20] 87                        → P2SH
+/// ├─ 00 14 [×20]                           → P2WPKH
+/// ├─ 00 20 [×32]                           → P2WSH
+/// ├─ 51 20 [×32]                           → P2TR
+/// ├─ 21 [×33] AC                           → P2PK (compressed)
+/// ├─ 41 [×65] AC                           → P2PK (uncompressed)
+/// ├─ 6A …                                  (OP_RETURN prefix)
+/// │   ├─ total ≤ 83 bytes AND push-only    → NullData
+/// │   └─ otherwise                         → NonStandard
+/// └─ (none matched)
+///     ├─ [51–60] [02–28] [×push_len]       → UnknownWitness(version)
+///     └─ valid m-of-n (1≤m≤n≤3)
+///         ├─ AND pubkey count matches n    → Multisig
+///         └─ otherwise                     → NonStandard
+/// ```
+///
 /// ## Examples
 ///
 /// ```gleam
@@ -482,8 +503,8 @@ pub type OutputScriptType {
 pub fn classify_output_script(
   script: ScriptBytes(OutputScript),
 ) -> OutputScriptType {
-  let bytes = get_raw_script_bytes(script)
-  case bytes {
+  let script_bytes = get_raw_script_bytes(script)
+  case script_bytes {
     // P2PKH: OP_DUP OP_HASH160 OP_DATA_20 <20-byte hash> OP_EQUALVERIFY OP_CHECKSIG
     <<0x76, 0xA9, 0x14, _:bytes-size(20), 0x88, 0xAC>> -> P2PKH
 
@@ -507,28 +528,28 @@ pub fn classify_output_script(
 
     // NullData: OP_RETURN + push-only data, total ≤ 83 bytes (Bitcoin Core standard template).
     <<0x6A, rest:bits>> ->
-      case bit_array.byte_size(bytes) <= 83 && do_is_push_only(rest) {
+      case bit_array.byte_size(script_bytes) <= 83 && do_is_push_only(rest) {
         True -> NullData
         False -> NonStandard
       }
 
-    _ -> do_classify_non_template(bytes)
+    _ -> do_classify_non_template(script_bytes)
   }
 }
 
 /// Classify scripts that did not match any fixed-length template.
 /// Checks for future witness versions and bare multisig.
-fn do_classify_non_template(bytes: BitArray) -> OutputScriptType {
-  case bytes {
+fn do_classify_non_template(script_bytes: BitArray) -> OutputScriptType {
+  case script_bytes {
     // UnknownWitness: OP_1–OP_16 followed by a 2–40 byte witness program.
     // OP_0 (P2WPKH/P2WSH) is already handled above.
     // OP_1 with a 32-byte program is already handled above as P2TR.
     <<version, push_len, _:bytes-size(push_len)>>
       if version >= 0x51 && version <= 0x60 && push_len >= 2 && push_len <= 40
-    -> UnknownWitness(version: version - 0x50)
+    -> UnknownWitness(version: decode_small_int_opcode(version))
 
     _ ->
-      case do_is_standard_multisig(bytes) {
+      case do_is_standard_multisig(script_bytes) {
         True -> Multisig
         False -> NonStandard
       }
@@ -543,35 +564,42 @@ fn do_is_push_only(bytes: BitArray) -> Bool {
     <<>> -> True
     // OP_0: pushes empty array
     <<0x00, rest:bits>> -> do_is_push_only(rest)
+
     // OP_1NEGATE: pushes -1
     <<0x4F, rest:bits>> -> do_is_push_only(rest)
+
     // OP_1..OP_16: small integer pushes
     <<opcode, rest:bits>> if opcode >= 0x51 && opcode <= 0x60 ->
       do_is_push_only(rest)
+
     // Direct push: 1–75 bytes follow immediately
     <<push_len, rest:bits>> if push_len >= 0x01 && push_len <= 0x4B ->
       case rest {
         <<_:bytes-size(push_len), remainder:bits>> -> do_is_push_only(remainder)
         _ -> False
       }
+
     // OP_PUSHDATA1: next byte is length, then data
     <<0x4C, len, rest:bits>> ->
       case rest {
         <<_:bytes-size(len), remainder:bits>> -> do_is_push_only(remainder)
         _ -> False
       }
+
     // OP_PUSHDATA2: next 2 bytes (LE) are length, then data
     <<0x4D, len:little-size(16), rest:bits>> ->
       case rest {
         <<_:bytes-size(len), remainder:bits>> -> do_is_push_only(remainder)
         _ -> False
       }
+
     // OP_PUSHDATA4: next 4 bytes (LE) are length, then data
     <<0x4E, len:little-size(32), rest:bits>> ->
       case rest {
         <<_:bytes-size(len), remainder:bits>> -> do_is_push_only(remainder)
         _ -> False
       }
+
     // Anything else is a non-push opcode
     _ -> False
   }
@@ -581,31 +609,52 @@ fn do_is_push_only(bytes: BitArray) -> Bool {
 /// `OP_m { OP_DATA_33 <pubkey> | OP_DATA_65 <pubkey> }... OP_n OP_CHECKMULTISIG`
 /// where 1 ≤ m ≤ n ≤ 3.
 fn do_is_standard_multisig(bytes: BitArray) -> Bool {
+  // OP_m + (OP_DATA_33 + 33 bytes) + OP_n + OP_CHECKMULTISIG = 37 bytes
+  let multisig_min_bytes = 37
   let total = bit_array.byte_size(bytes)
-  // Minimum: OP_1 + (OP_DATA_33 + 33) + OP_1 + OP_CHECKMULTISIG = 37 bytes
-  case total < 37 {
-    True -> False
-    False ->
+
+  use <- bool.guard(total < multisig_min_bytes, False)
+
+  let check = {
+    use #(_, pubkey_count) <- result.try(read_multisig_header(bytes, total))
+    use pubkey_section <- result.try(bit_array.slice(bytes, 1, total - 3))
+    Ok(do_count_multisig_pubkeys(pubkey_section, 0) == pubkey_count)
+  }
+
+  result.unwrap(check, False)
+}
+
+/// Extract and validate the m, n opcodes and OP_CHECKMULTISIG trailer.
+/// Returns Ok(#(min_sigs, pubkey_count)) where both are decoded integer values (1–3).
+fn read_multisig_header(bytes: BitArray, total: Int) -> Result(#(Int, Int), Nil) {
+  // the first byte
+  let m_byte = bit_array.slice(bytes, 0, 1)
+  // the second-to-last byte
+  let n_byte = bit_array.slice(bytes, total - 2, 1)
+  // the last byte
+  let trailer_byte = bit_array.slice(bytes, total - 1, 1)
+
+  case m_byte, n_byte, trailer_byte {
+    Ok(<<m_opcode>>), Ok(<<n_opcode>>), Ok(<<trailer>>) -> {
+      let op_checkmultisig = 0xAE
+      use <- bool.guard(trailer != op_checkmultisig, Error(Nil))
+
+      let min_sigs = decode_small_int_opcode(m_opcode)
+      let pubkey_count = decode_small_int_opcode(n_opcode)
+
       case
-        bit_array.slice(bytes, 0, 1),
-        bit_array.slice(bytes, total - 2, 1),
-        bit_array.slice(bytes, total - 1, 1)
+        1 <= min_sigs
+        && min_sigs <= 3
+        && 1 <= pubkey_count
+        && pubkey_count <= 3
+        && min_sigs <= pubkey_count
       {
-        Ok(<<m_opcode>>), Ok(<<n_opcode>>), Ok(<<0xAE>>) -> {
-          let m = m_opcode - 0x50
-          let n = n_opcode - 0x50
-          case m >= 1 && m <= 3 && n >= 1 && n <= 3 && m <= n {
-            False -> False
-            True ->
-              case bit_array.slice(bytes, 1, total - 3) {
-                Ok(pubkey_section) ->
-                  do_count_multisig_pubkeys(pubkey_section, 0) == n
-                Error(_) -> False
-              }
-          }
-        }
-        _, _, _ -> False
+        True -> Ok(#(min_sigs, pubkey_count))
+        False -> Error(Nil)
       }
+    }
+
+    _, _, _ -> Error(Nil)
   }
 }
 
@@ -625,6 +674,12 @@ fn do_count_multisig_pubkeys(bytes: BitArray, count: Int) -> Int {
 
     _ -> -1
   }
+}
+
+/// Decode a Bitcoin small-integer opcode (`OP_1`–`OP_16`) to its integer value (1–16).
+/// The caller is responsible for ensuring `opcode` is in the range `0x51`–`0x60`.
+fn decode_small_int_opcode(opcode: Int) -> Int {
+  opcode - 0x50
 }
 
 // ==============================================================================
