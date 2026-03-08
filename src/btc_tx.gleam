@@ -2026,20 +2026,10 @@ fn validate_coinbase_script_sig_length(
 /// **Requires validation**: Accepts only `Transaction(Validated)` to ensure
 /// the transaction has passed consensus checks via `validate_consensus`.
 pub fn compute_txid(tx: Transaction(Validated)) -> BitArray {
-  // safe: input/output counts are non-negative Ints parsed from the wire,
-  // so they fit within Uint64 (and within JS safe integer bounds)
-  let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
-  let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
-
   let assert <<_:256-bits>> =
-    dsha256(<<
-      tx.version:32-little,
-      compact_size.write(vin_count):bits,
-      serialize_inputs(tx.inputs):bits,
-      compact_size.write(vout_count):bits,
-      serialize_outputs(tx.outputs):bits,
-      tx.lock_time:32-little,
-    >>)
+    tx
+    |> to_stripped_bytes
+    |> dsha256
 }
 
 /// Compute the witness transaction identifier (wtxid) for a validated transaction.
@@ -2051,6 +2041,64 @@ pub fn compute_txid(tx: Transaction(Validated)) -> BitArray {
 /// **Requires validation**: Accepts only `Transaction(Validated)` to ensure
 /// the transaction has passed consensus checks via `validate_consensus`.
 pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
+  let assert <<_:256-bits>> =
+    tx
+    |> to_witness_bytes
+    |> dsha256
+}
+
+/// Serialize a transaction without witness data (the "stripped" form).
+///
+/// Returns the canonical serialization used when computing the `txid`:
+/// version, inputs, outputs, and lock_time — with no SegWit marker, flag,
+/// or witness stacks, regardless of whether the transaction is SegWit.
+///
+/// The byte size of the returned value is the `base_size` used in BIP 141
+/// weight and virtual size calculations.
+///
+/// ## See Also
+///
+/// - `compute_txid` — hashes this serialization to produce the txid
+/// - `to_witness_bytes` — the full serialization including witness data
+pub fn to_stripped_bytes(tx: Transaction(Validated)) -> BitArray {
+  // safe: input/output counts are non-negative Ints parsed from the wire,
+  // so they fit within Uint64 (and within JS safe integer bounds)
+  let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
+  let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
+
+  <<
+    tx.version:32-little,
+    compact_size.write(vin_count):bits,
+    serialize_inputs(tx.inputs):bits,
+    compact_size.write(vout_count):bits,
+    serialize_outputs(tx.outputs):bits,
+    tx.lock_time:32-little,
+  >>
+}
+
+/// Serialize a transaction in its full wire form, including witness data.
+///
+/// Returns the complete serialization used when computing the `wtxid`:
+/// version, SegWit marker and flag (if applicable), inputs, outputs,
+/// witness stacks (if applicable), and lock_time. For legacy transactions,
+/// this is identical to `to_stripped_bytes`.
+///
+/// The byte size of the returned value is the `total_size` used in BIP 141
+/// weight and virtual size calculations:
+///
+/// ```
+/// weight = base_size * 3 + total_size
+/// vsize  = ceil(weight / 4)
+/// ```
+///
+/// where `base_size = bit_array.byte_size(to_stripped_bytes(tx))` and
+/// `total_size = bit_array.byte_size(to_witness_bytes(tx))`.
+///
+/// ## See Also
+///
+/// - `compute_wtxid` — hashes this serialization to produce the wtxid
+/// - `to_stripped_bytes` — the no-witness serialization used for the txid
+pub fn to_witness_bytes(tx: Transaction(Validated)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
@@ -2061,17 +2109,16 @@ pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
     SegWit(witnesses:, ..) -> #(<<0x00, 0x01>>, serialize_witnesses(witnesses))
   }
 
-  let assert <<_:256-bits>> =
-    dsha256(<<
-      tx.version:32-little,
-      segwit_discriminator:bits,
-      compact_size.write(vin_count):bits,
-      serialize_inputs(tx.inputs):bits,
-      compact_size.write(vout_count):bits,
-      serialize_outputs(tx.outputs):bits,
-      witnesses:bits,
-      tx.lock_time:32-little,
-    >>)
+  <<
+    tx.version:32-little,
+    segwit_discriminator:bits,
+    compact_size.write(vin_count):bits,
+    serialize_inputs(tx.inputs):bits,
+    compact_size.write(vout_count):bits,
+    serialize_outputs(tx.outputs):bits,
+    witnesses:bits,
+    tx.lock_time:32-little,
+  >>
 }
 
 fn serialize_inputs(inputs: List(TxIn)) -> BitArray {
