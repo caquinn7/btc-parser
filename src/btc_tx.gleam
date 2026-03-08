@@ -770,10 +770,6 @@ pub type ParseErrorKind {
   /// This indicates the input buffer contains more data than a single valid transaction.
   /// The wrapped `Int` is the count of trailing bytes that were not consumed.
   TrailingBytes(Int)
-
-  /// A catch-all error for unexpected or internal parsing failures that do not
-  /// fit any of the structured error categories.
-  Other(String)
 }
 
 /// Contextual information about where in the transaction structure a parsing error occurred.
