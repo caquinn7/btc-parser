@@ -1918,10 +1918,10 @@ pub fn validate_consensus(
 }
 
 fn mark_as_validated(tx: Transaction(Unvalidated)) -> Transaction(Validated) {
-      // Change phantom type to Validated by reconstructing with identical data
+  // Change phantom type to Validated by reconstructing with identical data
   case tx {
-        Legacy(v, i, o, l) -> Legacy(v, i, o, l)
-        SegWit(v, i, o, l, w) -> SegWit(v, i, o, l, w)
+    Legacy(v, i, o, l) -> Legacy(v, i, o, l)
+    SegWit(v, i, o, l, w) -> SegWit(v, i, o, l, w)
   }
 }
 
@@ -1946,16 +1946,16 @@ fn validate_at_least_one_output(
 fn validate_output_values(
   tx: Transaction(Unvalidated),
 ) -> Result(Nil, ValidationError) {
-  // 2.1 quadrillion (21_000_000 Bitcoins * 100_000_000 Satoshis in a Bitcoin)
-  let max_satoshis = 21_000_000 * 100_000_000
-  validate_output_values_loop(tx.outputs, 0, 0, max_satoshis)
+  validate_output_values_loop(tx.outputs, 0, 0)
 }
+
+/// The maximum number of satoshis that can exist: 21,000,000 BTC * 100,000,000 sat/BTC.
+const max_satoshis = 2_100_000_000_000_000
 
 fn validate_output_values_loop(
   outputs: List(TxOut),
   index: Int,
   sum: Int,
-  max_satoshis: Int,
 ) -> Result(Nil, ValidationError) {
   case outputs {
     [] -> Ok(Nil)
@@ -1968,8 +1968,7 @@ fn validate_output_values_loop(
           let sum = sum + v
           case sum > max_satoshis {
             True -> Error(TotalOutputValueOutOfRange(index, sum))
-            False ->
-              validate_output_values_loop(rest, index + 1, sum, max_satoshis)
+            False -> validate_output_values_loop(rest, index + 1, sum)
           }
         }
       }
