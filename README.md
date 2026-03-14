@@ -11,14 +11,14 @@ A reference-oriented library for parsing and modeling ₿itcoin transaction data
 
 This library is guided by a small set of principles:
 
-- **Correctness over convenience**  
-  Malformed or ambiguous transaction encodings are surfaced explicitly rather than being silently normalized or partially parsed.
+**Correctness over convenience**  
+  > Malformed or ambiguous transaction encodings are surfaced explicitly rather than being silently normalized or partially parsed.
 
-- **Reference-grade intent**  
-  The library is structured so it can be read alongside Bitcoin documentation as a reliable guide to how transactions are laid out on the wire.
+**Reference-grade intent**  
+  > The library is structured so it can be read alongside Bitcoin documentation as a reliable guide to how transactions are laid out on the wire.
 
-- **Faithful modeling of the protocol**  
-  Protocol distinctions and transaction forms are preserved rather than collapsed into convenience abstractions.
+**Faithful modeling of the protocol**  
+  > Protocol distinctions and transaction forms are preserved rather than collapsed into convenience abstractions.
 
 This library is intended for educational and infrastructure use.
 It parses and models Bitcoin transaction data, including basic serialization
