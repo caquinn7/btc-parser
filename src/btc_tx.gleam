@@ -1912,14 +1912,16 @@ pub fn validate_consensus(
     })
 
   case errors {
-    [] ->
+    [] -> Ok(mark_as_validated(tx))
+    _ -> Error(errors)
+  }
+}
+
+fn mark_as_validated(tx: Transaction(Unvalidated)) -> Transaction(Validated) {
       // Change phantom type to Validated by reconstructing with identical data
-      Ok(case tx {
+  case tx {
         Legacy(v, i, o, l) -> Legacy(v, i, o, l)
         SegWit(v, i, o, l, w) -> SegWit(v, i, o, l, w)
-      })
-
-    _ -> Error(errors)
   }
 }
 
