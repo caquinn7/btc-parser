@@ -978,15 +978,16 @@ pub type WitnessPolicy {
 ///
 /// ## Default Values
 /// 
-/// - `max_item_size`: 100 bytes - Accommodates standard witness items like
-///   signatures (~72 bytes) and public keys (~33 bytes), with room for slightly
-///   larger items.
+/// - `max_item_size`: 10,000 bytes - Matches the consensus script size limit.
+///   Witness items include signatures (≈72 bytes) and public keys (≈33 bytes)
+///   for simple spends, but also full scripts for P2WSH and Tapscript spends,
+///   control blocks (33 + 32×depth bytes), and arbitrary data (e.g. inscriptions).
 /// - `max_items_per_input`: 10,000 items - Allows complex scripts while preventing
 ///   unbounded memory allocation.
 /// - `max_stack_payload_bytes_per_input`: 100,000 bytes - Caps total witness data
 ///   per input, protecting against excessive witness payloads.
 pub const default_witness_policy = WitnessPolicy(
-  max_item_size: 100,
+  max_item_size: 10_000,
   max_items_per_input: 10_000,
   max_stack_payload_bytes_per_input: 100_000,
 )
@@ -1003,7 +1004,7 @@ pub const default_witness_policy = WitnessPolicy(
 ///   (which usually have 1-10 inputs) but prevents unbounded memory allocation.
 /// - `max_vout_count`: 100,000 outputs - Similarly generous for outputs.
 /// - `max_script_size`: 10,000 bytes - Accommodates standard scripts (typically
-///   25-35 bytes for P2PKH/P2WPKH, ~34 bytes for P2SH) with significant headroom
+///   22–34 bytes for P2WPKH/P2PKH/P2SH/P2WSH/P2TR) with significant headroom
 ///   for complex or non-standard scripts.
 /// - `witness_policy`: Uses `default_witness_policy` for SegWit witness data.
 pub const default_policy = DecodePolicy(
