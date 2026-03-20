@@ -930,23 +930,36 @@ fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
 /// - `decode_with_policy` to apply a custom policy
 pub type DecodePolicy {
   DecodePolicy(
-    /// Maximum number of transaction inputs allowed. Exceeding
-    /// this causes the parser to reject the transaction before allocating storage
-    /// for the full input list.
+    /// Maximum size in bytes of the serialized transaction.
+    ///
+    /// This is the primary resource constraint and is enforced before parsing begins.
+    /// Transactions exceeding this size are rejected immediately to prevent excessive
+    /// memory allocation and processing time.
+    ///
+    /// Some consensus-valid transactions may exceed this size.
+    max_tx_size: Int,
+    /// Maximum number of transaction inputs allowed.
+    /// 
+    /// Exceeding this causes the parser to reject the transaction
+    /// before allocating storage for the full input list.
     max_vin_count: Int,
-    /// Maximum number of transaction outputs allowed. Exceeding
-    /// this causes the parser to reject the transaction before allocating storage
-    /// for the full output list.
+    /// Maximum number of transaction outputs allowed.
+    /// 
+    /// Exceeding this causes the parser to reject the transaction
+    /// before allocating storage for the full output list.
     max_vout_count: Int,
     /// Maximum size in bytes for an individual transaction script (`scriptSig` or `scriptPubKey`).
+    /// 
     /// This prevents unbounded memory allocation when reading scripts.
     max_script_size: Int,
-    /// Maximum number of witness stack items allowed for
-    /// any single input. Complex scripts may require many stack items.
+    /// Maximum number of witness stack items allowed for any single input.
+    /// 
+    /// Complex scripts may require many stack items.
     max_witness_items_per_input: Int,
-    /// Maximum total bytes across all witness
-    /// items for a single input. This provides a cap on total witness data per
-    /// input, even if individual items are small.
+    /// Maximum total bytes across all witness items for a single input.
+    /// 
+    /// This provides a cap on total witness data per input,
+    /// even if individual items are small.
     max_witness_stack_payload_bytes_per_input: Int,
   )
 }
@@ -954,18 +967,31 @@ pub type DecodePolicy {
 /// The default transaction parsing policy.
 ///
 /// This policy provides reasonable resource limits for transaction decoding that
-/// protect against malicious inputs while supporting legitimate Bitcoin transactions.
+/// protect against malicious inputs while supporting typical Bitcoin transactions.
 /// These limits are applied automatically when using `decode` or `decode_hex`.
+///
+/// The defaults are chosen to align with common mempool transaction sizes while
+/// preventing excessive memory allocation or processing time. As these are policy
+/// limits rather than consensus rules, some valid Bitcoin transactions may be
+/// rejected by this configuration.
 ///
 /// ## Default Values
 ///
+/// - `max_tx_size`: 400,000 bytes - Primary resource constraint, enforced before
+///   parsing begins. Chosen to accommodate typical mempool transactions while
+///   bounding overall memory usage.
 /// - `max_vin_count`: 100,000 inputs - Substantially higher than typical transactions
-///   but prevents unbounded memory allocation.
+///   but prevents unbounded memory allocation for input lists.
 /// - `max_vout_count`: 100,000 outputs - Similarly generous for outputs.
-/// - `max_script_size`: 10,000 bytes - Accommodates standard scripts (typically
-///   22–34 bytes for P2WPKH/P2PKH/P2SH/P2WSH/P2TR) with significant headroom
-///   for complex or non-standard scripts.
+/// - `max_script_size`: 10,000 bytes - Accommodates common transaction scripts
+///   (e.g., P2PKH, P2SH, P2WPKH, P2WSH, P2TR) with significant headroom for
+///   complex or non-standard scripts.
+/// - `max_witness_items_per_input`: 10,000 items - Allows unusually fragmented
+///   witness stacks while capping pathological item counts.
+/// - `max_witness_stack_payload_bytes_per_input`: 100,000 bytes - Allows large
+///   witness payloads per input while bounding per-input memory usage.
 pub const default_policy = DecodePolicy(
+  max_tx_size: 400_000,
   max_vin_count: 100_000,
   max_vout_count: 100_000,
   max_script_size: 10_000,
@@ -980,7 +1006,7 @@ pub const default_policy = DecodePolicy(
 /// whether the transaction is legacy or SegWit by inspecting the marker bytes.
 ///
 /// This function applies `default_policy` to protect against malicious inputs
-/// by enforcing reasonable limits on input/output counts, script
+/// by enforcing reasonable limits on transaction size, input/output counts, script
 /// sizes, and witness data.
 /// 
 /// For custom parsing limits, use `decode_with_policy` instead.
@@ -1011,49 +1037,28 @@ pub fn decode(bytes: BitArray) -> Result(Transaction(Unvalidated), DecodeError) 
 
 /// Decode a Bitcoin transaction with custom parsing limits.
 ///
-/// This function provides fine-grained control over the parser's resource limits
-/// when decoding transaction data. Use this when you need different constraints
-/// than `default_policy`, such as when processing known-safe data, implementing
-/// strict validation, or defending against resource exhaustion attacks.
-///
-/// The policy controls maximum values for:
-/// - Input count (`max_vin_count`)
-/// - Output count (`max_vout_count`)
-/// - Script sizes (`max_script_size`)
-/// - Witness data (`witness_policy` controls item size, item count, and total bytes)
-///
-/// When a transaction exceeds these limits, decoding fails with a
-/// `PolicyLimitExceeded` error rather than consuming excessive resources.
+/// Like `decode`, but accepts a `DecodePolicy` to override the resource limits
+/// applied during parsing. Limits that are exceeded produce a `PolicyLimitExceeded`
+/// error. See `DecodePolicy` and `default_policy` for available options and defaults.
 ///
 /// ## Returns
 ///
 /// - `Ok(Transaction(Unvalidated))`: Successfully decoded transaction within policy limits.
 /// - `Error(DecodeError)`: The bytes could not be parsed or exceeded policy limits.
-///
-/// ## Examples
-///
-/// ```gleam
-/// // Strict policy for untrusted input
-/// let strict_policy = DecodePolicy(
-///   max_vin_count: 100,
-///   max_vout_count: 100,
-///   max_script_size: 1_000,
-///   witness_policy: WitnessPolicy(
-///     max_items_per_input: 100,
-///     max_stack_payload_bytes_per_input: 10_000,
-///   ),
-/// )
-///
-/// case decode_with_policy(untrusted_bytes, strict_policy) {
-///   Ok(tx) -> // Transaction parsed and within limits
-///   Error(ParseFailed(err)) -> // Parse error or limit exceeded
-///   Error(HexToBytesFailed(_)) -> // Not possible with BitArray input
-/// }
-/// ```
 pub fn decode_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
 ) -> Result(Transaction(Unvalidated), DecodeError) {
+  let tx_size = bit_array.byte_size(bytes)
+  use <- bool.guard(
+    tx_size > policy.max_tx_size,
+    PolicyLimitExceeded(tx_size, policy.max_tx_size)
+      |> new_parse_error(0)
+      |> with_contexts([InTransaction])
+      |> ParseFailed
+      |> Error,
+  )
+
   let tx_parser = {
     use version <- parser.then(read_field(Version, reader.read_i32_le))
     use is_segwit <- parser.then(detect_segwit())
@@ -1643,7 +1648,7 @@ fn validate_witness_stack_length(
 }
 
 /// Read witness items while tracking cumulative payload bytes and failing fast
-/// if the total exceeds max_stack_payload_bytes_per_input.
+/// if the total exceeds max_total_bytes.
 fn read_witness_items_with_byte_tracking(
   count: Int,
   max_total_bytes: Int,

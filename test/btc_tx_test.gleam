@@ -48,6 +48,73 @@ pub fn decode_hex_errors_on_string_with_whitespace_test() {
 }
 
 // ============================================================================
+// Transaction Size (max_tx_size) Policy
+// ============================================================================
+
+pub fn decode_with_policy_accepts_tx_at_max_tx_size_test() {
+  // Build a minimal valid tx and confirm it decodes when max_tx_size exactly
+  // equals its byte length.
+  let vin_count = 1
+  let input_padding = <<0:little-size({ min_txin_size_bytes * 8 })>>
+  let lock_time = <<0:little-size(32)>>
+  let tx_bytes = <<
+    version1:bits,
+    compact_size(vin_count):bits,
+    input_padding:bits,
+    build_minimal_output():bits,
+    lock_time:bits,
+  >>
+  let tx_size = bit_array.byte_size(tx_bytes)
+
+  let assert Ok(_) =
+    btc_tx.decode_with_policy(
+      tx_bytes,
+      DecodePolicy(..btc_tx.default_policy, max_tx_size: tx_size),
+    )
+}
+
+pub fn decode_with_policy_rejects_tx_exceeding_max_tx_size_test() {
+  // Build a minimal valid tx and confirm it is rejected when max_tx_size is
+  // one byte less than its actual size.
+  let vin_count = 1
+  let input_padding = <<0:little-size({ min_txin_size_bytes * 8 })>>
+  let lock_time = <<0:little-size(32)>>
+  let tx_bytes = <<
+    version1:bits,
+    compact_size(vin_count):bits,
+    input_padding:bits,
+    build_minimal_output():bits,
+    lock_time:bits,
+  >>
+  let tx_size = bit_array.byte_size(tx_bytes)
+
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode_with_policy(
+      tx_bytes,
+      DecodePolicy(..btc_tx.default_policy, max_tx_size: tx_size - 1),
+    )
+
+  assert btc_tx.parse_error_offset(parse_err) == 0
+  assert btc_tx.parse_error_kind(parse_err)
+    == PolicyLimitExceeded(tx_size, tx_size - 1)
+  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction]
+}
+
+pub fn decode_with_policy_rejects_tx_well_above_max_tx_size_test() {
+  // Confirm that a transaction well above max_tx_size reports the correct
+  // actual size and configured limit in the error.
+  let assert Error(ParseFailed(parse_err)) =
+    btc_tx.decode_with_policy(
+      <<0:size({ 100 * 8 })>>,
+      DecodePolicy(..btc_tx.default_policy, max_tx_size: 10),
+    )
+
+  assert btc_tx.parse_error_offset(parse_err) == 0
+  assert btc_tx.parse_error_kind(parse_err) == PolicyLimitExceeded(100, 10)
+  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction]
+}
+
+// ============================================================================
 // Version and SegWit Detection
 // ============================================================================
 
