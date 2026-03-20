@@ -950,15 +950,9 @@ pub type DecodePolicy {
 
 /// Configuration policy for SegWit witness data parsing limits.
 ///
-/// This type controls resource constraints when parsing witness stacks in SegWit
-/// transactions. Witness data can be arbitrarily large in the general case, so
-/// these limits protect against resource exhaustion.
+/// This type controls resource constraints when parsing witness stacks in SegWit transactions.
 pub type WitnessPolicy {
   WitnessPolicy(
-    /// Maximum size in bytes for any individual witness stack
-    /// item. Standard transactions typically use items under 80 bytes (e.g.,
-    /// signatures and public keys), but larger items are consensus-valid.
-    max_item_size: Int,
     /// Maximum number of witness stack items allowed for
     /// any single input. Complex scripts may require many stack items.
     max_items_per_input: Int,
@@ -978,16 +972,11 @@ pub type WitnessPolicy {
 ///
 /// ## Default Values
 /// 
-/// - `max_item_size`: 10,000 bytes - Matches the consensus script size limit.
-///   Witness items include signatures (≈72 bytes) and public keys (≈33 bytes)
-///   for simple spends, but also full scripts for P2WSH and Tapscript spends,
-///   control blocks (33 + 32×depth bytes), and arbitrary data (e.g. inscriptions).
 /// - `max_items_per_input`: 10,000 items - Allows complex scripts while preventing
 ///   unbounded memory allocation.
 /// - `max_stack_payload_bytes_per_input`: 100,000 bytes - Caps total witness data
 ///   per input, protecting against excessive witness payloads.
 pub const default_witness_policy = WitnessPolicy(
-  max_item_size: 10_000,
   max_items_per_input: 10_000,
   max_stack_payload_bytes_per_input: 100_000,
 )
@@ -1080,7 +1069,6 @@ pub fn decode(bytes: BitArray) -> Result(Transaction(Unvalidated), DecodeError) 
 ///   max_vout_count: 100,
 ///   max_script_size: 1_000,
 ///   witness_policy: WitnessPolicy(
-///     max_item_size: 80,
 ///     max_items_per_input: 100,
 ///     max_stack_payload_bytes_per_input: 10_000,
 ///   ),
@@ -1632,7 +1620,6 @@ fn read_witness(
   |> parser.then(fn(stack_len) {
     read_witness_items_with_byte_tracking(
       stack_len,
-      policy.max_item_size,
       policy.max_stack_payload_bytes_per_input,
     )
   })
@@ -1680,12 +1667,11 @@ fn validate_witness_stack_length(
 /// if the total exceeds max_stack_payload_bytes_per_input.
 fn read_witness_items_with_byte_tracking(
   count: Int,
-  max_item_size: Int,
   max_total_bytes: Int,
 ) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
   parser.indexed_repeat_with_limit(
     count,
-    read_witness_item_with_size(max_item_size),
+    read_witness_item_with_size(),
     AtWitnessItem,
     max_total_bytes,
     fn(exceeded_val, start_offset, ctx) {
@@ -1696,11 +1682,12 @@ fn read_witness_items_with_byte_tracking(
 }
 
 /// Read a witness item and return it along with its byte size.
-fn read_witness_item_with_size(
-  max_item_size: Int,
-) -> Parser(ParseContext, #(WitnessItem, Int), DecodeError) {
-  max_item_size
-  |> read_witness_item
+fn read_witness_item_with_size() -> Parser(
+  ParseContext,
+  #(WitnessItem, Int),
+  DecodeError,
+) {
+  read_witness_item()
   |> parser.map(fn(item) {
     let WitnessItem(bytes) = item
     let byte_size = bit_array.byte_size(bytes)
@@ -1708,11 +1695,8 @@ fn read_witness_item_with_size(
   })
 }
 
-fn read_witness_item(
-  max_item_size_policy: Int,
-) -> Parser(ParseContext, WitnessItem, DecodeError) {
-  max_item_size_policy
-  |> read_witness_item_size
+fn read_witness_item() -> Parser(ParseContext, WitnessItem, DecodeError) {
+  read_witness_item_size()
   |> parser.then(fn(length) {
     parser.new(fn(reader, ctx) {
       reader
@@ -1729,9 +1713,7 @@ fn read_witness_item(
   |> parser.map(WitnessItem)
 }
 
-fn read_witness_item_size(
-  max_item_size_policy: Int,
-) -> Parser(ParseContext, Int, DecodeError) {
+fn read_witness_item_size() -> Parser(ParseContext, Int, DecodeError) {
   WitnessItemLength
   |> read_compact_size_as_int
   |> parser.try_with_start_offset(fn(length, start_offset, reader, ctx) {
@@ -1740,30 +1722,23 @@ fn read_witness_item_size(
       |> make_field_error(WitnessItemLength, start_offset, ctx)
       |> Error
     }
-    validate_witness_item_size(length, reader, max_item_size_policy, on_invalid)
+    validate_witness_item_size(length, reader, on_invalid)
   })
 }
 
 fn validate_witness_item_size(
   length: Int,
   reader: Reader,
-  max_item_size_policy: Int,
   on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
 ) -> Result(Int, DecodeError) {
   let remaining = reader.bytes_remaining(reader)
 
-  case length > remaining, length > max_item_size_policy {
-    // Structural limit: length exceeds remaining bytes
-    True, _ ->
+  case length > remaining {
+    True ->
       InsufficientBytes(claimed: length, remaining:)
       |> on_invalid
 
-    // Policy limit: length exceeds configured maximum
-    _, True ->
-      PolicyLimitExceeded(length, max_item_size_policy)
-      |> on_invalid
-
-    _, _ -> Ok(length)
+    False -> Ok(length)
   }
 }
 
