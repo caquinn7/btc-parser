@@ -931,55 +931,25 @@ fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
 pub type DecodePolicy {
   DecodePolicy(
     /// Maximum number of transaction inputs allowed. Exceeding
-    /// this causes the parser to reject the transaction before allocating memory
-    /// for the inputs.
+    /// this causes the parser to reject the transaction before allocating storage
+    /// for the full input list.
     max_vin_count: Int,
     /// Maximum number of transaction outputs allowed. Exceeding
-    /// this causes the parser to reject the transaction before allocating memory
-    /// for the outputs.
+    /// this causes the parser to reject the transaction before allocating storage
+    /// for the full output list.
     max_vout_count: Int,
-    /// Maximum size in bytes for any individual script (both
-    /// input scriptSig and output scriptPubKey). This prevents unbounded memory
-    /// allocation when reading scripts.
+    /// Maximum size in bytes for an individual transaction script (`scriptSig` or `scriptPubKey`).
+    /// This prevents unbounded memory allocation when reading scripts.
     max_script_size: Int,
-    /// Policy controlling witness data parsing limits. Only
-    /// applied to SegWit transactions.
-    witness_policy: WitnessPolicy,
-  )
-}
-
-/// Configuration policy for SegWit witness data parsing limits.
-///
-/// This type controls resource constraints when parsing witness stacks in SegWit transactions.
-pub type WitnessPolicy {
-  WitnessPolicy(
     /// Maximum number of witness stack items allowed for
     /// any single input. Complex scripts may require many stack items.
-    max_items_per_input: Int,
+    max_witness_items_per_input: Int,
     /// Maximum total bytes across all witness
     /// items for a single input. This provides a cap on total witness data per
     /// input, even if individual items are small.
-    max_stack_payload_bytes_per_input: Int,
+    max_witness_stack_payload_bytes_per_input: Int,
   )
 }
-
-/// The default witness data parsing policy.
-///
-/// This policy provides reasonable limits for witness data in SegWit transactions,
-/// balancing protection against resource exhaustion with support for legitimate
-/// use cases. These limits are applied automatically when using `decode` or
-/// `decode_hex`.
-///
-/// ## Default Values
-/// 
-/// - `max_items_per_input`: 10,000 items - Allows complex scripts while preventing
-///   unbounded memory allocation.
-/// - `max_stack_payload_bytes_per_input`: 100,000 bytes - Caps total witness data
-///   per input, protecting against excessive witness payloads.
-pub const default_witness_policy = WitnessPolicy(
-  max_items_per_input: 10_000,
-  max_stack_payload_bytes_per_input: 100_000,
-)
 
 /// The default transaction parsing policy.
 ///
@@ -990,17 +960,17 @@ pub const default_witness_policy = WitnessPolicy(
 /// ## Default Values
 ///
 /// - `max_vin_count`: 100,000 inputs - Substantially higher than typical transactions
-///   (which usually have 1-10 inputs) but prevents unbounded memory allocation.
+///   but prevents unbounded memory allocation.
 /// - `max_vout_count`: 100,000 outputs - Similarly generous for outputs.
 /// - `max_script_size`: 10,000 bytes - Accommodates standard scripts (typically
 ///   22–34 bytes for P2WPKH/P2PKH/P2SH/P2WSH/P2TR) with significant headroom
 ///   for complex or non-standard scripts.
-/// - `witness_policy`: Uses `default_witness_policy` for SegWit witness data.
 pub const default_policy = DecodePolicy(
   max_vin_count: 100_000,
   max_vout_count: 100_000,
   max_script_size: 10_000,
-  witness_policy: default_witness_policy,
+  max_witness_items_per_input: 10_000,
+  max_witness_stack_payload_bytes_per_input: 100_000,
 )
 
 /// Decode a Bitcoin transaction from its binary representation.
@@ -1098,7 +1068,10 @@ pub fn decode_with_policy(
     use witnesses <- parser.then(case is_segwit {
       True ->
         list.length(inputs)
-        |> read_witnesses(policy.witness_policy)
+        |> read_witnesses(
+          policy.max_witness_items_per_input,
+          policy.max_witness_stack_payload_bytes_per_input,
+        )
         |> parser.map(Some)
 
       False -> parser.return(None)
@@ -1599,13 +1572,19 @@ fn validate_script_length(
 
 fn read_witnesses(
   vin_count: Int,
-  policy: WitnessPolicy,
+  max_items_per_input: Int,
+  max_stack_payload_bytes_per_input: Int,
 ) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
-  parser.indexed_repeat(vin_count, read_witness(policy), AtWitnessStack)
+  parser.indexed_repeat(
+    vin_count,
+    read_witness(max_items_per_input, max_stack_payload_bytes_per_input),
+    AtWitnessStack,
+  )
 }
 
 fn read_witness(
-  policy: WitnessPolicy,
+  max_items_per_input: Int,
+  max_stack_payload_bytes_per_input: Int,
 ) -> Parser(ParseContext, WitnessStack, DecodeError) {
   // WitnessStack for one input:
   // ├─ stack_len (CompactSize) - number of witness items
@@ -1615,12 +1594,12 @@ fn read_witness(
   // ├─ WitnessItem #1
   // │    ├─ ...
   // └─ WitnessItem #(stack_len - 1)
-  policy.max_items_per_input
+  max_items_per_input
   |> read_witness_stack_length
   |> parser.then(fn(stack_len) {
     read_witness_items_with_byte_tracking(
       stack_len,
-      policy.max_stack_payload_bytes_per_input,
+      max_stack_payload_bytes_per_input,
     )
   })
   |> parser.map(WitnessStack)
