@@ -956,11 +956,11 @@ pub type DecodePolicy {
     /// 
     /// Complex scripts may require many stack items.
     max_witness_items_per_input: Int,
-    /// Maximum total bytes across all witness items for a single input.
+    /// Maximum total size in bytes across all witness items for a single input.
     /// 
     /// This provides a cap on total witness data per input,
     /// even if individual items are small.
-    max_witness_stack_payload_bytes_per_input: Int,
+    max_witness_size_per_input: Int,
   )
 }
 
@@ -988,7 +988,7 @@ pub type DecodePolicy {
 ///   complex or non-standard scripts.
 /// - `max_witness_items_per_input`: 10,000 items - Allows unusually fragmented
 ///   witness stacks while capping pathological item counts.
-/// - `max_witness_stack_payload_bytes_per_input`: 100,000 bytes - Allows large
+/// - `max_witness_size_per_input`: 100,000 bytes - Allows large
 ///   witness payloads per input while bounding per-input memory usage.
 pub const default_policy = DecodePolicy(
   max_tx_size: 400_000,
@@ -996,7 +996,7 @@ pub const default_policy = DecodePolicy(
   max_vout_count: 100_000,
   max_script_size: 10_000,
   max_witness_items_per_input: 10_000,
-  max_witness_stack_payload_bytes_per_input: 100_000,
+  max_witness_size_per_input: 100_000,
 )
 
 /// Decode a Bitcoin transaction from its binary representation.
@@ -1075,7 +1075,7 @@ pub fn decode_with_policy(
         list.length(inputs)
         |> read_witnesses(
           policy.max_witness_items_per_input,
-          policy.max_witness_stack_payload_bytes_per_input,
+          policy.max_witness_size_per_input,
         )
         |> parser.map(Some)
 
@@ -1578,18 +1578,18 @@ fn validate_script_length(
 fn read_witnesses(
   vin_count: Int,
   max_items_per_input: Int,
-  max_stack_payload_bytes_per_input: Int,
+  max_size_per_input: Int,
 ) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
   parser.indexed_repeat(
     vin_count,
-    read_witness(max_items_per_input, max_stack_payload_bytes_per_input),
+    read_witness(max_items_per_input, max_size_per_input),
     AtWitnessStack,
   )
 }
 
 fn read_witness(
   max_items_per_input: Int,
-  max_stack_payload_bytes_per_input: Int,
+  max_size_per_input: Int,
 ) -> Parser(ParseContext, WitnessStack, DecodeError) {
   // WitnessStack for one input:
   // ├─ stack_len (CompactSize) - number of witness items
@@ -1602,10 +1602,7 @@ fn read_witness(
   max_items_per_input
   |> read_witness_stack_length
   |> parser.then(fn(stack_len) {
-    read_witness_items_with_byte_tracking(
-      stack_len,
-      max_stack_payload_bytes_per_input,
-    )
+    read_witness_items_with_byte_tracking(stack_len, max_size_per_input)
   })
   |> parser.map(WitnessStack)
 }

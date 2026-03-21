@@ -1620,7 +1620,7 @@ pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
   let policy =
     DecodePolicy(
       ..btc_tx.default_policy,
-      max_witness_stack_payload_bytes_per_input: max_payload_bytes,
+      max_witness_size_per_input: max_payload_bytes,
     )
 
   let assert Ok(tx) = btc_tx.decode_with_policy(tx_bytes, policy)
@@ -1670,7 +1670,7 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
   let policy =
     DecodePolicy(
       ..btc_tx.default_policy,
-      max_witness_stack_payload_bytes_per_input: max_payload_bytes,
+      max_witness_size_per_input: max_payload_bytes,
     )
 
   let assert Error(ParseFailed(parse_err)) =
@@ -1719,7 +1719,7 @@ pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
   let policy =
     DecodePolicy(
       ..btc_tx.default_policy,
-      max_witness_stack_payload_bytes_per_input: max_payload_bytes,
+      max_witness_size_per_input: max_payload_bytes,
     )
 
   let assert Error(ParseFailed(parse_err)) =
