@@ -3,8 +3,9 @@
 import gleam/bit_array
 import gleam/bool
 import gleam/crypto.{Sha256}
+import gleam/dict
 import gleam/int
-import gleam/list
+import gleam/list.{Continue, Stop}
 import gleam/option.{None, Some}
 import gleam/pair
 import gleam/result
@@ -1779,6 +1780,19 @@ pub type ValidationError {
   ///
   /// Coinbase scriptSig must be between 2 and 100 bytes (inclusive).
   InvalidCoinbaseScriptSigLength
+
+  /// The transaction contains duplicate inputs referencing the same prevout.
+  ///
+  /// Each input in a transaction must reference a unique previous output.
+  ///
+  /// The `prev_out` field identifies the duplicated outpoint.
+  ///
+  /// The `first_index` field indicates the zero-based index of the first
+  /// occurrence of this outpoint in the input list.
+  ///
+  /// The `duplicate_index` field indicates the zero-based index of the
+  /// subsequent input that duplicates the same outpoint.
+  DuplicateInput(prev_out: PrevOut, first_index: Int, duplicate_index: Int)
 }
 
 /// Validate a transaction against selected Bitcoin consensus rules.
@@ -1795,6 +1809,7 @@ pub type ValidationError {
 ///   - Cumulative output value does not exceed MAX_MONEY
 ///   - Coinbase transactions contain exactly one input
 ///   - Coinbase scriptSig length is 2–100 bytes (inclusive)
+///   - No two inputs reference the same previous output
 ///
 /// This function does not perform script execution, signature
 /// verification, or input-spend validation.
@@ -1807,6 +1822,7 @@ pub fn validate_consensus(
     validate_output_values,
     validate_coinbase_structure,
     validate_coinbase_script_sig_length,
+    validate_no_duplicate_inputs,
   ]
 
   let errors =
@@ -1915,6 +1931,26 @@ fn validate_coinbase_script_sig_length(
 
     _ -> Ok(Nil)
   }
+}
+
+fn validate_no_duplicate_inputs(
+  tx: Transaction(Unvalidated),
+) -> Result(Nil, ValidationError) {
+  tx.inputs
+  |> list.fold_until(Ok(#(0, dict.new())), fn(acc, txin) {
+    let assert Ok(#(index, seen)) = acc
+    let prev_out = txin.prev_out
+
+    case dict.get(seen, prev_out) {
+      Ok(first_index) ->
+        Stop(
+          Error(DuplicateInput(prev_out, first_index:, duplicate_index: index)),
+        )
+
+      Error(_) -> Continue(Ok(#(index + 1, dict.insert(seen, prev_out, index))))
+    }
+  })
+  |> result.replace(Nil)
 }
 
 // ==============================================================================
