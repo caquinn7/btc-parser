@@ -6,7 +6,7 @@ import gleam/crypto.{Sha256}
 import gleam/dict
 import gleam/int
 import gleam/list.{Continue, Stop}
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/pair
 import gleam/result
 import internal/compact_size
@@ -768,10 +768,12 @@ pub type ParseContext {
 
 /// A named field within a Bitcoin transaction.
 ///
-/// This type enumerates all the distinct fields that can be parsed from
-/// a Bitcoin transaction's serialized format. Fields are used in error
-/// reporting to indicate which part of the transaction was being parsed
-/// when an error occurred.
+/// Most variants correspond directly to a field in the Bitcoin wire format
+/// and are used in error reporting to indicate which field was being parsed
+/// when an error occurred. `WitnessItemsTotalBytes` is the exception: it is a
+/// synthetic marker with no corresponding serialized field, used solely to
+/// report when the cumulative witness payload byte limit is exceeded across
+/// all items in a single input's witness stack.
 pub type Field {
   // Top-level transaction fields
   Version
@@ -798,7 +800,7 @@ pub type Field {
   // Witness-related fields
   WitnessStackLength
   WitnessItemLength
-  WitnessStackTotalPayloadBytes
+  WitnessItemsTotalBytes
 }
 
 /// Get the byte offset where a parsing error occurred.
@@ -922,8 +924,12 @@ fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
 ///
 /// This type controls resource constraints during transaction parsing to protect
 /// against malicious inputs that could cause excessive memory allocation or
-/// processing time. All limits are enforced during parsing, failing with
-/// `PolicyLimitExceeded` if exceeded.
+/// processing time.
+/// 
+/// Limits are enforced during parsing. If a limit is exceeded,
+/// decoding fails with `PolicyLimitExceeded`.
+///
+/// Optional limits are only enforced when `Some`; `None` disables the limit.
 ///
 /// ## See Also
 ///
@@ -937,7 +943,7 @@ pub type DecodePolicy {
     /// Transactions exceeding this size are rejected immediately to prevent excessive
     /// memory allocation and processing time.
     ///
-    /// Some consensus-valid transactions may exceed this size.
+    /// Some consensus-valid transactions exceed this limit.
     max_tx_size: Int,
     /// Maximum number of transaction inputs allowed.
     /// 
@@ -949,55 +955,67 @@ pub type DecodePolicy {
     /// Exceeding this causes the parser to reject the transaction
     /// before allocating storage for the full output list.
     max_vout_count: Int,
-    /// Maximum size in bytes for an individual transaction script (`scriptSig` or `scriptPubKey`).
-    /// 
-    /// This prevents unbounded memory allocation when reading scripts.
+    /// Maximum size in bytes for an individual transaction script
+    /// (`scriptSig` or `scriptPubKey`).
+    ///
+    /// This limit applies per script and prevents unbounded memory
+    /// allocation when reading script data.
     max_script_size: Int,
-    /// Maximum number of witness stack items allowed for any single input.
+    /// Maximum number of witness stack items allowed for a single input.
+    ///
+    /// This limits the number of elements in the witness stack, preventing
+    /// excessive iteration or allocation when processing inputs with many
+    /// small items.
     /// 
-    /// Complex scripts may require many stack items.
-    max_witness_items_per_input: Int,
+    /// Set to `None` to disable this limit.
+    max_witness_items_per_input: Option(Int),
     /// Maximum total size in bytes across all witness items for a single input.
-    /// 
-    /// This provides a cap on total witness data per input,
-    /// even if individual items are small.
-    max_witness_size_per_input: Int,
+    ///
+    /// This is the sum of the byte lengths of all witness items and does not
+    /// include length prefixes.
+    ///
+    /// This caps the total size of witness data per input,
+    /// preventing many small items from accumulating into an excessively large total.
+    ///
+    /// Set to `None` to disable this limit.
+    max_witness_size_per_input: Option(Int),
   )
 }
 
 /// The default transaction parsing policy.
 ///
 /// This policy provides reasonable resource limits for transaction decoding that
-/// protect against malicious inputs while supporting typical Bitcoin transactions.
+/// protect against malicious inputs while accommodating many typical Bitcoin transactions.
 /// These limits are applied automatically when using `decode` or `decode_hex`.
 ///
-/// The defaults are chosen to align with common mempool transaction sizes while
-/// preventing excessive memory allocation or processing time. As these are policy
+/// The defaults are chosen to accommodate many typical Bitcoin transactions while
+/// preventing excessive memory allocation and processing time. As these are policy
 /// limits rather than consensus rules, some valid Bitcoin transactions may be
 /// rejected by this configuration.
+/// 
+/// The overall transaction size limit (`max_tx_size`) serves as the primary
+/// resource constraint. Witness-related limits are optional and may be enabled
+/// by callers who wish to impose additional per-input constraints.
 ///
 /// ## Default Values
 ///
 /// - `max_tx_size`: 400,000 bytes - Primary resource constraint, enforced before
-///   parsing begins. Chosen to accommodate typical mempool transactions while
-///   bounding overall memory usage.
+///   parsing begins.
 /// - `max_vin_count`: 100,000 inputs - Substantially higher than typical transactions
 ///   but prevents unbounded memory allocation for input lists.
 /// - `max_vout_count`: 100,000 outputs - Similarly generous for outputs.
 /// - `max_script_size`: 10,000 bytes - Accommodates common transaction scripts
 ///   (e.g., P2PKH, P2SH, P2WPKH, P2WSH, P2TR) with significant headroom for
 ///   complex or non-standard scripts.
-/// - `max_witness_items_per_input`: 10,000 items - Allows unusually fragmented
-///   witness stacks while capping pathological item counts.
-/// - `max_witness_size_per_input`: 100,000 bytes - Allows large
-///   witness payloads per input while bounding per-input memory usage.
+/// - `max_witness_items_per_input`: `None` - No limit on witness stack item count.
+/// - `max_witness_size_per_input`: `None` - No limit on total witness data bytes per input.
 pub const default_policy = DecodePolicy(
   max_tx_size: 400_000,
   max_vin_count: 100_000,
   max_vout_count: 100_000,
   max_script_size: 10_000,
-  max_witness_items_per_input: 10_000,
-  max_witness_size_per_input: 100_000,
+  max_witness_items_per_input: None,
+  max_witness_size_per_input: None,
 )
 
 /// Decode a Bitcoin transaction from its binary representation.
@@ -1578,8 +1596,8 @@ fn validate_script_length(
 
 fn read_witnesses(
   vin_count: Int,
-  max_items_per_input: Int,
-  max_size_per_input: Int,
+  max_items_per_input: Option(Int),
+  max_size_per_input: Option(Int),
 ) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
   parser.indexed_repeat(
     vin_count,
@@ -1589,8 +1607,8 @@ fn read_witnesses(
 }
 
 fn read_witness(
-  max_items_per_input: Int,
-  max_size_per_input: Int,
+  max_items_per_input: Option(Int),
+  max_size_per_input: Option(Int),
 ) -> Parser(ParseContext, WitnessStack, DecodeError) {
   // WitnessStack for one input:
   // ├─ stack_len (CompactSize) - number of witness items
@@ -1603,7 +1621,11 @@ fn read_witness(
   max_items_per_input
   |> read_witness_stack_length
   |> parser.then(fn(stack_len) {
-    read_witness_items_with_byte_tracking(stack_len, max_size_per_input)
+    case max_size_per_input {
+      Some(max_size) ->
+        read_witness_items_with_byte_tracking(stack_len, max_size)
+      None -> read_witness_items(stack_len)
+    }
   })
   |> parser.map(WitnessStack)
 }
@@ -1613,36 +1635,26 @@ fn read_witness(
 /// Reads a CompactSize length, converts it to Int, and validates it against
 /// max_items_per_input policy.
 fn read_witness_stack_length(
-  max_items_per_input_policy: Int,
+  max_items_per_input_policy: Option(Int),
 ) -> Parser(ParseContext, Int, DecodeError) {
   WitnessStackLength
   |> read_compact_size_as_int
-  |> parser.try_with_start_offset(fn(stack_len, start_offset, _, ctx) {
-    let on_invalid = fn(kind) {
-      kind
-      |> make_field_error(WitnessStackLength, start_offset, ctx)
-      |> Error
+  |> parser.try_with_start_offset(fn(stack_len, start_offset, _reader, ctx) {
+    case max_items_per_input_policy {
+      Some(max_items) if stack_len > max_items ->
+        PolicyLimitExceeded(stack_len, max_items)
+        |> make_field_error(WitnessStackLength, start_offset, ctx)
+        |> Error
+
+      _ -> Ok(stack_len)
     }
-    validate_witness_stack_length(
-      stack_len,
-      max_items_per_input_policy,
-      on_invalid,
-    )
   })
 }
 
-fn validate_witness_stack_length(
-  stack_len: Int,
-  max_items_per_input_policy: Int,
-  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
-) -> Result(Int, DecodeError) {
-  case stack_len > max_items_per_input_policy {
-    True ->
-      PolicyLimitExceeded(stack_len, max_items_per_input_policy)
-      |> on_invalid
-
-    False -> Ok(stack_len)
-  }
+fn read_witness_items(
+  count: Int,
+) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
+  parser.indexed_repeat(count, read_witness_item(), AtWitnessItem)
 }
 
 /// Read witness items while tracking cumulative payload bytes and failing fast
@@ -1658,7 +1670,7 @@ fn read_witness_items_with_byte_tracking(
     max_total_bytes,
     fn(exceeded_val, start_offset, ctx) {
       PolicyLimitExceeded(exceeded_val, max_total_bytes)
-      |> make_field_error(WitnessStackTotalPayloadBytes, start_offset, ctx)
+      |> make_field_error(WitnessItemsTotalBytes, start_offset, ctx)
     },
   )
 }
