@@ -6,7 +6,7 @@ import gleam/crypto.{Sha256}
 import gleam/dict
 import gleam/int
 import gleam/list.{Continue, Stop}
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/pair
 import gleam/result
 import internal/compact_size
@@ -956,7 +956,7 @@ pub type DecodePolicy {
     /// Maximum number of witness stack items allowed for any single input.
     /// 
     /// Complex scripts may require many stack items.
-    max_witness_items_per_input: Int,
+    max_witness_items_per_input: Option(Int),
     /// Maximum total size in bytes across all witness items for a single input.
     /// 
     /// This provides a cap on total witness data per input,
@@ -996,7 +996,7 @@ pub const default_policy = DecodePolicy(
   max_vin_count: 100_000,
   max_vout_count: 100_000,
   max_script_size: 10_000,
-  max_witness_items_per_input: 10_000,
+  max_witness_items_per_input: None,
   max_witness_size_per_input: 100_000,
 )
 
@@ -1578,7 +1578,7 @@ fn validate_script_length(
 
 fn read_witnesses(
   vin_count: Int,
-  max_items_per_input: Int,
+  max_items_per_input: Option(Int),
   max_size_per_input: Int,
 ) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
   parser.indexed_repeat(
@@ -1589,7 +1589,7 @@ fn read_witnesses(
 }
 
 fn read_witness(
-  max_items_per_input: Int,
+  max_items_per_input: Option(Int),
   max_size_per_input: Int,
 ) -> Parser(ParseContext, WitnessStack, DecodeError) {
   // WitnessStack for one input:
@@ -1613,36 +1613,20 @@ fn read_witness(
 /// Reads a CompactSize length, converts it to Int, and validates it against
 /// max_items_per_input policy.
 fn read_witness_stack_length(
-  max_items_per_input_policy: Int,
+  max_items_per_input_policy: Option(Int),
 ) -> Parser(ParseContext, Int, DecodeError) {
   WitnessStackLength
   |> read_compact_size_as_int
-  |> parser.try_with_start_offset(fn(stack_len, start_offset, _, ctx) {
-    let on_invalid = fn(kind) {
-      kind
-      |> make_field_error(WitnessStackLength, start_offset, ctx)
-      |> Error
+  |> parser.try_with_start_offset(fn(stack_len, start_offset, _reader, ctx) {
+    case max_items_per_input_policy {
+      Some(max_items) if stack_len > max_items ->
+        PolicyLimitExceeded(stack_len, max_items)
+        |> make_field_error(WitnessStackLength, start_offset, ctx)
+        |> Error
+
+      _ -> Ok(stack_len)
     }
-    validate_witness_stack_length(
-      stack_len,
-      max_items_per_input_policy,
-      on_invalid,
-    )
   })
-}
-
-fn validate_witness_stack_length(
-  stack_len: Int,
-  max_items_per_input_policy: Int,
-  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
-) -> Result(Int, DecodeError) {
-  case stack_len > max_items_per_input_policy {
-    True ->
-      PolicyLimitExceeded(stack_len, max_items_per_input_policy)
-      |> on_invalid
-
-    False -> Ok(stack_len)
-  }
 }
 
 /// Read witness items while tracking cumulative payload bytes and failing fast
