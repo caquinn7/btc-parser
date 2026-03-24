@@ -6,8 +6,7 @@ import btc_tx.{
   NonMinimalCompactSize, OutputValueOutOfRange, ParseFailed, PolicyLimitExceeded,
   ScriptPubKeyLength, ScriptSigLength, SegwitDiscriminator,
   TotalOutputValueOutOfRange, TrailingBytes, UnexpectedEof, Version, VinCount,
-  VoutCount, WitnessItemLength, WitnessStackLength,
-  WitnessStackTotalPayloadBytes,
+  VoutCount, WitnessItemLength, WitnessItemsTotalBytes, WitnessStackLength,
 }
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -1685,7 +1684,7 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
       InTransaction,
       AtWitnessStack(0),
       AtWitnessItem(2),
-      AtField(WitnessStackTotalPayloadBytes),
+      AtField(WitnessItemsTotalBytes),
     ]
 }
 

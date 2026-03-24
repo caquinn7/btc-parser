@@ -768,10 +768,12 @@ pub type ParseContext {
 
 /// A named field within a Bitcoin transaction.
 ///
-/// This type enumerates all the distinct fields that can be parsed from
-/// a Bitcoin transaction's serialized format. Fields are used in error
-/// reporting to indicate which part of the transaction was being parsed
-/// when an error occurred.
+/// Most variants correspond directly to a field in the Bitcoin wire format
+/// and are used in error reporting to indicate which field was being parsed
+/// when an error occurred. `WitnessItemsTotalBytes` is the exception: it is a
+/// synthetic marker with no corresponding serialized field, used solely to
+/// report when the cumulative witness payload byte limit is exceeded across
+/// all items in a single input's witness stack.
 pub type Field {
   // Top-level transaction fields
   Version
@@ -798,7 +800,7 @@ pub type Field {
   // Witness-related fields
   WitnessStackLength
   WitnessItemLength
-  WitnessStackTotalPayloadBytes
+  WitnessItemsTotalBytes
 }
 
 /// Get the byte offset where a parsing error occurred.
@@ -1668,7 +1670,7 @@ fn read_witness_items_with_byte_tracking(
     max_total_bytes,
     fn(exceeded_val, start_offset, ctx) {
       PolicyLimitExceeded(exceeded_val, max_total_bytes)
-      |> make_field_error(WitnessStackTotalPayloadBytes, start_offset, ctx)
+      |> make_field_error(WitnessItemsTotalBytes, start_offset, ctx)
     },
   )
 }
