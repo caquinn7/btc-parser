@@ -1,12 +1,13 @@
 import btc_tx.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack,
-  CoinbaseWithMultipleInputs, DecodePolicy, HexToBytesFailed, InInputs,
-  InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
-  InvalidSegWitMarkerFlag, NoInputs, NoOutputs, NonMinimalCompactSize,
-  OutputValueOutOfRange, ParseFailed, PolicyLimitExceeded, ScriptPubKeyLength,
-  ScriptSigLength, SegwitDiscriminator, TotalOutputValueOutOfRange,
-  TrailingBytes, UnexpectedEof, Version, VinCount, VoutCount, WitnessItemLength,
-  WitnessStackLength, WitnessStackTotalPayloadBytes,
+  CoinbaseWithMultipleInputs, DecodePolicy, DuplicateInput, HexToBytesFailed,
+  InInputs, InOutputs, InTransaction, InsufficientBytes,
+  InvalidCoinbaseScriptSigLength, InvalidSegWitMarkerFlag, NoInputs, NoOutputs,
+  NonMinimalCompactSize, OutputValueOutOfRange, ParseFailed, PolicyLimitExceeded,
+  ScriptPubKeyLength, ScriptSigLength, SegwitDiscriminator,
+  TotalOutputValueOutOfRange, TrailingBytes, UnexpectedEof, Version, VinCount,
+  VoutCount, WitnessItemLength, WitnessStackLength,
+  WitnessStackTotalPayloadBytes,
 }
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -2175,7 +2176,8 @@ pub fn validate_consensus_rejects_coinbase_with_multiple_inputs_test() {
 
 pub fn validate_consensus_rejects_multiple_coinbase_inputs_test() {
   // Build a transaction with 2 coinbase inputs
-  // This should also be rejected as coinbase transactions must have exactly 1 input
+  // This should also be rejected as coinbase transactions must have exactly 1 input.
+  // Both inputs share the same null prev_out, so DuplicateInput is also reported.
   let vin_count = compact_size(2)
 
   // Two coinbase inputs (both have prev_txid=all zeros, vout=0xFFFFFFFF)
@@ -2199,9 +2201,13 @@ pub fn validate_consensus_rejects_multiple_coinbase_inputs_test() {
   >>
 
   let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert [in0, ..] = btc_tx.get_inputs(unvalidated_tx)
+  let dup_prev_out = btc_tx.get_input_prev_out(in0)
 
-  assert btc_tx.validate_consensus(unvalidated_tx)
-    == Error([CoinbaseWithMultipleInputs])
+  let assert Error(errors) = btc_tx.validate_consensus(unvalidated_tx)
+  assert list.contains(errors, CoinbaseWithMultipleInputs)
+  assert list.contains(errors, DuplicateInput(dup_prev_out, 0, 1))
+  assert list.length(errors) == 2
 }
 
 pub fn validate_consensus_rejects_coinbase_with_scriptsig_too_short_test() {
@@ -2345,6 +2351,128 @@ pub fn validate_consensus_returns_multiple_errors_test() {
   // Should contain both CoinbaseWithMultipleInputs and OutputValueOutOfRange
   assert list.contains(errors, CoinbaseWithMultipleInputs)
   assert list.contains(errors, OutputValueOutOfRange(0, -1))
+  assert list.length(errors) == 2
+}
+
+pub fn validate_consensus_rejects_tx_with_duplicate_inputs_test() {
+  // Two inputs referencing the same previous output (txid + vout)
+  let vin_count = compact_size(2)
+  let shared_txid = repeat_byte(0xAB, 32)
+  let input0 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
+  let input1 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
+  let vout_count = compact_size(1)
+  let value = <<1000:little-size(64)>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    input0:bits,
+    input1:bits,
+    vout_count:bits,
+    value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert [in0, ..] = btc_tx.get_inputs(unvalidated_tx)
+  let dup_prev_out = btc_tx.get_input_prev_out(in0)
+
+  assert btc_tx.validate_consensus(unvalidated_tx)
+    == Error([DuplicateInput(dup_prev_out, 0, 1)])
+}
+
+pub fn validate_consensus_rejects_duplicate_input_at_non_adjacent_indices_test() {
+  // Inputs at index 0 and 2 share the same previous output; input 1 is distinct
+  let vin_count = compact_size(3)
+  let shared_txid = repeat_byte(0xAB, 32)
+  let other_txid = repeat_byte(0xCD, 32)
+  let input0 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
+  let input1 = build_input(other_txid, 1, <<>>, 0xFFFFFFFF)
+  let input2 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
+  let vout_count = compact_size(1)
+  let value = <<1000:little-size(64)>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    input0:bits,
+    input1:bits,
+    input2:bits,
+    vout_count:bits,
+    value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert [in0, ..] = btc_tx.get_inputs(unvalidated_tx)
+  let dup_prev_out = btc_tx.get_input_prev_out(in0)
+
+  assert btc_tx.validate_consensus(unvalidated_tx)
+    == Error([DuplicateInput(dup_prev_out, 0, 2)])
+}
+
+pub fn validate_consensus_accepts_inputs_with_same_txid_but_different_vout_test() {
+  // Same txid but different output indices are distinct prev_outs — not a duplicate
+  let vin_count = compact_size(2)
+  let txid = repeat_byte(0xAB, 32)
+  let input0 = build_input(txid, 0, <<>>, 0xFFFFFFFF)
+  let input1 = build_input(txid, 1, <<>>, 0xFFFFFFFF)
+  let vout_count = compact_size(1)
+  let value = <<1000:little-size(64)>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    input0:bits,
+    input1:bits,
+    vout_count:bits,
+    value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(_) = btc_tx.validate_consensus(unvalidated_tx)
+}
+
+pub fn validate_consensus_duplicate_input_reported_alongside_other_errors_test() {
+  // Duplicate inputs combined with a negative output value: both errors reported
+  let vin_count = compact_size(2)
+  let shared_txid = repeat_byte(0xAB, 32)
+  let input0 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
+  let input1 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
+  let vout_count = compact_size(1)
+  // -1 as signed int64
+  let negative_value = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
+  let script_pubkey_len = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    vin_count:bits,
+    input0:bits,
+    input1:bits,
+    vout_count:bits,
+    negative_value:bits,
+    script_pubkey_len:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert [in0, ..] = btc_tx.get_inputs(unvalidated_tx)
+  let dup_prev_out = btc_tx.get_input_prev_out(in0)
+
+  let assert Error(errors) = btc_tx.validate_consensus(unvalidated_tx)
+  assert list.contains(errors, OutputValueOutOfRange(0, -1))
+  assert list.contains(errors, DuplicateInput(dup_prev_out, 0, 1))
   assert list.length(errors) == 2
 }
 
