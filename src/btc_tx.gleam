@@ -922,8 +922,12 @@ fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
 ///
 /// This type controls resource constraints during transaction parsing to protect
 /// against malicious inputs that could cause excessive memory allocation or
-/// processing time. All limits are enforced during parsing, failing with
-/// `PolicyLimitExceeded` if exceeded.
+/// processing time.
+/// 
+/// Limits are enforced during parsing. If a limit is exceeded,
+/// decoding fails with `PolicyLimitExceeded`.
+///
+/// Optional limits are only enforced when `Some`; `None` disables the limit.
 ///
 /// ## See Also
 ///
@@ -937,7 +941,7 @@ pub type DecodePolicy {
     /// Transactions exceeding this size are rejected immediately to prevent excessive
     /// memory allocation and processing time.
     ///
-    /// Some consensus-valid transactions may exceed this size.
+    /// Some consensus-valid transactions exceed this limit.
     max_tx_size: Int,
     /// Maximum number of transaction inputs allowed.
     /// 
@@ -949,18 +953,29 @@ pub type DecodePolicy {
     /// Exceeding this causes the parser to reject the transaction
     /// before allocating storage for the full output list.
     max_vout_count: Int,
-    /// Maximum size in bytes for an individual transaction script (`scriptSig` or `scriptPubKey`).
-    /// 
-    /// This prevents unbounded memory allocation when reading scripts.
+    /// Maximum size in bytes for an individual transaction script
+    /// (`scriptSig` or `scriptPubKey`).
+    ///
+    /// This limit applies per script and prevents unbounded memory
+    /// allocation when reading script data.
     max_script_size: Int,
-    /// Maximum number of witness stack items allowed for any single input.
+    /// Maximum number of witness stack items allowed for a single input.
+    ///
+    /// This limits the number of elements in the witness stack, preventing
+    /// excessive iteration or allocation when processing inputs with many
+    /// small items.
     /// 
-    /// Complex scripts may require many stack items.
+    /// Set to `None` to disable this limit.
     max_witness_items_per_input: Option(Int),
     /// Maximum total size in bytes across all witness items for a single input.
-    /// 
-    /// This provides a cap on total witness data per input,
-    /// even if individual items are small.
+    ///
+    /// This is the sum of the byte lengths of all witness items and does not
+    /// include length prefixes.
+    ///
+    /// This caps the total size of witness data per input,
+    /// preventing many small items from accumulating into an excessively large total.
+    ///
+    /// Set to `None` to disable this limit.
     max_witness_size_per_input: Option(Int),
   )
 }
@@ -968,29 +983,30 @@ pub type DecodePolicy {
 /// The default transaction parsing policy.
 ///
 /// This policy provides reasonable resource limits for transaction decoding that
-/// protect against malicious inputs while supporting typical Bitcoin transactions.
+/// protect against malicious inputs while accommodating many typical Bitcoin transactions.
 /// These limits are applied automatically when using `decode` or `decode_hex`.
 ///
-/// The defaults are chosen to align with common mempool transaction sizes while
-/// preventing excessive memory allocation or processing time. As these are policy
+/// The defaults are chosen to accommodate many typical Bitcoin transactions while
+/// preventing excessive memory allocation and processing time. As these are policy
 /// limits rather than consensus rules, some valid Bitcoin transactions may be
 /// rejected by this configuration.
+/// 
+/// The overall transaction size limit (`max_tx_size`) serves as the primary
+/// resource constraint. Witness-related limits are optional and may be enabled
+/// by callers who wish to impose additional per-input constraints.
 ///
 /// ## Default Values
 ///
 /// - `max_tx_size`: 400,000 bytes - Primary resource constraint, enforced before
-///   parsing begins. Chosen to accommodate typical mempool transactions while
-///   bounding overall memory usage.
+///   parsing begins.
 /// - `max_vin_count`: 100,000 inputs - Substantially higher than typical transactions
 ///   but prevents unbounded memory allocation for input lists.
 /// - `max_vout_count`: 100,000 outputs - Similarly generous for outputs.
 /// - `max_script_size`: 10,000 bytes - Accommodates common transaction scripts
 ///   (e.g., P2PKH, P2SH, P2WPKH, P2WSH, P2TR) with significant headroom for
 ///   complex or non-standard scripts.
-/// - `max_witness_items_per_input`: 10,000 items - Allows unusually fragmented
-///   witness stacks while capping pathological item counts.
-/// - `max_witness_size_per_input`: 100,000 bytes - Allows large
-///   witness payloads per input while bounding per-input memory usage.
+/// - `max_witness_items_per_input`: `None` - No limit on witness stack item count.
+/// - `max_witness_size_per_input`: `None` - No limit on total witness data bytes per input.
 pub const default_policy = DecodePolicy(
   max_tx_size: 400_000,
   max_vin_count: 100_000,
