@@ -1728,11 +1728,10 @@ fn validate_witness_item_size(
 // Consensus Validation
 // ==============================================================================
 
-/// An error that occurred during consensus validation of a Bitcoin transaction.
+/// A violation of Bitcoin consensus rules detected during transaction validation.
 ///
-/// These errors represent violations of Bitcoin's consensus rules that would
-/// cause a transaction to be rejected by the network.
-pub type ValidationError {
+/// Each variant identifies a specific rule that the transaction breaks.
+pub type ConsensusViolation {
   /// The transaction has no inputs.
   ///
   /// Every Bitcoin transaction must contain at least one input.
@@ -1815,7 +1814,7 @@ pub type ValidationError {
 /// verification, or input-spend validation.
 pub fn validate_consensus(
   tx: Transaction(Unvalidated),
-) -> Result(Transaction(Validated), List(ValidationError)) {
+) -> Result(Transaction(Validated), List(ConsensusViolation)) {
   let validators = [
     validate_at_least_one_input,
     validate_at_least_one_output,
@@ -1849,7 +1848,7 @@ fn mark_as_validated(tx: Transaction(Unvalidated)) -> Transaction(Validated) {
 
 fn validate_at_least_one_input(
   tx: Transaction(Unvalidated),
-) -> Result(Nil, ValidationError) {
+) -> Result(Nil, ConsensusViolation) {
   case tx.inputs {
     [] -> Error(NoInputs)
     _ -> Ok(Nil)
@@ -1858,7 +1857,7 @@ fn validate_at_least_one_input(
 
 fn validate_at_least_one_output(
   tx: Transaction(Unvalidated),
-) -> Result(Nil, ValidationError) {
+) -> Result(Nil, ConsensusViolation) {
   case tx.outputs {
     [] -> Error(NoOutputs)
     _ -> Ok(Nil)
@@ -1867,7 +1866,7 @@ fn validate_at_least_one_output(
 
 fn validate_output_values(
   tx: Transaction(Unvalidated),
-) -> Result(Nil, ValidationError) {
+) -> Result(Nil, ConsensusViolation) {
   validate_output_values_loop(tx.outputs, 0, 0)
 }
 
@@ -1878,7 +1877,7 @@ fn validate_output_values_loop(
   outputs: List(TxOut),
   index: Int,
   sum: Int,
-) -> Result(Nil, ValidationError) {
+) -> Result(Nil, ConsensusViolation) {
   case outputs {
     [] -> Ok(Nil)
 
@@ -1899,7 +1898,7 @@ fn validate_output_values_loop(
 
 fn validate_coinbase_structure(
   tx: Transaction(Unvalidated),
-) -> Result(Nil, ValidationError) {
+) -> Result(Nil, ConsensusViolation) {
   case has_coinbase_marker(tx) {
     True ->
       case tx.inputs {
@@ -1912,7 +1911,7 @@ fn validate_coinbase_structure(
 
 fn validate_coinbase_script_sig_length(
   tx: Transaction(Unvalidated),
-) -> Result(Nil, ValidationError) {
+) -> Result(Nil, ConsensusViolation) {
   case tx.inputs {
     [] -> Ok(Nil)
 
@@ -1935,7 +1934,7 @@ fn validate_coinbase_script_sig_length(
 
 fn validate_no_duplicate_inputs(
   tx: Transaction(Unvalidated),
-) -> Result(Nil, ValidationError) {
+) -> Result(Nil, ConsensusViolation) {
   tx.inputs
   |> list.fold_until(Ok(#(0, dict.new())), fn(acc, txin) {
     let assert Ok(#(index, seen)) = acc
