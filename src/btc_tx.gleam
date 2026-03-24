@@ -961,7 +961,7 @@ pub type DecodePolicy {
     /// 
     /// This provides a cap on total witness data per input,
     /// even if individual items are small.
-    max_witness_size_per_input: Int,
+    max_witness_size_per_input: Option(Int),
   )
 }
 
@@ -997,7 +997,7 @@ pub const default_policy = DecodePolicy(
   max_vout_count: 100_000,
   max_script_size: 10_000,
   max_witness_items_per_input: None,
-  max_witness_size_per_input: 100_000,
+  max_witness_size_per_input: None,
 )
 
 /// Decode a Bitcoin transaction from its binary representation.
@@ -1579,7 +1579,7 @@ fn validate_script_length(
 fn read_witnesses(
   vin_count: Int,
   max_items_per_input: Option(Int),
-  max_size_per_input: Int,
+  max_size_per_input: Option(Int),
 ) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
   parser.indexed_repeat(
     vin_count,
@@ -1590,7 +1590,7 @@ fn read_witnesses(
 
 fn read_witness(
   max_items_per_input: Option(Int),
-  max_size_per_input: Int,
+  max_size_per_input: Option(Int),
 ) -> Parser(ParseContext, WitnessStack, DecodeError) {
   // WitnessStack for one input:
   // ├─ stack_len (CompactSize) - number of witness items
@@ -1603,7 +1603,11 @@ fn read_witness(
   max_items_per_input
   |> read_witness_stack_length
   |> parser.then(fn(stack_len) {
-    read_witness_items_with_byte_tracking(stack_len, max_size_per_input)
+    case max_size_per_input {
+      Some(max_size) ->
+        read_witness_items_with_byte_tracking(stack_len, max_size)
+      None -> read_witness_items(stack_len)
+    }
   })
   |> parser.map(WitnessStack)
 }
@@ -1627,6 +1631,12 @@ fn read_witness_stack_length(
       _ -> Ok(stack_len)
     }
   })
+}
+
+fn read_witness_items(
+  count: Int,
+) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
+  parser.indexed_repeat(count, read_witness_item(), AtWitnessItem)
 }
 
 /// Read witness items while tracking cumulative payload bytes and failing fast
