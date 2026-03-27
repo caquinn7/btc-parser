@@ -1812,9 +1812,9 @@ pub type ConsensusViolation {
 /// no UTXO set, no block context, and no knowledge of other transactions.
 /// The transaction can be validated in isolation.
 ///
-/// This function performs structural and monetary checks that are
-/// required for a transaction to be considered valid by fully
-/// validating Bitcoin nodes.
+/// This function enforces a subset of the checks performed by fully
+/// validating Bitcoin nodes: the structural and monetary rules that can
+/// be evaluated from the transaction alone.
 ///
 /// The following consensus rules are enforced:
 ///
@@ -1825,6 +1825,9 @@ pub type ConsensusViolation {
 ///   - Coinbase transactions contain exactly one input
 ///   - Coinbase scriptSig length is 2–100 bytes (inclusive)
 ///   - No two inputs reference the same previous output
+///
+/// Context-dependent checks — script execution, signature verification,
+/// and input-spend validation against the UTXO set — are not performed.
 pub fn validate_consensus(
   tx: Transaction(Unvalidated),
 ) -> Result(Transaction(Validated), List(ConsensusViolation)) {
