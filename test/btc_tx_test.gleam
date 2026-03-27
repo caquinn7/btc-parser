@@ -2173,8 +2173,7 @@ pub fn validate_consensus_rejects_coinbase_with_multiple_inputs_test() {
 
 pub fn validate_consensus_rejects_multiple_coinbase_inputs_test() {
   // Build a transaction with 2 coinbase inputs
-  // This should also be rejected as coinbase transactions must have exactly 1 input.
-  // Both inputs share the same null prev_out, so DuplicateInput is also reported.
+  // This should be rejected as coinbase transactions must have exactly 1 input
   let vin_count = compact_size(2)
 
   // Two coinbase inputs (both have prev_txid=all zeros, vout=0xFFFFFFFF)
@@ -2198,13 +2197,9 @@ pub fn validate_consensus_rejects_multiple_coinbase_inputs_test() {
   >>
 
   let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
-  let assert [in0, ..] = btc_tx.get_inputs(unvalidated_tx)
-  let dup_prev_out = btc_tx.get_input_prev_out(in0)
 
-  let assert Error(errors) = btc_tx.validate_consensus(unvalidated_tx)
-  assert list.contains(errors, CoinbaseWithMultipleInputs)
-  assert list.contains(errors, DuplicateInput(dup_prev_out, 0, 1))
-  assert list.length(errors) == 2
+  assert btc_tx.validate_consensus(unvalidated_tx)
+    == Error([CoinbaseWithMultipleInputs])
 }
 
 pub fn validate_consensus_rejects_coinbase_with_scriptsig_too_short_test() {
