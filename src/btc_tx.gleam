@@ -3,9 +3,9 @@
 import gleam/bit_array
 import gleam/bool
 import gleam/crypto.{Sha256}
-import gleam/dict
+import gleam/dict.{type Dict}
 import gleam/int
-import gleam/list.{Continue, Stop}
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/pair
 import gleam/result
@@ -1806,11 +1806,15 @@ pub type ConsensusViolation {
   DuplicateInput(prev_out: PrevOut, first_index: Int, duplicate_index: Int)
 }
 
-/// Validate a transaction against selected Bitcoin consensus rules.
+/// Validate a transaction against context-free Bitcoin consensus rules.
 ///
-/// This function performs structural and monetary checks that are
-/// required for a transaction to be considered valid by fully
-/// validating Bitcoin nodes.
+/// "Context-free" means these checks require only the transaction itself —
+/// no UTXO set, no block context, and no knowledge of other transactions.
+/// The transaction can be validated in isolation.
+///
+/// This function enforces a subset of the checks performed by fully
+/// validating Bitcoin nodes: the structural and monetary rules that can
+/// be evaluated from the transaction alone.
 ///
 /// The following consensus rules are enforced:
 ///
@@ -1822,11 +1826,12 @@ pub type ConsensusViolation {
 ///   - Coinbase scriptSig length is 2–100 bytes (inclusive)
 ///   - No two inputs reference the same previous output
 ///
-/// This function does not perform script execution, signature
-/// verification, or input-spend validation.
+/// Context-dependent checks — script execution, signature verification,
+/// and input-spend validation against the UTXO set — are not performed.
 pub fn validate_consensus(
   tx: Transaction(Unvalidated),
 ) -> Result(Transaction(Validated), List(ConsensusViolation)) {
+  // Validators are designed to run together; some Ok branches rely on a sibling covering that case.
   let validators = [
     validate_at_least_one_input,
     validate_at_least_one_output,
@@ -1925,8 +1930,6 @@ fn validate_coinbase_script_sig_length(
   tx: Transaction(Unvalidated),
 ) -> Result(Nil, ConsensusViolation) {
   case tx.inputs {
-    [] -> Ok(Nil)
-
     [input] ->
       case prev_out_is_coinbase_marker(input.prev_out) {
         True -> {
@@ -1940,6 +1943,8 @@ fn validate_coinbase_script_sig_length(
         False -> Ok(Nil)
       }
 
+    // Zero inputs are caught by validate_at_least_one_input.
+    // Multiple inputs with a coinbase marker are caught by validate_coinbase_structure.
     _ -> Ok(Nil)
   }
 }
@@ -1947,21 +1952,44 @@ fn validate_coinbase_script_sig_length(
 fn validate_no_duplicate_inputs(
   tx: Transaction(Unvalidated),
 ) -> Result(Nil, ConsensusViolation) {
-  tx.inputs
-  |> list.fold_until(Ok(#(0, dict.new())), fn(acc, txin) {
-    let assert Ok(#(index, seen)) = acc
-    let prev_out = txin.prev_out
+  validate_no_duplicate_inputs_loop(tx.inputs, 0, dict.new())
+}
 
-    case dict.get(seen, prev_out) {
-      Ok(first_index) ->
-        Stop(
-          Error(DuplicateInput(prev_out, first_index:, duplicate_index: index)),
-        )
+fn validate_no_duplicate_inputs_loop(
+  inputs: List(TxIn),
+  index: Int,
+  seen: Dict(PrevOut, Int),
+) -> Result(Nil, ConsensusViolation) {
+  case inputs {
+    [] -> Ok(Nil)
 
-      Error(_) -> Continue(Ok(#(index + 1, dict.insert(seen, prev_out, index))))
+    [txin, ..rest] -> {
+      let prev_out = txin.prev_out
+
+      // NullOutPoint is skipped: validate_coinbase_structure already rejects any
+      // transaction with multiple NullOutPoint inputs as CoinbaseWithMultipleInputs.
+      case prev_out_is_coinbase_marker(prev_out) {
+        True -> validate_no_duplicate_inputs_loop(rest, index + 1, seen)
+
+        False ->
+          case dict.get(seen, prev_out) {
+            Ok(first_index) ->
+              Error(DuplicateInput(
+                prev_out,
+                first_index:,
+                duplicate_index: index,
+              ))
+
+            Error(_) ->
+              validate_no_duplicate_inputs_loop(
+                rest,
+                index + 1,
+                dict.insert(seen, prev_out, index),
+              )
+          }
+      }
     }
-  })
-  |> result.replace(Nil)
+  }
 }
 
 // ==============================================================================
