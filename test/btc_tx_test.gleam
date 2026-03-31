@@ -409,7 +409,6 @@ pub fn decode_accepts_segwit_tx_with_zero_inputs_test() {
     lock_time:bits,
   >>
 
-  // Should decode successfully as Unvalidated
   let assert Ok(tx) = btc_tx.decode(tx_bytes)
   assert btc_tx.is_segwit(tx)
   assert list.is_empty(btc_tx.get_inputs(tx))
@@ -889,7 +888,6 @@ pub fn decode_accepts_legacy_tx_with_zero_outputs_test() {
     lock_time:bits,
   >>
 
-  // Should decode successfully as Unvalidated
   let assert Ok(tx) = btc_tx.decode(tx_bytes)
   assert !btc_tx.is_segwit(tx)
   assert list.is_empty(btc_tx.get_outputs(tx))
@@ -918,7 +916,6 @@ pub fn decode_accepts_segwit_tx_with_zero_outputs_test() {
     lock_time:bits,
   >>
 
-  // Should decode successfully as Unvalidated
   let assert Ok(tx) = btc_tx.decode(tx_bytes)
   assert btc_tx.is_segwit(tx)
   assert list.is_empty(btc_tx.get_outputs(tx))
@@ -1973,41 +1970,38 @@ pub fn classify_output_script_unknown_witness_v1_max_program_test() {
 
 pub fn validate_consensus_accepts_valid_legacy_tx_test() {
   // Use a real legacy transaction that has 1 input and 1 output
-  let assert Ok(unvalidated_tx) = btc_tx.decode_hex(legacy_v1_tx)
+  let assert Ok(parsed_tx) = btc_tx.decode_hex(legacy_v1_tx)
 
-  assert !btc_tx.is_segwit(unvalidated_tx)
+  assert !btc_tx.is_segwit(parsed_tx)
 
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(unvalidated_tx)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
 
   // Verify the validated transaction maintains the same properties
   assert !btc_tx.is_segwit(validated_tx)
-  assert btc_tx.get_version(validated_tx) == btc_tx.get_version(unvalidated_tx)
+  assert btc_tx.get_version(validated_tx) == btc_tx.get_version(parsed_tx)
   assert list.length(btc_tx.get_inputs(validated_tx))
-    == list.length(btc_tx.get_inputs(unvalidated_tx))
+    == list.length(btc_tx.get_inputs(parsed_tx))
   assert list.length(btc_tx.get_outputs(validated_tx))
-    == list.length(btc_tx.get_outputs(unvalidated_tx))
-  assert btc_tx.get_lock_time(validated_tx)
-    == btc_tx.get_lock_time(unvalidated_tx)
+    == list.length(btc_tx.get_outputs(parsed_tx))
+  assert btc_tx.get_lock_time(validated_tx) == btc_tx.get_lock_time(parsed_tx)
 }
 
 pub fn validate_consensus_accepts_valid_segwit_tx_test() {
-  let assert Ok(unvalidated_tx) = btc_tx.decode_hex(segwit_v1_tx)
+  let assert Ok(parsed_tx) = btc_tx.decode_hex(segwit_v1_tx)
 
-  assert btc_tx.is_segwit(unvalidated_tx)
+  assert btc_tx.is_segwit(parsed_tx)
 
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(unvalidated_tx)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
 
   // Verify the validated transaction maintains the same properties
   assert btc_tx.is_segwit(validated_tx)
-  assert btc_tx.get_version(validated_tx) == btc_tx.get_version(unvalidated_tx)
+  assert btc_tx.get_version(validated_tx) == btc_tx.get_version(parsed_tx)
   assert list.length(btc_tx.get_inputs(validated_tx))
-    == list.length(btc_tx.get_inputs(unvalidated_tx))
+    == list.length(btc_tx.get_inputs(parsed_tx))
   assert list.length(btc_tx.get_outputs(validated_tx))
-    == list.length(btc_tx.get_outputs(unvalidated_tx))
-  assert btc_tx.get_lock_time(validated_tx)
-    == btc_tx.get_lock_time(unvalidated_tx)
-  assert btc_tx.get_witnesses(validated_tx)
-    == btc_tx.get_witnesses(unvalidated_tx)
+    == list.length(btc_tx.get_outputs(parsed_tx))
+  assert btc_tx.get_lock_time(validated_tx) == btc_tx.get_lock_time(parsed_tx)
+  assert btc_tx.get_witnesses(validated_tx) == btc_tx.get_witnesses(parsed_tx)
 }
 
 pub fn validate_consensus_rejects_tx_with_no_inputs_test() {
@@ -2033,9 +2027,9 @@ pub fn validate_consensus_rejects_tx_with_no_inputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(unvalidated_tx) == Error([NoInputs])
+  assert btc_tx.validate_consensus(parsed_tx) == Error([NoInputs])
 }
 
 pub fn validate_consensus_rejects_tx_with_no_outputs_test() {
@@ -2053,9 +2047,9 @@ pub fn validate_consensus_rejects_tx_with_no_outputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(unvalidated_tx) == Error([NoOutputs])
+  assert btc_tx.validate_consensus(parsed_tx) == Error([NoOutputs])
 }
 
 pub fn validate_consensus_rejects_tx_with_negative_output_value_test() {
@@ -2077,9 +2071,9 @@ pub fn validate_consensus_rejects_tx_with_negative_output_value_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(unvalidated_tx)
+  assert btc_tx.validate_consensus(parsed_tx)
     == Error([OutputValueOutOfRange(0, -1)])
 }
 
@@ -2103,9 +2097,9 @@ pub fn validate_consensus_rejects_tx_with_output_exceeding_supply_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(unvalidated_tx)
+  assert btc_tx.validate_consensus(parsed_tx)
     == Error([OutputValueOutOfRange(0, 2_100_000_000_000_001)])
 }
 
@@ -2132,9 +2126,9 @@ pub fn validate_consensus_rejects_tx_with_total_outputs_exceeding_supply_test() 
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(unvalidated_tx)
+  assert btc_tx.validate_consensus(parsed_tx)
     == Error([TotalOutputValueOutOfRange(1, 2_200_000_000_000_000)])
 }
 
@@ -2165,9 +2159,9 @@ pub fn validate_consensus_rejects_coinbase_with_multiple_inputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(unvalidated_tx)
+  assert btc_tx.validate_consensus(parsed_tx)
     == Error([CoinbaseWithMultipleInputs])
 }
 
@@ -2196,9 +2190,9 @@ pub fn validate_consensus_rejects_multiple_coinbase_inputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(unvalidated_tx)
+  assert btc_tx.validate_consensus(parsed_tx)
     == Error([CoinbaseWithMultipleInputs])
 }
 
@@ -2222,9 +2216,9 @@ pub fn validate_consensus_rejects_coinbase_with_scriptsig_too_short_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(unvalidated_tx)
+  assert btc_tx.validate_consensus(parsed_tx)
     == Error([InvalidCoinbaseScriptSigLength])
 }
 
@@ -2250,9 +2244,9 @@ pub fn validate_consensus_rejects_coinbase_with_scriptsig_too_long_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(unvalidated_tx)
+  assert btc_tx.validate_consensus(parsed_tx)
     == Error([InvalidCoinbaseScriptSigLength])
 }
 
@@ -2278,8 +2272,8 @@ pub fn validate_consensus_accepts_coinbase_with_scriptsig_min_length_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(_) = btc_tx.validate_consensus(unvalidated_tx)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(_) = btc_tx.validate_consensus(parsed_tx)
 }
 
 pub fn validate_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
@@ -2304,8 +2298,8 @@ pub fn validate_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(_) = btc_tx.validate_consensus(unvalidated_tx)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(_) = btc_tx.validate_consensus(parsed_tx)
 }
 
 pub fn validate_consensus_returns_multiple_errors_test() {
@@ -2335,10 +2329,10 @@ pub fn validate_consensus_returns_multiple_errors_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
   // Validate consensus rules - should fail with multiple errors
-  let assert Error(errors) = btc_tx.validate_consensus(unvalidated_tx)
+  let assert Error(errors) = btc_tx.validate_consensus(parsed_tx)
 
   // Should contain both CoinbaseWithMultipleInputs and OutputValueOutOfRange
   assert list.contains(errors, CoinbaseWithMultipleInputs)
@@ -2368,11 +2362,11 @@ pub fn validate_consensus_rejects_tx_with_duplicate_inputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
-  let assert [in0, ..] = btc_tx.get_inputs(unvalidated_tx)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert [in0, ..] = btc_tx.get_inputs(parsed_tx)
   let dup_prev_out = btc_tx.get_input_prev_out(in0)
 
-  assert btc_tx.validate_consensus(unvalidated_tx)
+  assert btc_tx.validate_consensus(parsed_tx)
     == Error([DuplicateInput(dup_prev_out, 0, 1)])
 }
 
@@ -2401,11 +2395,11 @@ pub fn validate_consensus_rejects_duplicate_input_at_non_adjacent_indices_test()
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
-  let assert [in0, ..] = btc_tx.get_inputs(unvalidated_tx)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert [in0, ..] = btc_tx.get_inputs(parsed_tx)
   let dup_prev_out = btc_tx.get_input_prev_out(in0)
 
-  assert btc_tx.validate_consensus(unvalidated_tx)
+  assert btc_tx.validate_consensus(parsed_tx)
     == Error([DuplicateInput(dup_prev_out, 0, 2)])
 }
 
@@ -2431,8 +2425,8 @@ pub fn validate_consensus_accepts_inputs_with_same_txid_but_different_vout_test(
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(_) = btc_tx.validate_consensus(unvalidated_tx)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(_) = btc_tx.validate_consensus(parsed_tx)
 }
 
 pub fn validate_consensus_duplicate_input_reported_alongside_other_errors_test() {
@@ -2458,11 +2452,11 @@ pub fn validate_consensus_duplicate_input_reported_alongside_other_errors_test()
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
-  let assert [in0, ..] = btc_tx.get_inputs(unvalidated_tx)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert [in0, ..] = btc_tx.get_inputs(parsed_tx)
   let dup_prev_out = btc_tx.get_input_prev_out(in0)
 
-  let assert Error(errors) = btc_tx.validate_consensus(unvalidated_tx)
+  let assert Error(errors) = btc_tx.validate_consensus(parsed_tx)
   assert list.contains(errors, OutputValueOutOfRange(0, -1))
   assert list.contains(errors, DuplicateInput(dup_prev_out, 0, 1))
   assert list.length(errors) == 2
@@ -2561,8 +2555,8 @@ pub fn is_coinbase_regular_transaction_returns_false_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(unvalidated_tx)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
   assert !btc_tx.is_coinbase(validated_tx)
 }
 
@@ -2584,8 +2578,8 @@ pub fn is_coinbase_coinbase_transaction_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(unvalidated_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(unvalidated_tx)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
   assert btc_tx.is_coinbase(validated_tx)
 }
 

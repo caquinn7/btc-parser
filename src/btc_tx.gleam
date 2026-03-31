@@ -21,8 +21,9 @@ import internal/reader.{type Reader}
 // ==============================================================================
 
 /// Phantom type indicating a transaction that has been successfully
-/// parsed but has not yet been validated against Bitcoin consensus rules.
-pub type Unvalidated
+/// decoded from bytes but has not yet been validated against Bitcoin
+/// consensus rules.
+pub type Parsed
 
 /// Phantom type indicating a transaction that has passed Bitcoin
 /// consensus validation.
@@ -41,9 +42,6 @@ pub opaque type Transaction(validation_state) {
   /// with no witness data.
   Legacy(
     /// The transaction version number.
-    /// 
-    /// Unknown or future version values are permitted by Bitcoin consensus
-    /// rules and are therefore not rejected by the decoder.
     version: Int,
     /// The list of transaction inputs.
     inputs: List(TxIn),
@@ -55,13 +53,9 @@ pub opaque type Transaction(validation_state) {
 
   /// A SegWit transaction.
   ///
-  /// SegWit transactions extend the legacy format with a separate witness
-  /// data section, keeping witness items out of the main serialization.
+  /// SegWit transactions extend the legacy format with a separate witness data section
   SegWit(
     /// The transaction version number.
-    /// 
-    /// Unknown or future version values are permitted by Bitcoin consensus
-    /// rules and are therefore not rejected by the decoder.
     version: Int,
     /// The list of transaction inputs.
     inputs: List(TxIn),
@@ -132,7 +126,8 @@ pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
 /// - Have a scriptSig between 2 and 100 bytes in length
 ///
 /// **Requires validation**: This function accepts only `Transaction(Validated)`,
-/// ensuring the transaction has passed all consensus checks via `validate_consensus`.
+/// ensuring the transaction has passed all consensus checks via `validate_consensus`
+/// (upgrading it from `Transaction(Parsed)`).
 ///
 /// For a structural check without validation, use `has_coinbase_marker`.
 ///
@@ -1030,12 +1025,13 @@ pub const default_policy = DecodePolicy(
 /// 
 /// For custom parsing limits, use `decode_with_policy` instead.
 ///
-/// The decoded transaction is marked as `Unvalidated`, meaning it has been
-/// successfully parsed but has not been checked against Bitcoin consensus rules.
+/// The decoded transaction is marked as `Parsed`, meaning it has been
+/// successfully decoded from bytes but has not yet been checked against
+/// Bitcoin consensus rules.
 ///
 /// ## Returns
 ///
-/// - `Ok(Transaction(Unvalidated))`: Successfully decoded transaction.
+/// - `Ok(Transaction(Parsed))`: Successfully decoded transaction.
 /// - `Error(DecodeError)`: The bytes could not be parsed as a valid transaction.
 ///   This includes malformed data, unexpected end of input, or violations of
 ///   the policy limits.
@@ -1050,7 +1046,7 @@ pub const default_policy = DecodePolicy(
 ///   Error(HexToBytesFailed(err)) -> // Won't occur with direct bytes
 /// }
 /// ```
-pub fn decode(bytes: BitArray) -> Result(Transaction(Unvalidated), DecodeError) {
+pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), DecodeError) {
   decode_with_policy(bytes, default_policy)
 }
 
@@ -1062,12 +1058,12 @@ pub fn decode(bytes: BitArray) -> Result(Transaction(Unvalidated), DecodeError) 
 ///
 /// ## Returns
 ///
-/// - `Ok(Transaction(Unvalidated))`: Successfully decoded transaction within policy limits.
+/// - `Ok(Transaction(Parsed))`: Successfully decoded transaction within policy limits.
 /// - `Error(DecodeError)`: The bytes could not be parsed or exceeded policy limits.
 pub fn decode_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
-) -> Result(Transaction(Unvalidated), DecodeError) {
+) -> Result(Transaction(Parsed), DecodeError) {
   let tx_size = bit_array.byte_size(bytes)
   use <- bool.guard(
     tx_size > policy.max_tx_size,
@@ -1142,7 +1138,7 @@ pub fn decode_with_policy(
 ///
 /// ## Returns
 ///
-/// - `Ok(Transaction(Unvalidated))`: Successfully decoded transaction.
+/// - `Ok(Transaction(Parsed))`: Successfully decoded transaction.
 /// - `Error(HexToBytesFailed(_))`: The hex string was invalid (odd length or
 ///   invalid characters).
 /// - `Error(ParseFailed(_))`: The bytes could not be parsed as a valid transaction.
@@ -1157,7 +1153,7 @@ pub fn decode_with_policy(
 ///   Error(ParseFailed(err)) -> // Valid hex but invalid transaction
 /// }
 /// ```
-pub fn decode_hex(hex: String) -> Result(Transaction(Unvalidated), DecodeError) {
+pub fn decode_hex(hex: String) -> Result(Transaction(Parsed), DecodeError) {
   hex
   |> hex_to_bytes
   |> result.try(decode)
@@ -1172,14 +1168,14 @@ pub fn decode_hex(hex: String) -> Result(Transaction(Unvalidated), DecodeError) 
 ///
 /// ## Returns
 ///
-/// - `Ok(Transaction(Unvalidated))`: Successfully decoded transaction within policy limits.
+/// - `Ok(Transaction(Parsed))`: Successfully decoded transaction within policy limits.
 /// - `Error(HexToBytesFailed(_))`: The hex string was invalid (odd length or
 ///   invalid characters).
 /// - `Error(ParseFailed(_))`: The bytes could not be parsed or exceeded policy limits.
 pub fn decode_hex_with_policy(
   hex: String,
   policy: DecodePolicy,
-) -> Result(Transaction(Unvalidated), DecodeError) {
+) -> Result(Transaction(Parsed), DecodeError) {
   hex
   |> hex_to_bytes
   |> result.try(decode_with_policy(_, policy))
@@ -1829,7 +1825,7 @@ pub type ConsensusViolation {
 /// Context-dependent checks — script execution, signature verification,
 /// and input-spend validation against the UTXO set — are not performed.
 pub fn validate_consensus(
-  tx: Transaction(Unvalidated),
+  tx: Transaction(Parsed),
 ) -> Result(Transaction(Validated), List(ConsensusViolation)) {
   // Validators are designed to run together; some Ok branches rely on a sibling covering that case.
   let validators = [
@@ -1855,7 +1851,7 @@ pub fn validate_consensus(
   }
 }
 
-fn mark_as_validated(tx: Transaction(Unvalidated)) -> Transaction(Validated) {
+fn mark_as_validated(tx: Transaction(Parsed)) -> Transaction(Validated) {
   // Change phantom type to Validated by reconstructing with identical data
   case tx {
     Legacy(v, i, o, l) -> Legacy(v, i, o, l)
@@ -1864,7 +1860,7 @@ fn mark_as_validated(tx: Transaction(Unvalidated)) -> Transaction(Validated) {
 }
 
 fn validate_at_least_one_input(
-  tx: Transaction(Unvalidated),
+  tx: Transaction(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   case tx.inputs {
     [] -> Error(NoInputs)
@@ -1873,7 +1869,7 @@ fn validate_at_least_one_input(
 }
 
 fn validate_at_least_one_output(
-  tx: Transaction(Unvalidated),
+  tx: Transaction(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   case tx.outputs {
     [] -> Error(NoOutputs)
@@ -1882,7 +1878,7 @@ fn validate_at_least_one_output(
 }
 
 fn validate_output_values(
-  tx: Transaction(Unvalidated),
+  tx: Transaction(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   validate_output_values_loop(tx.outputs, 0, 0)
 }
@@ -1914,7 +1910,7 @@ fn validate_output_values_loop(
 }
 
 fn validate_coinbase_structure(
-  tx: Transaction(Unvalidated),
+  tx: Transaction(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   case has_coinbase_marker(tx) {
     True ->
@@ -1927,7 +1923,7 @@ fn validate_coinbase_structure(
 }
 
 fn validate_coinbase_script_sig_length(
-  tx: Transaction(Unvalidated),
+  tx: Transaction(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   case tx.inputs {
     [input] ->
@@ -1950,7 +1946,7 @@ fn validate_coinbase_script_sig_length(
 }
 
 fn validate_no_duplicate_inputs(
-  tx: Transaction(Unvalidated),
+  tx: Transaction(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   validate_no_duplicate_inputs_loop(tx.inputs, 0, dict.new())
 }
