@@ -53,7 +53,8 @@ pub opaque type Transaction(validation_state) {
 
   /// A SegWit transaction.
   ///
-  /// SegWit transactions extend the legacy format with a separate witness data section
+  /// SegWit transactions extend the legacy format
+  /// with a separate witness data section.
   SegWit(
     /// The transaction version number.
     version: Int,
