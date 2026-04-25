@@ -1,3 +1,14 @@
+////  Fuzz testing harness for the `btc_tx` transaction parser.
+////
+////  The goal is to guarantee that *any* byte input results in either a correct
+////  parse or a well-defined error — never an unhandled exception. Each run
+////  receives a corpus of real Bitcoin transactions, applies random structural
+////  mutations, and exercises the full decode → validate → classify → txid
+////  pipeline. Using real transactions as a baseline produces higher-quality
+////  mutations than pure random bytes: they are structurally plausible, so
+////  mutations are more likely to reach deep parser paths rather than being
+////  rejected at early boundary checks.
+
 import btc_tx
 import exception.{type Exception}
 import gleam/bit_array
@@ -46,6 +57,19 @@ pub type Mutation {
   MutateCompactSizeCandidate
 }
 
+/// Run the fuzz harness against `seed_txs` for `iteration_count` iterations
+/// seeded with `rng_seed`.
+///
+/// Each iteration draws one transaction from `seed_txs` uniformly at random,
+/// applies a structural mutation, and runs the full decode → validate →
+/// classify → txid pipeline.  Any unhandled exception is recorded as an
+/// `IterationFailure` in the returned `FuzzResult`.
+///
+/// `rng_seed` initialises a deterministic Park-Miller LCG, so any run can be
+/// reproduced exactly by supplying the same `seed_txs`, `iteration_count`, and
+/// `rng_seed`.  The returned `FuzzResult` includes a `trace_hash`—a rolling
+/// XOR of SHA-256 hashes of every mutated input—that acts as a compact
+/// fingerprint confirming two runs exercised the same sequence of inputs.
 pub fn run(
   seed_txs: List(SeedTx),
   iteration_count: Int,
