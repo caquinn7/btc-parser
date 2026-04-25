@@ -6,7 +6,6 @@ import gleam/crypto.{Sha256}
 import gleam/int
 import gleam/list
 import gleam/string
-import simplifile
 
 pub type FuzzResult {
   FuzzResult(
@@ -47,8 +46,11 @@ pub type Mutation {
   MutateCompactSizeCandidate
 }
 
-pub fn run(iteration_count, rng_seed) -> FuzzResult {
-  let assert [_, ..] as seed_txs = get_seed_txs()
+pub fn run(
+  seed_txs: List(SeedTx),
+  iteration_count: Int,
+  rng_seed: Int,
+) -> FuzzResult {
   let rng = new_rng(rng_seed)
 
   let #(failures, trace) =
@@ -60,9 +62,7 @@ pub fn run(iteration_count, rng_seed) -> FuzzResult {
   FuzzResult(iteration_count:, rng_seed:, trace_hash:, failures:)
 }
 
-fn get_seed_txs() -> List(SeedTx) {
-  let assert Ok(file_content) = simplifile.read("dev/fuzz_test/corpus.txt")
-
+pub fn parse_seed_txs(file_content: String) -> List(SeedTx) {
   file_content
   |> string.split("\n")
   |> list.filter_map(fn(line) {
