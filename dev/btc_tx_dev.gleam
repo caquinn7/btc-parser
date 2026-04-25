@@ -7,7 +7,7 @@ import gleam/list
 import gleam/string
 import simplifile
 
-const usage_msg = "usage: gleam dev fuzz <iterations> [seed]"
+const usage_msg = "usage: gleam dev [OPTIONS] fuzz <iterations> [seed]"
 
 pub fn main() {
   case argv.load().arguments {
