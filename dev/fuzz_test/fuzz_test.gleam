@@ -51,8 +51,7 @@ pub type Mutation {
   InsertBytes
   DeleteSpan
   DuplicateSpan
-  // ZeroSpan
-  // AppendGarbage
+  ZeroSpan
   MutateSegwitMarker
   MutateCompactSizeCandidate
 }
@@ -201,8 +200,7 @@ fn mutate(seed_tx: SeedTx, rng: Rng) -> #(MutatedTx, Rng) {
     #(InsertBytes, insert_bytes),
     #(DeleteSpan, delete_span),
     #(DuplicateSpan, duplicate_span),
-    // #(ZeroSpan, zero_span),
-    // #(AppendGarbage, append_garbage),
+    #(ZeroSpan, zero_span),
     #(MutateSegwitMarker, mutate_segwit_marker),
     #(MutateCompactSizeCandidate, mutate_compact_size_candidate),
   ]
@@ -394,38 +392,38 @@ fn duplicate_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   #(result, rng)
 }
 
-// /// Replace a contiguous span of bytes with zero bytes of the same length.
-// ///
-// /// Intended behavior:
-// /// - Keep overall length unchanged
-// /// - Blank out one region in place
-// ///
-// /// Fuzzing purpose:
-// /// - Destroy local meaning without changing offsets
-// /// - Useful when you want corruption but do not want global re-alignment effects
-// /// - Good for txids, values, sequence numbers, scripts, and witness payloads
-// /// - Can expose zero-value edge cases: zero amounts, zeroed txids (as in coinbase inputs), or empty scripts
-// fn zero_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
-//   todo
-// }
+/// Replace a contiguous span of 1-8 bytes with zero bytes of the same length.
+///
+/// Fuzzing purpose:
+/// - Destroy local meaning without changing offsets
+/// - Useful when you want corruption but do not want global re-alignment effects
+/// - Good for txids, values, sequence numbers, scripts, and witness payloads
+/// - Can expose zero-value edge cases: zero amounts, zeroed txids (as in coinbase inputs), or empty scripts
+fn zero_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
+  let len = bit_array.byte_size(bytes)
+  use <- bool.guard(len == 0, #(bytes, rng))
 
-// /// Append random trailing bytes to the end of the stream.
-// ///
-// /// Intended behavior:
-// /// - Preserve the original bytes exactly
-// /// - Add extra junk after the nominal transaction
-// ///
-// /// Fuzzing purpose:
-// /// - Test whether the parser properly detects trailing garbage
-// /// - Useful for checking "consume exactly all bytes" behavior
-// /// - Signal is highest when the base transaction is fully valid (i.e., drawn from the seed
-// ///   corpus without prior mutation), since a broken transaction may be rejected before
-// ///   the parser ever reaches the trailing bytes
-// fn append_garbage(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
-//   let #(extra_len, rng) = next_bounded(rng, 16)
-//   let #(garbage, rng) = random_bytes(rng, extra_len + 1)
-//   #(bit_array.append(bytes, garbage), rng)
-// }
+  let #(start, rng) = next_bounded(rng, len)
+  let #(span_len, rng) = next_bounded(rng, 8)
+  let span_len = int.min(span_len + 1, len - start)
+
+  let assert Ok(before) = bit_array.slice(bytes, 0, start)
+
+  let after_start = start + span_len
+  let after_len = len - after_start
+  let assert Ok(after) = bit_array.slice(bytes, after_start, after_len)
+
+  let result =
+    before
+    |> bit_array.append(zero_bytes(span_len))
+    |> bit_array.append(after)
+
+  #(result, rng)
+}
+
+fn zero_bytes(len: Int) -> BitArray {
+  int.range(0, len, <<>>, fn(acc, _i) { bit_array.append(acc, <<0:8>>) })
+}
 
 /// Target the segwit marker/flag region at offsets 4–5 with one of five mutations:
 /// corrupt the marker, corrupt the flag, remove the marker byte, remove the flag byte,
