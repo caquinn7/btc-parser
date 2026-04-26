@@ -89,7 +89,7 @@ pub fn parse_seed_txs(file_content: String) -> List(SeedTx) {
   file_content
   |> string.split("\n")
   |> list.filter_map(fn(line) {
-    case string.split(line, ",") {
+    case string.split(line, "|") {
       [txid, hex_str] -> {
         let assert Ok(bytes) = bit_array.base16_decode(hex_str)
         Ok(SeedTx(txid:, bytes:))
@@ -179,8 +179,10 @@ fn xor_bytes_loop(
   acc: BitArray,
 ) -> BitArray {
   use <- bool.guard(offset >= len, acc)
+
   let assert Ok(<<va:8>>) = bit_array.slice(a, offset, 1)
   let assert Ok(<<vb:8>>) = bit_array.slice(b, offset, 1)
+
   xor_bytes_loop(
     a,
     b,
