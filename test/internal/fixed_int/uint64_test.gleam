@@ -1,3 +1,4 @@
+import internal/fixed_int/constants
 import internal/fixed_int/uint64.{InvalidByteCount}
 
 const max_u64_bytes = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
@@ -42,11 +43,9 @@ pub fn to_int_erlang_returns_ok_when_max_value_test() {
 }
 
 pub fn to_int_max_safe_js_int_test() {
-  // 2^53 - 1 = 9007199254740991
-  let max_safe_js_int = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x1F, 0x00>>
-  let assert Ok(x) = uint64.from_bytes_le(max_safe_js_int)
+  let assert Ok(x) = uint64.from_bytes_le(constants.max_safe_js_int_bytes)
 
-  assert uint64.to_int(x) == Ok(9_007_199_254_740_991)
+  assert uint64.to_int(x) == Ok(constants.max_safe_js_int)
 }
 
 pub fn to_int_zero_test() {
@@ -107,10 +106,8 @@ pub fn from_int_large_test() {
 }
 
 pub fn from_int_max_safe_js_int_test() {
-  // 2^53 - 1 = 9_007_199_254_740_991
-  let assert Ok(x) = uint64.from_int(9_007_199_254_740_991)
-  assert uint64.to_bytes_le(x)
-    == <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x1F, 0x00>>
+  let assert Ok(x) = uint64.from_int(constants.max_safe_js_int)
+  assert uint64.to_bytes_le(x) == constants.max_safe_js_int_bytes
 }
 
 pub fn from_int_negative_returns_error_test() {
@@ -125,9 +122,8 @@ pub fn from_int_round_trip_test() {
 
 @target(javascript)
 pub fn from_int_js_out_of_range_above_test() {
-  // 2^53 = MAX_SAFE_INTEGER + 1
-  assert uint64.from_int(9_007_199_254_740_992)
-    == Error(uint64.ValueOutOfRange(9_007_199_254_740_992))
+  let n = constants.max_safe_js_int + 1
+  assert uint64.from_int(n) == Error(uint64.ValueOutOfRange(n))
 }
 
 @target(erlang)
