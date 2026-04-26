@@ -11,11 +11,16 @@ const usage_msg = "usage: gleam dev [OPTIONS] fuzz <iterations> [seed]"
 
 pub fn main() {
   case argv.load().arguments {
-    ["fuzz", ..args] -> {
-      let #(iteration_count, rng_seed) = parse_fuzz_args(args)
+    ["fuzz", ..args] -> fuzz_command(args)
+    _ -> io.println(usage_msg)
+  }
+}
 
+fn fuzz_command(args: List(String)) -> Nil {
+  case parse_fuzz_args(args) {
+    Ok(#(iteration_count, rng_seed)) -> {
       io.println(
-        "Executing fuzz test with seed " <> int.to_string(rng_seed) <> ".\n",
+        "Executing fuzz test with seed " <> int.to_string(rng_seed) <> "...\n",
       )
 
       let assert [_, ..] as seed_txs = read_seed_txs()
@@ -25,28 +30,28 @@ pub fn main() {
       io.println(fuzz_result_to_string(fuzz_result, exec_time))
     }
 
-    _ -> panic as usage_msg
+    _ -> io.println(usage_msg)
   }
 }
 
-fn parse_fuzz_args(args: List(String)) -> #(Int, Int) {
+fn parse_fuzz_args(args: List(String)) -> Result(#(Int, Int), Nil) {
   case args {
     [count_str, seed_str] -> {
       let assert Ok(count) = int.parse(count_str)
       let assert Ok(seed) = int.parse(seed_str)
-      #(count, seed)
+      Ok(#(count, seed))
     }
 
     [count_str] -> {
-      io.println("Seed not specified... one will be randomly generated.\n")
+      io.println("Generating a random seed...\n")
 
       let assert Ok(count) = int.parse(count_str)
       let assert <<seed:32>> = crypto.strong_random_bytes(4)
 
-      #(count, seed)
+      Ok(#(count, seed))
     }
 
-    _ -> panic as usage_msg
+    _ -> Error(Nil)
   }
 }
 
