@@ -1,3 +1,4 @@
+import internal/fixed_int/constants
 import internal/fixed_int/int64.{InvalidByteCount}
 
 const max_i64_bytes = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F>>
@@ -56,17 +57,13 @@ pub fn to_int_erlang_returns_ok_when_min_value_test() {
 }
 
 pub fn to_int_max_safe_js_int_test() {
-  let max_safe_js_int = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x1F, 0x00>>
-  let assert Ok(x) = int64.from_bytes_le(max_safe_js_int)
-
-  assert int64.to_int(x) == Ok(9_007_199_254_740_991)
+  let assert Ok(x) = int64.from_bytes_le(constants.max_safe_js_int_bytes)
+  assert int64.to_int(x) == Ok(constants.max_safe_js_int)
 }
 
 pub fn to_int_min_safe_js_int_test() {
-  let min_safe_js_int = <<0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0xFF>>
-  let assert Ok(x) = int64.from_bytes_le(min_safe_js_int)
-
-  assert int64.to_int(x) == Ok(-9_007_199_254_740_991)
+  let assert Ok(x) = int64.from_bytes_le(constants.min_safe_js_int_bytes)
+  assert int64.to_int(x) == Ok(constants.min_safe_js_int)
 }
 
 pub fn to_int_zero_test() {
@@ -162,15 +159,13 @@ pub fn from_int_negative_large_test() {
 }
 
 pub fn from_int_max_safe_js_int_test() {
-  let assert Ok(x) = int64.from_int(9_007_199_254_740_991)
-  assert int64.to_bytes_le(x)
-    == <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x1F, 0x00>>
+  let assert Ok(x) = int64.from_int(constants.max_safe_js_int)
+  assert int64.to_bytes_le(x) == constants.max_safe_js_int_bytes
 }
 
 pub fn from_int_min_safe_js_int_test() {
-  let assert Ok(x) = int64.from_int(-9_007_199_254_740_991)
-  assert int64.to_bytes_le(x)
-    == <<0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0xFF>>
+  let assert Ok(x) = int64.from_int(constants.min_safe_js_int)
+  assert int64.to_bytes_le(x) == constants.min_safe_js_int_bytes
 }
 
 pub fn from_int_round_trip_test() {
@@ -187,16 +182,14 @@ pub fn from_int_round_trip_negative_test() {
 
 @target(javascript)
 pub fn from_int_js_out_of_range_above_test() {
-  // 2^53 = MAX_SAFE_INTEGER + 1
-  assert int64.from_int(9_007_199_254_740_992)
-    == Error(int64.ValueOutOfRange(9_007_199_254_740_992))
+  let n = constants.max_safe_js_int + 1
+  assert int64.from_int(n) == Error(int64.ValueOutOfRange(n))
 }
 
 @target(javascript)
 pub fn from_int_js_out_of_range_below_test() {
-  // -(2^53) = MIN_SAFE_INTEGER - 1
-  assert int64.from_int(-9_007_199_254_740_992)
-    == Error(int64.ValueOutOfRange(-9_007_199_254_740_992))
+  let n = constants.min_safe_js_int - 1
+  assert int64.from_int(n) == Error(int64.ValueOutOfRange(n))
 }
 
 @target(erlang)
