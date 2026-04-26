@@ -72,9 +72,6 @@ pub opaque type Transaction(validation_state) {
 /// Get the version number from a transaction.
 ///
 /// The version number indicates the transaction format and rules that apply.
-/// Common versions are:
-/// - Version 1: Original Bitcoin transaction format
-/// - Version 2: Introduced with BIP 68 (relative lock-time using sequence numbers)
 ///
 /// Unknown or future version values are permitted by Bitcoin consensus rules,
 /// so the decoder does not reject transactions with unrecognized versions.
