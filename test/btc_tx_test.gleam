@@ -167,6 +167,25 @@ pub fn decode_errors_when_input_shorter_than_4_bytes_test() {
   assert btc_tx.parse_error_ctx(parse_err) == [InTransaction, AtField(Version)]
 }
 
+pub fn decode_errors_on_non_byte_aligned_input_test() {
+  // Append a single trailing bit to a complete, valid transaction.
+  // byte_size rounds up (N bytes + 1 bit → N+1), so the transaction passes
+  // the size check and remaining appears larger than the 4 bytes needed for
+  // Version. However, the reader pattern `<<bytes:bytes-size(4), rest:bytes>>`
+  // requires the remainder to be byte-aligned; the 1 trailing bit makes that
+  // impossible, so the very first read fails even though remaining > bytes_needed.
+  let assert Ok(valid_bytes) = bit_array.base16_decode(legacy_v1_tx)
+  let unaligned = <<valid_bytes:bits, 0:1>>
+
+  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(unaligned)
+
+  let expected_remaining = bit_array.byte_size(valid_bytes) + 1
+  assert btc_tx.parse_error_offset(parse_err) == 0
+  assert btc_tx.parse_error_kind(parse_err)
+    == UnexpectedEof(bytes_needed: 4, remaining: expected_remaining)
+  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction, AtField(Version)]
+}
+
 pub fn decode_does_not_misclassify_segwit_when_discriminator_is_missing_test() {
   let assert Error(ParseFailed(parse_err)) = btc_tx.decode(version1)
 
@@ -2460,6 +2479,31 @@ pub fn validate_consensus_duplicate_input_reported_alongside_other_errors_test()
   assert list.contains(errors, OutputValueOutOfRange(0, -1))
   assert list.contains(errors, DuplicateInput(dup_prev_out, 0, 1))
   assert list.length(errors) == 2
+}
+
+// ============================================================================
+// decode -> validate_consensus -> to_witness_bytes
+// ============================================================================
+
+pub fn round_trip_legacy_tx_witness_bytes_match_original_hex_test() {
+  // The bytes produced by to_witness_bytes must exactly match the original
+  // hex encoding — no byte dropped or added.
+  let assert Ok(original_bytes) = bit_array.base16_decode(legacy_v1_tx)
+
+  let assert Ok(parsed_tx) = btc_tx.decode(original_bytes)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
+
+  assert btc_tx.to_stripped_bytes(validated_tx) == original_bytes
+  assert btc_tx.to_witness_bytes(validated_tx) == original_bytes
+}
+
+pub fn round_trip_segwit_tx_witness_bytes_match_original_hex_test() {
+  let assert Ok(original_bytes) = bit_array.base16_decode(segwit_v1_tx)
+
+  let assert Ok(parsed_tx) = btc_tx.decode(original_bytes)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
+
+  assert btc_tx.to_witness_bytes(validated_tx) == original_bytes
 }
 
 // ============================================================================
