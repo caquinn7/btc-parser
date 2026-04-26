@@ -178,18 +178,21 @@ fn xor_bytes_loop(
   offset: Int,
   acc: BitArray,
 ) -> BitArray {
-  use <- bool.guard(offset >= len, acc)
+  case offset >= len {
+    True -> acc
+    False -> {
+      let assert Ok(<<va:8>>) = bit_array.slice(a, offset, 1)
+      let assert Ok(<<vb:8>>) = bit_array.slice(b, offset, 1)
 
-  let assert Ok(<<va:8>>) = bit_array.slice(a, offset, 1)
-  let assert Ok(<<vb:8>>) = bit_array.slice(b, offset, 1)
-
-  xor_bytes_loop(
-    a,
-    b,
-    len,
-    offset + 1,
-    bit_array.append(acc, <<int.bitwise_exclusive_or(va, vb):8>>),
-  )
+      xor_bytes_loop(
+        a,
+        b,
+        len,
+        offset + 1,
+        bit_array.append(acc, <<int.bitwise_exclusive_or(va, vb):8>>),
+      )
+    }
+  }
 }
 
 // Mutation
@@ -251,12 +254,15 @@ fn flip_n_bytes(
   remaining: Int,
   rng: Rng,
 ) -> #(BitArray, Rng) {
-  use <- bool.guard(remaining == 0, #(bytes, rng))
-
-  let #(offset, rng) = next_bounded(rng, len)
-  let #(new_byte, rng) = next_bounded(rng, 256)
-  let bytes = replace_byte_at(bytes, offset, new_byte)
-  flip_n_bytes(bytes, len, remaining - 1, rng)
+  case remaining == 0 {
+    True -> #(bytes, rng)
+    False -> {
+      let #(offset, rng) = next_bounded(rng, len)
+      let #(new_byte, rng) = next_bounded(rng, 256)
+      let bytes = replace_byte_at(bytes, offset, new_byte)
+      flip_n_bytes(bytes, len, remaining - 1, rng)
+    }
+  }
 }
 
 fn replace_byte_at(bytes: BitArray, offset: Int, value: Int) -> BitArray {
