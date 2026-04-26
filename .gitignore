@@ -3,5 +3,5 @@
 /build
 erl_crash.dump
 /resources
-/dev
 .DS_Store
+dev/fuzz_test/*.sh
