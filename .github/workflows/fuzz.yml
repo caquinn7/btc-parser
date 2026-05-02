@@ -22,6 +22,7 @@ jobs:
     needs: [seed]
 
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: erlang
