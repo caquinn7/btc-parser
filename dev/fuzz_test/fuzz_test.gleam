@@ -495,7 +495,10 @@ type CompactSizeCandidate {
 /// - Non-minimal encoding directly targets a protocol rule the parser must enforce
 /// - Preserves enough surrounding structure that malformed inputs are likely to reach
 ///   inner parsing logic rather than being rejected at a boundary check
-fn mutate_compact_size_candidate(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
+fn mutate_compact_size_candidate(
+  bytes: BitArray,
+  rng: Rng,
+) -> #(BitArray, Rng) {
   case find_compact_size_candidates(bytes) {
     [] -> #(bytes, rng)
 
