@@ -7,6 +7,18 @@ on:
   pull_request:
 
 jobs:
+  format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup runtimes
+        uses: ./.github/actions/setup
+
+      - name: Check formatting
+        run: gleam format --check
+
   test:
     runs-on: ubuntu-latest
 
@@ -38,4 +50,3 @@ jobs:
           else
             gleam test --target erlang
           fi
-          gleam format --check src test
