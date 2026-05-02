@@ -42,6 +42,7 @@ jobs:
           js_runtime: ${{ matrix.js_runtime }}
 
       - name: Run fuzz tests
+        timeout-minutes: 5
         run: |
           gleam deps download
           if [ "${{ matrix.target }}" = "javascript" ]; then
