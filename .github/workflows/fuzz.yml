@@ -1,26 +1,25 @@
-name: test
+name: fuzz
 
 on:
   push:
     branches:
       - main
-  pull_request:
 
 jobs:
-  format:
+  seed:
     runs-on: ubuntu-latest
+
+    outputs:
+      seed: ${{ steps.generate.outputs.seed }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Generate seed
+        id: generate
+        run: echo "seed=$(od -An -N4 -tu4 < /dev/urandom | tr -d ' \n')" >> "$GITHUB_OUTPUT"
 
-      - name: Setup runtimes
-        uses: ./.github/actions/setup
-
-      - name: Check formatting
-        run: gleam format --check
-
-  test:
+  fuzz:
     runs-on: ubuntu-latest
+    needs: [seed]
 
     strategy:
       fail-fast: false
@@ -42,11 +41,12 @@ jobs:
         with:
           js_runtime: ${{ matrix.js_runtime }}
 
-      - name: Run tests
+      - name: Run fuzz tests
+        timeout-minutes: 5
         run: |
           gleam deps download
           if [ "${{ matrix.target }}" = "javascript" ]; then
-            gleam test --target javascript --runtime ${{ matrix.js_runtime }}
+            gleam dev --target javascript --runtime ${{ matrix.js_runtime }} fuzz 100000 ${{ needs.seed.outputs.seed }}
           else
-            gleam test --target erlang
+            gleam dev --target erlang fuzz 100000 ${{ needs.seed.outputs.seed }}
           fi
