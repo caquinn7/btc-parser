@@ -569,7 +569,10 @@ fn do_is_standard_multisig(bytes: BitArray) -> Bool {
 
 /// Extract and validate the m, n opcodes and OP_CHECKMULTISIG trailer.
 /// Returns Ok(#(min_sigs, pubkey_count)) where both are decoded integer values (1–3).
-fn read_multisig_header(bytes: BitArray, total: Int) -> Result(#(Int, Int), Nil) {
+fn read_multisig_header(
+  bytes: BitArray,
+  total: Int,
+) -> Result(#(Int, Int), Nil) {
   // the first byte
   let m_byte = bit_array.slice(bytes, 0, 1)
   // the second-to-last byte
@@ -1202,7 +1205,9 @@ fn read_field(
 }
 
 /// Lift a compact_size read into a Parser, adding error mapping and context wrapping.
-fn read_compact_size(field: Field) -> Parser(ParseContext, Uint64, DecodeError) {
+fn read_compact_size(
+  field: Field,
+) -> Parser(ParseContext, Uint64, DecodeError) {
   parser.new(fn(reader, ctx) {
     reader
     |> compact_size.read
