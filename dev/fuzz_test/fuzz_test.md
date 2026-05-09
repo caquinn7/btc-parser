@@ -93,7 +93,7 @@ This is especially relevant for:
 
 ## Role of the Seed Corpus
 
-The fuzzing strategy uses a **seed corpus of real Bitcoin transactions** captured from the mempool.
+The fuzzing strategy uses a **seed corpus of real Bitcoin transactions** sourced from two pools: non-coinbase transactions captured from the mempool, and coinbase transactions extracted from mined blocks.
 
 ### Why this matters:
 - Pure random input is mostly invalid and low-signal
