@@ -90,7 +90,7 @@ pub fn parse_seed_txs(file_content: String) -> List(SeedTx) {
   |> string.split("\n")
   |> list.filter_map(fn(line) {
     case string.split(line, "|") {
-      [txid, hex_str] -> {
+      [txid, _codes, hex_str] -> {
         let assert Ok(bytes) = bit_array.base16_decode(hex_str)
         Ok(SeedTx(txid:, bytes:))
       }

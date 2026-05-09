@@ -1,0 +1,24 @@
+B01|Coinbase with large scriptSig
+B02|Coinbase scriptSig at max size
+C01|Legacy simple
+C02|Legacy multi-input
+C03|Legacy multi-output
+C04|SegWit simple
+C05|Multi-input with multiple witnessed inputs
+C06|Single-witness-item input present
+F01|OP_RETURN output present
+F02|Multiple OP_RETURN outputs
+F03|Witness v0 output present
+F04|Witness v1 (Taproot) output present
+F05|Mixed output script types
+F06|Large scriptPubKey output
+M01|Non-standard output present
+M02|Quantity of :null_data occurrences across outputs
+S01|High input count
+S02|High output count
+S03|Large transaction size
+S04|Very small transaction
+S05|Many inputs and many outputs
+S06|Witness-heavy
+W01|At least one input with multiple witness items
+W03|Large witness item
