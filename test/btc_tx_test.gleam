@@ -538,6 +538,25 @@ pub fn decode_parses_coinbase_marker_input_test() {
   assert btc_tx.has_coinbase_marker(tx)
 }
 
+pub fn prev_out_is_null_outpoint_returns_true_for_coinbase_marker_test() {
+  let prev_out = decode_single_input_prev_out(<<0:size(256)>>, 0xFFFFFFFF)
+  assert btc_tx.prev_out_is_null_outpoint(prev_out)
+}
+
+pub fn prev_out_is_null_outpoint_returns_false_for_regular_outpoint_test() {
+  let prev_out = decode_single_input_prev_out(repeat_byte(1, 32), 0)
+  assert !btc_tx.prev_out_is_null_outpoint(prev_out)
+}
+
+pub fn prev_out_is_null_outpoint_requires_null_hash_and_max_vout_test() {
+  let zero_hash_regular_vout = decode_single_input_prev_out(<<0:size(256)>>, 0)
+  let nonzero_hash_max_vout =
+    decode_single_input_prev_out(repeat_byte(1, 32), 0xFFFFFFFF)
+
+  assert !btc_tx.prev_out_is_null_outpoint(zero_hash_regular_vout)
+  assert !btc_tx.prev_out_is_null_outpoint(nonzero_hash_max_vout)
+}
+
 pub fn decode_parses_empty_scriptsig_test() {
   let vin_count = compact_size(1)
 
@@ -2809,6 +2828,23 @@ fn build_minimal_input() -> BitArray {
   let vin_count = compact_size(1)
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   <<vin_count:bits, input:bits>>
+}
+
+fn decode_single_input_prev_out(prev_txid: BitArray, vout: Int) {
+  let input = build_input(prev_txid, vout, <<>>, 0)
+  let lock_time = <<0:little-size(32)>>
+
+  let assert Ok(tx) =
+    btc_tx.decode(<<
+      version1:bits,
+      compact_size(1):bits,
+      input:bits,
+      build_minimal_output():bits,
+      lock_time:bits,
+    >>)
+
+  let assert [first_input] = btc_tx.get_inputs(tx)
+  btc_tx.get_input_prev_out(first_input)
 }
 
 /// Build an output with specific values
