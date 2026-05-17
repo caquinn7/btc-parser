@@ -3,6 +3,12 @@
 This document explains how `classify_output_script` identifies the standard Bitcoin
 output script template (`OutputScriptType`) for a given `scriptPubKey`.
 
+Classification is intentionally structural and non-extractive. The classifier
+reports which template the bytes match, but it does not extract, decode, or
+interpret embedded hashes, public keys, witness programs, multisig parameters,
+signatures, or `OP_RETURN` payloads. Callers that need those details should use
+`get_raw_script_bytes` and interpret the script bytes in their own layer.
+
 ---
 
 ## Overview
