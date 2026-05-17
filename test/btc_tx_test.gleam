@@ -1,18 +1,18 @@
 import btc_tx.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack,
-  CoinbaseWithMultipleInputs, DecodePolicy, DuplicateInput, HexToBytesFailed,
-  InInputs, InOutputs, InTransaction, InsufficientBytes,
-  InvalidCoinbaseScriptSigLength, InvalidSegWitMarkerFlag, NoInputs, NoOutputs,
-  NonMinimalCompactSize, OutputValueOutOfRange, ParseFailed, PolicyLimitExceeded,
-  ScriptPubKeyLength, ScriptSigLength, SegwitDiscriminator,
-  TotalOutputValueOutOfRange, TrailingBytes, UnexpectedEof, Version, VinCount,
-  VoutCount, WitnessItemLength, WitnessItemsTotalBytes, WitnessStackLength,
+  CoinbaseWithMultipleInputs, DuplicateInput, HexToBytesFailed, InInputs,
+  InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
+  InvalidSegWitMarkerFlag, NoInputs, NoOutputs, NonMinimalCompactSize,
+  OutputValueOutOfRange, ParseFailed, PolicyLimitExceeded, ScriptPubKeyLength,
+  ScriptSigLength, SegwitDiscriminator, TotalOutputValueOutOfRange,
+  TrailingBytes, UnexpectedEof, Version, VinCount, VoutCount, WitnessItemLength,
+  WitnessItemsTotalBytes, WitnessStackLength,
 }
 import gleam/bit_array
 import gleam/crypto.{Sha256}
 import gleam/int
 import gleam/list
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/string
 import gleeunit
 
@@ -49,6 +49,43 @@ pub fn decode_hex_errors_on_string_with_whitespace_test() {
 }
 
 // ============================================================================
+// Decode Policy Builder
+// ============================================================================
+
+pub fn decode_policy_builder_overrides_default_limits_test() {
+  let policy =
+    btc_tx.default_decode_policy
+    |> btc_tx.decode_policy_with_max_tx_size(123)
+    |> btc_tx.decode_policy_with_max_vin_count(4)
+    |> btc_tx.decode_policy_with_max_vout_count(5)
+    |> btc_tx.decode_policy_with_max_script_size(6)
+    |> btc_tx.decode_policy_with_max_witness_items_per_input(Some(7))
+    |> btc_tx.decode_policy_with_max_witness_size_per_input(Some(8))
+
+  assert btc_tx.decode_policy_max_tx_size(policy) == 123
+  assert btc_tx.decode_policy_max_vin_count(policy) == 4
+  assert btc_tx.decode_policy_max_vout_count(policy) == 5
+  assert btc_tx.decode_policy_max_script_size(policy) == 6
+  assert btc_tx.decode_policy_max_witness_items_per_input(policy) == Some(7)
+  assert btc_tx.decode_policy_max_witness_size_per_input(policy) == Some(8)
+}
+
+pub fn decode_policy_builder_allows_zero_limits_test() {
+  let policy =
+    btc_tx.default_decode_policy
+    |> btc_tx.decode_policy_with_max_vin_count(0)
+
+  assert btc_tx.decode_policy_max_vin_count(policy) == 0
+}
+
+pub fn default_decode_policy_uses_default_witness_limits_test() {
+  let policy = btc_tx.default_decode_policy
+
+  assert btc_tx.decode_policy_max_witness_items_per_input(policy) == None
+  assert btc_tx.decode_policy_max_witness_size_per_input(policy) == None
+}
+
+// ============================================================================
 // Transaction Size (max_tx_size) Policy
 // ============================================================================
 
@@ -68,10 +105,7 @@ pub fn decode_with_policy_accepts_tx_at_max_tx_size_test() {
   let tx_size = bit_array.byte_size(tx_bytes)
 
   let assert Ok(_) =
-    btc_tx.decode_with_policy(
-      tx_bytes,
-      DecodePolicy(..btc_tx.default_policy, max_tx_size: tx_size),
-    )
+    btc_tx.decode_with_policy(tx_bytes, policy_with_max_tx_size(tx_size))
 }
 
 pub fn decode_with_policy_rejects_tx_exceeding_max_tx_size_test() {
@@ -90,10 +124,7 @@ pub fn decode_with_policy_rejects_tx_exceeding_max_tx_size_test() {
   let tx_size = bit_array.byte_size(tx_bytes)
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode_with_policy(
-      tx_bytes,
-      DecodePolicy(..btc_tx.default_policy, max_tx_size: tx_size - 1),
-    )
+    btc_tx.decode_with_policy(tx_bytes, policy_with_max_tx_size(tx_size - 1))
 
   assert btc_tx.parse_error_offset(parse_err) == 0
   assert btc_tx.parse_error_kind(parse_err)
@@ -107,7 +138,7 @@ pub fn decode_with_policy_rejects_tx_well_above_max_tx_size_test() {
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode_with_policy(
       <<0:size({ 100 * 8 })>>,
-      DecodePolicy(..btc_tx.default_policy, max_tx_size: 10),
+      policy_with_max_tx_size(10),
     )
 
   assert btc_tx.parse_error_offset(parse_err) == 0
@@ -281,7 +312,7 @@ pub fn validate_vin_count_within_limits_succeeds_test() {
         build_minimal_output():bits,
         lock_time:bits,
       >>,
-      DecodePolicy(..btc_tx.default_policy, max_vin_count: 10),
+      policy_with_max_vin_count(10),
     )
 }
 
@@ -303,7 +334,7 @@ pub fn validate_vin_count_equals_policy_succeeds_test() {
         build_minimal_output():bits,
         lock_time:bits,
       >>,
-      DecodePolicy(..btc_tx.default_policy, max_vin_count: 3),
+      policy_with_max_vin_count(3),
     )
 }
 
@@ -319,7 +350,7 @@ pub fn validate_vin_count_exceeds_policy_error_test() {
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode_with_policy(
       <<version1:bits, vin_count:size(8), input_padding:bits>>,
-      DecodePolicy(..btc_tx.default_policy, max_vin_count: 2),
+      policy_with_max_vin_count(2),
     )
 
   assert btc_tx.parse_error_offset(parse_err) == 4
@@ -341,7 +372,7 @@ pub fn validate_vin_count_exceeds_structural_error_test() {
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode_with_policy(
       <<version1:bits, compact_size(vin_count):bits, input_padding:bits>>,
-      DecodePolicy(..btc_tx.default_policy, max_vin_count: 100),
+      policy_with_max_vin_count(100),
     )
 
   assert btc_tx.parse_error_offset(parse_err) == 4
@@ -374,7 +405,7 @@ pub fn validate_vin_count_structural_boundary_succeeds_test() {
         build_minimal_output():bits,
         lock_time:bits,
       >>,
-      DecodePolicy(..btc_tx.default_policy, max_vin_count: 100),
+      policy_with_max_vin_count(100),
     )
 }
 
@@ -746,7 +777,7 @@ pub fn validate_vout_count_within_limits_succeeds_test() {
         output2:bits,
         lock_time:bits,
       >>,
-      DecodePolicy(..btc_tx.default_policy, max_vout_count: 10),
+      policy_with_max_vout_count(10),
     )
 }
 
@@ -772,7 +803,7 @@ pub fn validate_vout_count_equals_policy_succeeds_test() {
         output3:bits,
         lock_time:bits,
       >>,
-      DecodePolicy(..btc_tx.default_policy, max_vout_count: 3),
+      policy_with_max_vout_count(3),
     )
 }
 
@@ -799,7 +830,7 @@ pub fn validate_vout_count_exceeds_policy_error_test() {
         output3:bits,
         lock_time:bits,
       >>,
-      DecodePolicy(..btc_tx.default_policy, max_vout_count: 2),
+      policy_with_max_vout_count(2),
     )
 
   assert btc_tx.parse_error_kind(parse_err)
@@ -827,7 +858,7 @@ pub fn validate_vout_count_exceeds_structural_error_test() {
         output1:bits,
         output2:bits,
       >>,
-      DecodePolicy(..btc_tx.default_policy, max_vout_count: 100),
+      policy_with_max_vout_count(100),
     )
 
   assert btc_tx.parse_error_offset(parse_err) == 46
@@ -862,7 +893,7 @@ pub fn validate_vout_count_structural_boundary_succeeds_test() {
         output2:bits,
         lock_time:bits,
       >>,
-      DecodePolicy(..btc_tx.default_policy, max_vout_count: 100),
+      policy_with_max_vout_count(100),
     )
 }
 
@@ -1549,11 +1580,7 @@ pub fn decode_witness_stack_at_max_items_per_input_succeeds_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy =
-    DecodePolicy(
-      ..btc_tx.default_policy,
-      max_witness_items_per_input: Some(max_items_per_input),
-    )
+  let policy = policy_with_max_witness_items_per_input(max_items_per_input)
 
   let assert Ok(tx) = btc_tx.decode_with_policy(tx_bytes, policy)
 
@@ -1585,11 +1612,7 @@ pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy =
-    DecodePolicy(
-      ..btc_tx.default_policy,
-      max_witness_items_per_input: Some(max_items_per_input),
-    )
+  let policy = policy_with_max_witness_items_per_input(max_items_per_input)
 
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode_with_policy(tx_bytes, policy)
@@ -1631,11 +1654,7 @@ pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy =
-    DecodePolicy(
-      ..btc_tx.default_policy,
-      max_witness_size_per_input: Some(max_payload_bytes),
-    )
+  let policy = policy_with_max_witness_size_per_input(max_payload_bytes)
 
   let assert Ok(tx) = btc_tx.decode_with_policy(tx_bytes, policy)
 
@@ -1681,11 +1700,7 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy =
-    DecodePolicy(
-      ..btc_tx.default_policy,
-      max_witness_size_per_input: Some(max_payload_bytes),
-    )
+  let policy = policy_with_max_witness_size_per_input(max_payload_bytes)
 
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode_with_policy(tx_bytes, policy)
@@ -1730,11 +1745,7 @@ pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy =
-    DecodePolicy(
-      ..btc_tx.default_policy,
-      max_witness_size_per_input: Some(max_payload_bytes),
-    )
+  let policy = policy_with_max_witness_size_per_input(max_payload_bytes)
 
   let assert Error(ParseFailed(parse_err)) =
     btc_tx.decode_with_policy(tx_bytes, policy)
@@ -2910,4 +2921,37 @@ fn decode_script_pubkey(
     >>)
   let assert [first_output] = btc_tx.get_outputs(tx)
   btc_tx.get_output_script_pubkey(first_output)
+}
+
+// ============================================================================
+// Policy Builder Helper Functions
+// ============================================================================
+
+fn policy_with_max_tx_size(max_tx_size: Int) {
+  btc_tx.default_decode_policy
+  |> btc_tx.decode_policy_with_max_tx_size(max_tx_size)
+}
+
+fn policy_with_max_vin_count(max_vin_count: Int) {
+  btc_tx.default_decode_policy
+  |> btc_tx.decode_policy_with_max_vin_count(max_vin_count)
+}
+
+fn policy_with_max_vout_count(max_vout_count: Int) {
+  btc_tx.default_decode_policy
+  |> btc_tx.decode_policy_with_max_vout_count(max_vout_count)
+}
+
+fn policy_with_max_witness_items_per_input(max_items_per_input: Int) {
+  btc_tx.default_decode_policy
+  |> btc_tx.decode_policy_with_max_witness_items_per_input(Some(
+    max_items_per_input,
+  ))
+}
+
+fn policy_with_max_witness_size_per_input(max_payload_bytes: Int) {
+  btc_tx.default_decode_policy
+  |> btc_tx.decode_policy_with_max_witness_size_per_input(Some(
+    max_payload_bytes,
+  ))
 }
