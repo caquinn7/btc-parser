@@ -327,7 +327,6 @@ pub type OutputScript
 ///
 /// The `kind` type parameter is a phantom tag distinguishing input scripts
 /// (`ScriptBytes(InputScript)`) from output scripts (`ScriptBytes(OutputScript)`).
-/// It carries no runtime representation.
 ///
 /// This type represents an uninterpreted script as it appears on the wire.
 /// No validation or opcode parsing is performed at this level.
@@ -354,7 +353,12 @@ pub fn get_script_length(script: ScriptBytes(k)) -> Int {
 /// The recognised script type of a transaction output's locking script.
 ///
 /// Identifies which standard Bitcoin script template a `script_pubkey` matches,
-/// enabling type-safe dispatch when inspecting or spending outputs.
+/// enabling type-safe dispatch when inspecting outputs.
+///
+/// This type is intentionally classification-only. Its variants do not carry
+/// embedded script data such as hashes, public keys, witness programs, multisig
+/// parameters, or `OP_RETURN` payloads. Call `get_raw_script_bytes` when caller
+/// code needs to perform additional script-specific analysis.
 pub type OutputScriptType {
   /// Pay-to-public-key. The script directly commits to a public key and uses
   /// `OP_CHECKSIG` for validation. Accepts both compressed (33-byte) and
@@ -410,6 +414,11 @@ pub type OutputScriptType {
 ///
 /// Matches `script_pubkey` bytes against known Bitcoin script templates and
 /// returns the corresponding `OutputScriptType`.
+///
+/// This function performs structural classification only. It does not extract,
+/// decode, or interpret embedded hashes, public keys, witness programs, multisig
+/// parameters, signatures, or data payloads. For caller-specific script
+/// analysis, use `get_raw_script_bytes` on the original script.
 ///
 /// ## Classification
 ///
@@ -766,7 +775,9 @@ pub type ParseContext {
 ///
 /// Most variants correspond directly to a field in the Bitcoin wire format
 /// and are used in error reporting to indicate which field was being parsed
-/// when an error occurred. `WitnessItemsTotalBytes` is the exception: it is a
+/// when an error occurred.
+/// 
+/// `WitnessItemsTotalBytes` is the exception: it is a
 /// synthetic marker with no corresponding serialized field, used solely to
 /// report when the cumulative witness payload byte limit is exceeded across
 /// all items in a single input's witness stack.
@@ -1044,7 +1055,7 @@ pub const default_policy = DecodePolicy(
 /// case decode(tx_bytes) {
 ///   Ok(tx) -> // Transaction successfully parsed
 ///   Error(ParseFailed(err)) -> // Handle parse error
-///   Error(HexToBytesFailed(err)) -> // Won't occur with direct bytes
+///   Error(HexToBytesFailed) -> // Won't occur with direct bytes
 /// }
 /// ```
 pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), DecodeError) {
@@ -1140,7 +1151,7 @@ pub fn decode_with_policy(
 /// ## Returns
 ///
 /// - `Ok(Transaction(Parsed))`: Successfully decoded transaction.
-/// - `Error(HexToBytesFailed(_))`: The hex string was invalid (odd length or
+/// - `Error(HexToBytesFailed)`: The hex string was invalid (odd length or
 ///   invalid characters).
 /// - `Error(ParseFailed(_))`: The bytes could not be parsed as a valid transaction.
 ///
@@ -1150,7 +1161,7 @@ pub fn decode_with_policy(
 /// let hex = "0100000001..."
 /// case decode_hex(hex) {
 ///   Ok(tx) -> // Transaction successfully parsed
-///   Error(HexToBytesFailed(err)) -> // Invalid hex string
+///   Error(HexToBytesFailed) -> // Invalid hex string
 ///   Error(ParseFailed(err)) -> // Valid hex but invalid transaction
 /// }
 /// ```
@@ -1170,7 +1181,7 @@ pub fn decode_hex(hex: String) -> Result(Transaction(Parsed), DecodeError) {
 /// ## Returns
 ///
 /// - `Ok(Transaction(Parsed))`: Successfully decoded transaction within policy limits.
-/// - `Error(HexToBytesFailed(_))`: The hex string was invalid (odd length or
+/// - `Error(HexToBytesFailed)`: The hex string was invalid (odd length or
 ///   invalid characters).
 /// - `Error(ParseFailed(_))`: The bytes could not be parsed or exceeded policy limits.
 pub fn decode_hex_with_policy(
