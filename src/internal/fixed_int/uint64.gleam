@@ -98,7 +98,7 @@ pub fn from_int(i: Int) -> Result(Uint64, FromIntError) {
   Ok(u64)
 }
 
-@external(javascript, "./int64_ffi.mjs", "uint64FromInt")
+@external(javascript, "./ffi.mjs", "uint64FromInt")
 fn do_from_int(i: Int) -> Result(BitArray, Nil) {
   // On Erlang, integers are arbitrary precision, so we must check bounds.
   // The valid range for unsigned 64-bit is [0, 2^64 - 1].
@@ -129,10 +129,11 @@ pub fn to_int(u: Uint64) -> Result(Int, Nil) {
   do_to_int(u.bytes_le)
 }
 
-@external(javascript, "./int64_ffi.mjs", "uint64LeToInt")
+@external(javascript, "./ffi.mjs", "uint64LeToInt")
 fn do_to_int(bytes_le: BitArray) -> Result(Int, Nil) {
-  let assert <<u:64-unsigned-little>> = bytes_le
-  Ok(u)
+  bytes_le
+  |> decode_uint64_le
+  |> Ok
 }
 
 /// Converts the value to its base-10 string representation.
@@ -145,8 +146,24 @@ pub fn to_string(u: Uint64) -> String {
   do_to_string(u.bytes_le)
 }
 
-@external(javascript, "./int64_ffi.mjs", "uint64LeToString")
+@external(javascript, "./ffi.mjs", "uint64LeToString")
 fn do_to_string(bytes_le: BitArray) -> String {
-  let assert <<u:64-unsigned-little>> = bytes_le
-  int.to_string(u)
+  bytes_le
+  |> decode_uint64_le
+  |> int.to_string
+}
+
+fn decode_uint64_le(bytes_le: BitArray) -> Int {
+  // `<<u:64-unsigned-little>>` would be simpler, but Gleam warns about
+  // truncation on JavaScript even though this fallback only runs on Erlang.
+
+  let assert <<b0, b1, b2, b3, b4, b5, b6, b7>> = bytes_le
+
+  let acc = b7 * 256 + b6
+  let acc = acc * 256 + b5
+  let acc = acc * 256 + b4
+  let acc = acc * 256 + b3
+  let acc = acc * 256 + b2
+  let acc = acc * 256 + b1
+  acc * 256 + b0
 }
