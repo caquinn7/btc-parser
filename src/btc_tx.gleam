@@ -109,7 +109,7 @@ pub fn is_segwit(tx: Transaction(v)) -> Bool {
 ///
 /// Returns `True` if any input has a coinbase marker, `False` otherwise.
 pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
-  list.any(tx.inputs, fn(txin) { prev_out_is_coinbase_marker(txin.prev_out) })
+  list.any(tx.inputs, fn(txin) { prev_out_is_null_outpoint(txin.prev_out) })
 }
 
 /// Check whether a transaction is a valid coinbase transaction.
@@ -248,8 +248,11 @@ pub fn get_prev_out_vout(prev_out: PrevOut) -> Int {
   }
 }
 
-/// Check whether a previous output reference is a coinbase marker.
-fn prev_out_is_coinbase_marker(prev_out: PrevOut) -> Bool {
+/// Check whether a previous output reference is the null outpoint.
+///
+/// The null outpoint is the special previous output reference used as the
+/// coinbase input marker: an all-zero txid with vout `0xFFFFFFFF`.
+pub fn prev_out_is_null_outpoint(prev_out: PrevOut) -> Bool {
   case prev_out {
     NullOutPoint -> True
     OutPoint(..) -> False
@@ -2038,8 +2041,8 @@ fn validate_coinbase_script_sig_length(
 ) -> Result(Nil, ConsensusViolation) {
   case tx.inputs {
     [input] ->
-      case prev_out_is_coinbase_marker(input.prev_out) {
-        True -> {
+      case input.prev_out {
+        NullOutPoint -> {
           let script_len = get_script_length(input.script_sig)
           case 2 <= script_len && script_len <= 100 {
             True -> Ok(Nil)
@@ -2047,7 +2050,7 @@ fn validate_coinbase_script_sig_length(
           }
         }
 
-        False -> Ok(Nil)
+        _ -> Ok(Nil)
       }
 
     // Zero inputs are caught by validate_at_least_one_input.
@@ -2075,10 +2078,10 @@ fn validate_no_duplicate_inputs_loop(
 
       // NullOutPoint is skipped: validate_coinbase_structure already rejects any
       // transaction with multiple NullOutPoint inputs as CoinbaseWithMultipleInputs.
-      case prev_out_is_coinbase_marker(prev_out) {
-        True -> validate_no_duplicate_inputs_loop(rest, index + 1, seen)
+      case prev_out {
+        NullOutPoint -> validate_no_duplicate_inputs_loop(rest, index + 1, seen)
 
-        False ->
+        _ ->
           case dict.get(seen, prev_out) {
             Ok(first_index) ->
               Error(DuplicateInput(
