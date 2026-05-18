@@ -54,7 +54,7 @@ pub fn decode_hex_errors_on_string_with_whitespace_test() {
 
 pub fn decode_policy_builder_overrides_default_limits_test() {
   let policy =
-    btc_tx.default_decode_policy
+    btc_tx.default_decode_policy()
     |> btc_tx.decode_policy_with_max_tx_size(123)
     |> btc_tx.decode_policy_with_max_vin_count(4)
     |> btc_tx.decode_policy_with_max_vout_count(5)
@@ -72,14 +72,14 @@ pub fn decode_policy_builder_overrides_default_limits_test() {
 
 pub fn decode_policy_builder_allows_zero_limits_test() {
   let policy =
-    btc_tx.default_decode_policy
+    btc_tx.default_decode_policy()
     |> btc_tx.decode_policy_with_max_vin_count(0)
 
   assert btc_tx.decode_policy_max_vin_count(policy) == 0
 }
 
 pub fn default_decode_policy_uses_default_witness_limits_test() {
-  let policy = btc_tx.default_decode_policy
+  let policy = btc_tx.default_decode_policy()
 
   assert btc_tx.decode_policy_max_witness_items_per_input(policy) == None
   assert btc_tx.decode_policy_max_witness_size_per_input(policy) == None
@@ -2964,29 +2964,29 @@ fn decode_script_pubkey(
 // ============================================================================
 
 fn policy_with_max_tx_size(max_tx_size: Int) {
-  btc_tx.default_decode_policy
+  btc_tx.default_decode_policy()
   |> btc_tx.decode_policy_with_max_tx_size(max_tx_size)
 }
 
 fn policy_with_max_vin_count(max_vin_count: Int) {
-  btc_tx.default_decode_policy
+  btc_tx.default_decode_policy()
   |> btc_tx.decode_policy_with_max_vin_count(max_vin_count)
 }
 
 fn policy_with_max_vout_count(max_vout_count: Int) {
-  btc_tx.default_decode_policy
+  btc_tx.default_decode_policy()
   |> btc_tx.decode_policy_with_max_vout_count(max_vout_count)
 }
 
 fn policy_with_max_witness_items_per_input(max_items_per_input: Int) {
-  btc_tx.default_decode_policy
+  btc_tx.default_decode_policy()
   |> btc_tx.decode_policy_with_max_witness_items_per_input(Some(
     max_items_per_input,
   ))
 }
 
 fn policy_with_max_witness_size_per_input(max_payload_bytes: Int) {
-  btc_tx.default_decode_policy
+  btc_tx.default_decode_policy()
   |> btc_tx.decode_policy_with_max_witness_size_per_input(Some(
     max_payload_bytes,
   ))

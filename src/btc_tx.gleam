@@ -942,14 +942,14 @@ fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
 /// Optional limits are only enforced when `Some`; `None` disables the limit.
 ///
 /// Builder functions do not validate whether custom limits are useful for
-/// parsing consensus-valid transactions. Callers that override `default_decode_policy`
+/// parsing consensus-valid transactions. Callers that override `default_decode_policy()`
 /// are responsible for choosing sensible values for their use case. Overly
 /// strict or unusual values may simply cause decoding to fail with the existing
 /// parse and policy errors.
 ///
 /// ## See Also
 ///
-/// - `default_decode_policy` for the standard parsing limits
+/// - `default_decode_policy()` for the standard parsing limits
 /// - `decode_with_policy` to apply a custom policy
 pub opaque type DecodePolicy {
   DecodePolicy(
@@ -1025,14 +1025,16 @@ pub opaque type DecodePolicy {
 ///   complex or non-standard scripts.
 /// - `max_witness_items_per_input`: `None` - No limit on witness stack item count.
 /// - `max_witness_size_per_input`: `None` - No limit on total witness data bytes per input.
-pub const default_decode_policy = DecodePolicy(
-  max_tx_size: 400_000,
-  max_vin_count: 100_000,
-  max_vout_count: 100_000,
-  max_script_size: 10_000,
-  max_witness_items_per_input: None,
-  max_witness_size_per_input: None,
-)
+pub fn default_decode_policy() -> DecodePolicy {
+  DecodePolicy(
+    max_tx_size: 400_000,
+    max_vin_count: 100_000,
+    max_vout_count: 100_000,
+    max_script_size: 10_000,
+    max_witness_items_per_input: None,
+    max_witness_size_per_input: None,
+  )
+}
 
 /// Return a policy with a custom maximum serialized transaction size.
 pub fn decode_policy_with_max_tx_size(
@@ -1129,7 +1131,7 @@ pub fn decode_policy_max_witness_size_per_input(
 /// serialized in the Bitcoin network protocol format. It automatically detects
 /// whether the transaction is legacy or SegWit by inspecting the marker bytes.
 ///
-/// This function applies `default_decode_policy` to protect against malicious inputs
+/// This function applies `default_decode_policy()` to protect against malicious inputs
 /// by enforcing reasonable limits on transaction size, input/output counts, script
 /// sizes, and witness data.
 /// 
@@ -1157,16 +1159,16 @@ pub fn decode_policy_max_witness_size_per_input(
 /// }
 /// ```
 pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), DecodeError) {
-  decode_with_policy(bytes, default_decode_policy)
+  decode_with_policy(bytes, default_decode_policy())
 }
 
 /// Decode a Bitcoin transaction with custom parsing limits.
 ///
 /// Like `decode`, but accepts a `DecodePolicy` to override the resource limits
-/// applied during parsing. Use `default_decode_policy` and the `decode_policy_with_*`
+/// applied during parsing. Use `default_decode_policy()` and the `decode_policy_with_*`
 /// builder functions to construct custom policies. Limits that are exceeded
-/// produce a `PolicyLimitExceeded` error. See `DecodePolicy` and `default_decode_policy`
-/// for available options and defaults.
+/// produce a `PolicyLimitExceeded` error. See `DecodePolicy` and
+/// `default_decode_policy()` for available options and defaults.
 ///
 /// ## Returns
 ///
@@ -1245,7 +1247,7 @@ pub fn decode_with_policy(
 /// hexadecimal format, such as from block explorers, RPC responses, or test
 /// vectors.
 ///
-/// This function applies `default_decode_policy` for parsing limits.
+/// This function applies `default_decode_policy()` for parsing limits.
 /// For custom parsing limits, use `decode_with_policy` instead.
 ///
 /// ## Returns
