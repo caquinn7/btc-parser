@@ -1182,7 +1182,8 @@ pub fn decode_handles_output_value_min_i64_for_target_test() {
     }
 
     False -> {
-      let min_i64_output_value = fn() {
+      let min_i64_output_value = {
+        // Compute from smaller literals to avoid JavaScript truncation warning
         let two_to_31 = 2_147_483_648
         let two_to_32 = 4_294_967_296
         0 - two_to_31 * two_to_32
@@ -1190,7 +1191,7 @@ pub fn decode_handles_output_value_min_i64_for_target_test() {
 
       let assert Ok(tx) = btc_tx.decode(tx_bytes)
       let assert [output] = btc_tx.get_outputs(tx)
-      assert btc_tx.get_output_value(output) == min_i64_output_value()
+      assert btc_tx.get_output_value(output) == min_i64_output_value
     }
   }
 }

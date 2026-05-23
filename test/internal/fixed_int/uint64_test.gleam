@@ -130,11 +130,15 @@ pub fn from_int_above_max_safe_js_int_test() {
     }
     False -> {
       let assert Ok(x) = uint64.from_int(n)
+
       assert uint64.to_bytes_le(x)
         == shared_inputs.max_safe_js_int_plus_one_bytes
     }
   }
 }
+
+// The u64 boundaries are outside JavaScript's safe integer range.
+// Test them only on Erlang, where Int is arbitrary precision.
 
 pub fn from_int_max_u64_test() {
   case target.is_javascript() {
@@ -156,6 +160,9 @@ pub fn from_int_above_max_u64_test() {
     }
   }
 }
+
+// Compute from smaller literals to avoid JavaScript truncation warnings.
+// Callers keep this helper in Erlang-only branches when exact 64-bit boundaries matter.
 
 fn max_u64() -> Int {
   shared_inputs.two_to_32 * shared_inputs.two_to_32 - 1
