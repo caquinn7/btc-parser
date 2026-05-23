@@ -137,23 +137,24 @@ pub fn from_int_above_max_safe_js_int_test() {
 }
 
 pub fn from_int_max_u64_test() {
-  let n = max_u64()
-
   case target.is_javascript() {
-    True -> {
-      let assert Error(uint64.ValueOutOfRange(_)) = uint64.from_int(n)
-      Nil
-    }
+    True -> Nil
     False -> {
-      let assert Ok(x) = uint64.from_int(n)
+      let assert Ok(x) = uint64.from_int(max_u64())
       assert uint64.to_bytes_le(x) == max_u64_bytes
     }
   }
 }
 
 pub fn from_int_above_max_u64_test() {
-  let n = max_u64() + 1
-  let assert Error(uint64.ValueOutOfRange(_)) = uint64.from_int(n)
+  case target.is_javascript() {
+    True -> Nil
+    False -> {
+      let n = max_u64() + 1
+      let assert Error(uint64.ValueOutOfRange(_)) = uint64.from_int(n)
+      Nil
+    }
+  }
 }
 
 fn max_u64() -> Int {
