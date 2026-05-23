@@ -35,13 +35,13 @@ pub type Int64Error {
 ///
 /// ```gleam
 /// from_bytes_le(<<0, 0, 0, 0, 0, 0, 0, 0>>)
-/// // -> Ok(I64) representing 0
+/// // -> Ok(Int64) representing 0
 ///
 /// from_bytes_le(<<1, 0, 0, 0, 0, 0, 0, 0>>)
-/// // -> Ok(I64) representing 1
+/// // -> Ok(Int64) representing 1
 ///
 /// from_bytes_le(<<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>)
-/// // -> Ok(I64) representing -1
+/// // -> Ok(Int64) representing -1
 ///
 /// from_bytes_le(<<1, 2, 3>>)
 /// // -> Error(InvalidByteCount(3))
@@ -74,7 +74,7 @@ pub fn to_int(i: Int64) -> Result(Int, Nil) {
   do_to_int(i.bytes_le)
 }
 
-@external(javascript, "./ffi.mjs", "int64LeToInt")
+@external(javascript, "./fixed_int_ffi.mjs", "int64LeToInt")
 fn do_to_int(bytes_le: BitArray) -> Result(Int, Nil) {
   bytes_le
   |> decode_int64_le
@@ -126,7 +126,7 @@ pub fn from_int(i: Int) -> Result(Int64, FromIntError) {
   Ok(i64)
 }
 
-@external(javascript, "./ffi.mjs", "int64FromInt")
+@external(javascript, "./fixed_int_ffi.mjs", "int64FromInt")
 fn do_from_int(i: Int) -> Result(BitArray, Nil) {
   // On Erlang, integers are arbitrary precision, so we must check bounds.
   // The valid range for signed 64-bit is [-2^63, 2^63 - 1].
@@ -146,7 +146,7 @@ pub fn to_string(i: Int64) -> String {
   do_to_string(i.bytes_le)
 }
 
-@external(javascript, "./ffi.mjs", "int64LeToString")
+@external(javascript, "./fixed_int_ffi.mjs", "int64LeToString")
 fn do_to_string(bytes_le: BitArray) -> String {
   bytes_le
   |> decode_int64_le
