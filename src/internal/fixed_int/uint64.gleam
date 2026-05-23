@@ -98,7 +98,7 @@ pub fn from_int(i: Int) -> Result(Uint64, FromIntError) {
   Ok(u64)
 }
 
-@external(javascript, "./ffi.mjs", "uint64FromInt")
+@external(javascript, "./fixed_int_ffi.mjs", "uint64FromInt")
 fn do_from_int(i: Int) -> Result(BitArray, Nil) {
   // On Erlang, integers are arbitrary precision, so we must check bounds.
   // The valid range for unsigned 64-bit is [0, 2^64 - 1].
@@ -129,7 +129,7 @@ pub fn to_int(u: Uint64) -> Result(Int, Nil) {
   do_to_int(u.bytes_le)
 }
 
-@external(javascript, "./ffi.mjs", "uint64LeToInt")
+@external(javascript, "./fixed_int_ffi.mjs", "uint64LeToInt")
 fn do_to_int(bytes_le: BitArray) -> Result(Int, Nil) {
   bytes_le
   |> decode_uint64_le
@@ -146,7 +146,7 @@ pub fn to_string(u: Uint64) -> String {
   do_to_string(u.bytes_le)
 }
 
-@external(javascript, "./ffi.mjs", "uint64LeToString")
+@external(javascript, "./fixed_int_ffi.mjs", "uint64LeToString")
 fn do_to_string(bytes_le: BitArray) -> String {
   bytes_le
   |> decode_uint64_le
