@@ -1,5 +1,6 @@
 import internal/fixed_int/constants
 import internal/fixed_int/uint64.{InvalidByteCount}
+import support/target
 
 const max_u64_bytes = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
 
@@ -30,21 +31,19 @@ pub fn to_bytes_le_returns_bytes_test() {
 
 // to_int
 
-@target(javascript)
-pub fn to_int_js_returns_error_when_greater_than_max_safe_integer_test() {
-  let assert Ok(x) = uint64.from_bytes_le(max_u64_bytes)
-  assert uint64.to_int(x) == Error(Nil)
-}
+pub fn to_int_max_u64_test() {
+  let expected = case target.is_javascript() {
+    True -> Error(Nil)
+    False -> Ok(max_u64())
+  }
 
-@target(erlang)
-pub fn to_int_erlang_returns_ok_when_max_value_test() {
   let assert Ok(x) = uint64.from_bytes_le(max_u64_bytes)
-  assert uint64.to_int(x) == Ok(18_446_744_073_709_551_615)
+
+  assert uint64.to_int(x) == expected
 }
 
 pub fn to_int_max_safe_js_int_test() {
   let assert Ok(x) = uint64.from_bytes_le(constants.max_safe_js_int_bytes)
-
   assert uint64.to_int(x) == Ok(constants.max_safe_js_int)
 }
 
@@ -120,20 +119,42 @@ pub fn from_int_round_trip_test() {
   assert uint64.to_int(x) == Ok(original)
 }
 
-@target(javascript)
-pub fn from_int_js_out_of_range_above_test() {
+pub fn from_int_above_max_safe_js_int_test() {
   let n = constants.max_safe_js_int + 1
-  assert uint64.from_int(n) == Error(uint64.ValueOutOfRange(n))
+
+  case target.is_javascript() {
+    True -> {
+      let assert Error(uint64.ValueOutOfRange(_)) = uint64.from_int(n)
+      Nil
+    }
+    False -> {
+      let assert Ok(x) = uint64.from_int(n)
+      assert uint64.to_bytes_le(x) == constants.max_safe_js_int_plus_one_bytes
+    }
+  }
 }
 
-@target(erlang)
-pub fn from_int_erlang_max_value_test() {
-  let assert Ok(x) = uint64.from_int(18_446_744_073_709_551_615)
-  assert uint64.to_bytes_le(x) == max_u64_bytes
+pub fn from_int_max_u64_test() {
+  let n = max_u64()
+
+  case target.is_javascript() {
+    True -> {
+      let assert Error(uint64.ValueOutOfRange(_)) = uint64.from_int(n)
+      Nil
+    }
+    False -> {
+      let assert Ok(x) = uint64.from_int(n)
+      assert uint64.to_bytes_le(x) == max_u64_bytes
+    }
+  }
 }
 
-@target(erlang)
-pub fn from_int_erlang_out_of_range_above_test() {
-  assert uint64.from_int(18_446_744_073_709_551_616)
-    == Error(uint64.ValueOutOfRange(18_446_744_073_709_551_616))
+pub fn from_int_above_max_u64_test() {
+  let n = max_u64() + 1
+  let assert Error(uint64.ValueOutOfRange(_)) = uint64.from_int(n)
+}
+
+fn max_u64() -> Int {
+  let two_to_32 = 4_294_967_296
+  two_to_32 * two_to_32 - 1
 }

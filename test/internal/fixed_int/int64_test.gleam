@@ -1,5 +1,6 @@
 import internal/fixed_int/constants
 import internal/fixed_int/int64.{InvalidByteCount}
+import support/target
 
 const max_i64_bytes = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F>>
 
@@ -32,28 +33,26 @@ pub fn to_bytes_le_returns_bytes_test() {
 
 // to_int
 
-@target(javascript)
-pub fn to_int_js_returns_error_when_greater_than_max_safe_integer_test() {
+pub fn to_int_max_i64_test() {
+  let expected = case target.is_javascript() {
+    True -> Error(Nil)
+    False -> Ok(max_i64())
+  }
+
   let assert Ok(x) = int64.from_bytes_le(max_i64_bytes)
-  assert int64.to_int(x) == Error(Nil)
+
+  assert int64.to_int(x) == expected
 }
 
-@target(javascript)
-pub fn to_int_js_returns_error_when_less_than_min_safe_integer_test() {
+pub fn to_int_min_i64_test() {
+  let expected = case target.is_javascript() {
+    True -> Error(Nil)
+    False -> Ok(min_i64())
+  }
+
   let assert Ok(x) = int64.from_bytes_le(min_i64_bytes)
-  assert int64.to_int(x) == Error(Nil)
-}
 
-@target(erlang)
-pub fn to_int_erlang_returns_ok_when_max_value_test() {
-  let assert Ok(x) = int64.from_bytes_le(max_i64_bytes)
-  assert int64.to_int(x) == Ok(9_223_372_036_854_775_807)
-}
-
-@target(erlang)
-pub fn to_int_erlang_returns_ok_when_min_value_test() {
-  let assert Ok(x) = int64.from_bytes_le(min_i64_bytes)
-  assert int64.to_int(x) == Ok(-9_223_372_036_854_775_808)
+  assert int64.to_int(x) == expected
 }
 
 pub fn to_int_max_safe_js_int_test() {
@@ -180,38 +179,84 @@ pub fn from_int_round_trip_negative_test() {
   assert int64.to_int(x) == Ok(original)
 }
 
-@target(javascript)
-pub fn from_int_js_out_of_range_above_test() {
+pub fn from_int_above_max_safe_js_int_test() {
   let n = constants.max_safe_js_int + 1
-  assert int64.from_int(n) == Error(int64.ValueOutOfRange(n))
+
+  case target.is_javascript() {
+    True -> {
+      let assert Error(int64.ValueOutOfRange(_)) = int64.from_int(n)
+      Nil
+    }
+    False -> {
+      let assert Ok(x) = int64.from_int(n)
+      assert int64.to_bytes_le(x) == constants.max_safe_js_int_plus_one_bytes
+    }
+  }
 }
 
-@target(javascript)
-pub fn from_int_js_out_of_range_below_test() {
+pub fn from_int_below_min_safe_js_int_test() {
   let n = constants.min_safe_js_int - 1
-  assert int64.from_int(n) == Error(int64.ValueOutOfRange(n))
+
+  case target.is_javascript() {
+    True -> {
+      let assert Error(int64.ValueOutOfRange(_)) = int64.from_int(n)
+      Nil
+    }
+    False -> {
+      let assert Ok(x) = int64.from_int(n)
+      assert int64.to_bytes_le(x) == <<0, 0, 0, 0, 0, 0, 0xE0, 0xFF>>
+    }
+  }
 }
 
-@target(erlang)
-pub fn from_int_erlang_max_value_test() {
-  let assert Ok(x) = int64.from_int(9_223_372_036_854_775_807)
-  assert int64.to_bytes_le(x) == max_i64_bytes
+pub fn from_int_max_i64_test() {
+  let n = max_i64()
+
+  case target.is_javascript() {
+    True -> {
+      let assert Error(int64.ValueOutOfRange(_)) = int64.from_int(n)
+      Nil
+    }
+    False -> {
+      let assert Ok(x) = int64.from_int(n)
+      assert int64.to_bytes_le(x) == max_i64_bytes
+    }
+  }
 }
 
-@target(erlang)
-pub fn from_int_erlang_min_value_test() {
-  let assert Ok(x) = int64.from_int(-9_223_372_036_854_775_808)
-  assert int64.to_bytes_le(x) == min_i64_bytes
+pub fn from_int_min_i64_test() {
+  let n = min_i64()
+
+  case target.is_javascript() {
+    True -> {
+      let assert Error(int64.ValueOutOfRange(_)) = int64.from_int(n)
+      Nil
+    }
+    False -> {
+      let assert Ok(x) = int64.from_int(n)
+      assert int64.to_bytes_le(x) == min_i64_bytes
+    }
+  }
 }
 
-@target(erlang)
-pub fn from_int_erlang_out_of_range_above_test() {
-  assert int64.from_int(9_223_372_036_854_775_808)
-    == Error(int64.ValueOutOfRange(9_223_372_036_854_775_808))
+pub fn from_int_above_max_i64_test() {
+  let n = max_i64() + 1
+  let assert Error(int64.ValueOutOfRange(_)) = int64.from_int(n)
 }
 
-@target(erlang)
-pub fn from_int_erlang_out_of_range_below_test() {
-  assert int64.from_int(-9_223_372_036_854_775_809)
-    == Error(int64.ValueOutOfRange(-9_223_372_036_854_775_809))
+pub fn from_int_below_min_i64_test() {
+  let n = min_i64() - 1
+  let assert Error(int64.ValueOutOfRange(_)) = int64.from_int(n)
+}
+
+fn max_i64() -> Int {
+  let two_to_31 = 2_147_483_648
+  let two_to_32 = 4_294_967_296
+  two_to_31 * two_to_32 - 1
+}
+
+fn min_i64() -> Int {
+  let two_to_31 = 2_147_483_648
+  let two_to_32 = 4_294_967_296
+  0 - two_to_31 * two_to_32
 }
