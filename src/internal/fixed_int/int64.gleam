@@ -35,13 +35,13 @@ pub type Int64Error {
 ///
 /// ```gleam
 /// from_bytes_le(<<0, 0, 0, 0, 0, 0, 0, 0>>)
-/// // -> Ok(I64) representing 0
+/// // -> Ok(Int64) representing 0
 ///
 /// from_bytes_le(<<1, 0, 0, 0, 0, 0, 0, 0>>)
-/// // -> Ok(I64) representing 1
+/// // -> Ok(Int64) representing 1
 ///
 /// from_bytes_le(<<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>)
-/// // -> Ok(I64) representing -1
+/// // -> Ok(Int64) representing -1
 ///
 /// from_bytes_le(<<1, 2, 3>>)
 /// // -> Error(InvalidByteCount(3))
