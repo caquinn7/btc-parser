@@ -63,42 +63,26 @@ pub fn run() -> PerfResult {
   ])
 }
 
-/// Measure decoding a small non-SegWit transaction from already-decoded bytes.
 fn decode_simple_legacy_tx() -> PerfCaseResult {
-  let config =
-    PerfMeasurementConfig(
-      operations_per_timed_call: 100,
-      warmup_ms: 500,
-      duration_ms: 2000,
-    )
-  let assert Ok(tx_bytes) = bit_array.base16_decode(simple_legacy_tx)
-  let assert Ok(_) = btc_tx.decode(tx_bytes)
-
-  bench.run(
-    [Input("simple legacy tx", tx_bytes)],
-    [
-      Function(
-        "decode",
-        bench.repeat(config.operations_per_timed_call, btc_tx.decode),
-      ),
-    ],
-    [Warmup(config.warmup_ms), Duration(config.duration_ms), Quiet],
-  )
-  |> build_case_result(bit_array.byte_size(tx_bytes), config)
+  measure_tx_decoding("simple legacy tx", simple_legacy_tx)
 }
 
 fn decode_simple_segwit_tx() -> PerfCaseResult {
+  measure_tx_decoding("simple segwit tx", simple_segwit_tx)
+}
+
+fn measure_tx_decoding(input_label: String, tx_hex: String) -> PerfCaseResult {
   let config =
     PerfMeasurementConfig(
       operations_per_timed_call: 100,
       warmup_ms: 500,
       duration_ms: 2000,
     )
-  let assert Ok(tx_bytes) = bit_array.base16_decode(simple_segwit_tx)
+  let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
   let assert Ok(_) = btc_tx.decode(tx_bytes)
 
   bench.run(
-    [Input("simple segwit tx", tx_bytes)],
+    [Input(input_label, tx_bytes)],
     [
       Function(
         "decode",
