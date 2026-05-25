@@ -19,7 +19,7 @@ pub opaque type Int64 {
 }
 
 /// Error that can occur when constructing an `Int64`.
-pub type Int64Error {
+pub type FromBytesError {
   /// The provided byte sequence does not contain exactly 8 bytes.
   InvalidByteCount(Int)
 }
@@ -46,7 +46,7 @@ pub type Int64Error {
 /// from_bytes_le(<<1, 2, 3>>)
 /// // -> Error(InvalidByteCount(3))
 /// ```
-pub fn from_bytes_le(bytes: BitArray) -> Result(Int64, Int64Error) {
+pub fn from_bytes_le(bytes: BitArray) -> Result(Int64, FromBytesError) {
   case bytes {
     <<_:bytes-8>> -> Ok(Int64(bytes))
     _ -> Error(InvalidByteCount(bit_array.byte_size(bytes)))
