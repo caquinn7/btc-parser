@@ -18,7 +18,7 @@ pub opaque type Int64 {
   Int64(bytes_le: BitArray)
 }
 
-/// Errors that can occur when constructing an `Int64`.
+/// Error that can occur when constructing an `Int64`.
 pub type Int64Error {
   /// The provided byte sequence does not contain exactly 8 bytes.
   InvalidByteCount(Int)
@@ -81,22 +81,24 @@ fn do_to_int(bytes_le: BitArray) -> Result(Int, Nil) {
   |> Ok
 }
 
-/// Errors that can occur when constructing an `Int64` from an `Int`.
+/// Error that can occur when constructing an `Int64` from an `Int`.
 pub type FromIntError {
-  /// The value cannot be represented as a signed 64-bit integer.
-  ///
-  /// On Erlang: Value is outside the range [-2^63, 2^63 - 1]
-  /// 
-  /// On JavaScript: Value is outside the safe integer range [-(2^53 - 1), 2^53 - 1]
-  ValueOutOfRange(Int)
+  /// The value is outside JavaScript's safe integer range.
+  UnsafeInteger
+  /// The value is less than the minimum signed 64-bit integer.
+  BelowMinInt64
+  /// The value is greater than the maximum signed 64-bit integer.
+  ExceedsInt64
 }
 
 /// Constructs an `Int64` from a Gleam `Int`.
 ///
 /// **Target-specific behavior:**
-/// - **Erlang**: Returns `Error(ValueOutOfRange)` if the value exceeds 64-bit signed integer range
-/// - **JavaScript**: Returns `Error(ValueOutOfRange)` if the value is outside the safe integer range
-///   (±2^53 - 1), which prevents encoding values that have already lost precision
+/// - **Erlang**: Returns `Error(ExceedsInt64)` for values greater than
+///   2^63 - 1 and `Error(BelowMinInt64)` for values less than -2^63.
+/// - **JavaScript**: Returns `Error(UnsafeInteger)` for values outside the safe
+///   integer range [-(2^53 - 1), 2^53 - 1], which prevents encoding values
+///   that may have already lost precision.
 ///
 /// ## Examples
 ///
@@ -109,21 +111,37 @@ pub type FromIntError {
 ///
 /// // On Erlang:
 /// from_int(9_223_372_036_854_775_808)  // 2^63, exceeds max
-/// // -> Error(ValueOutOfRange(9223372036854775808))
+/// // -> Error(ExceedsInt64)
+///
+/// from_int(-9_223_372_036_854_775_809)  // less than -2^63
+/// // -> Error(BelowMinInt64)
 ///
 /// // On JavaScript:
 /// from_int(9_007_199_254_740_992)  // 2^53, exceeds safe range
-/// // -> Error(ValueOutOfRange(9007199254740992))
+/// // -> Error(UnsafeInteger)
 /// ```
 pub fn from_int(i: Int) -> Result(Int64, FromIntError) {
-  use bytes <- result.try(
-    i
-    |> do_from_int
-    |> result.replace_error(ValueOutOfRange(i)),
-  )
+  i
+  |> do_from_int
+  |> result.map(fn(bytes) {
+    let assert Ok(i64) = from_bytes_le(bytes)
+    i64
+  })
+  |> result.replace_error(case running_on_javascript() {
+    True -> UnsafeInteger
+    // `do_from_int` has already established that this exact Erlang integer is
+    // outside the signed 64-bit range, so its sign identifies the failed bound.
+    False ->
+      case i < 0 {
+        True -> BelowMinInt64
+        False -> ExceedsInt64
+      }
+  })
+}
 
-  let assert Ok(i64) = from_bytes_le(bytes)
-  Ok(i64)
+@external(javascript, "./fixed_int_ffi.mjs", "runningOnJavaScript")
+fn running_on_javascript() -> Bool {
+  False
 }
 
 @external(javascript, "./fixed_int_ffi.mjs", "int64FromInt")
@@ -158,9 +176,10 @@ fn do_to_string(bytes_le: BitArray) -> String {
 /// This is a convenience wrapper around `from_int` and `to_bytes_le`.
 /// The returned `BitArray` is always exactly 8 bytes long.
 ///
-/// Returns `Error(ValueOutOfRange)` under the same conditions as `from_int`:
-/// - **Erlang**: Value is outside the signed 64-bit range [-2^63, 2^63 - 1]
-/// - **JavaScript**: Value is outside the safe integer range [-(2^53 - 1), 2^53 - 1]
+/// Returns the same errors as `from_int`:
+/// - **Erlang**: `ExceedsInt64` above 2^63 - 1 and `BelowMinInt64` below -2^63.
+/// - **JavaScript**: `UnsafeInteger` outside the safe integer range
+///   [-(2^53 - 1), 2^53 - 1].
 ///
 /// ## Examples
 ///
@@ -172,7 +191,7 @@ fn do_to_string(bytes_le: BitArray) -> String {
 /// // -> Ok(<<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>)
 ///
 /// int_to_bytes_le(9_223_372_036_854_775_808)  // 2^63, exceeds max on Erlang
-/// // -> Error(ValueOutOfRange(9223372036854775808))
+/// // -> Error(ExceedsInt64)
 /// ```
 pub fn int_to_bytes_le(i: Int) -> Result(BitArray, FromIntError) {
   i

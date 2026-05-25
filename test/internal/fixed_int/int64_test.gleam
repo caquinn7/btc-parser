@@ -1,4 +1,6 @@
-import internal/fixed_int/int64.{InvalidByteCount}
+import internal/fixed_int/int64.{
+  BelowMinInt64, ExceedsInt64, InvalidByteCount, UnsafeInteger,
+}
 import internal/fixed_int/shared_inputs
 import support/target
 
@@ -195,8 +197,7 @@ pub fn from_int_above_max_safe_js_int_test() {
 
   case target.is_javascript() {
     True -> {
-      let assert Error(int64.ValueOutOfRange(_)) = int64.from_int(n)
-      Nil
+      assert int64.from_int(n) == Error(UnsafeInteger)
     }
     False -> {
       let assert Ok(x) = int64.from_int(n)
@@ -212,8 +213,7 @@ pub fn from_int_below_min_safe_js_int_test() {
 
   case target.is_javascript() {
     True -> {
-      let assert Error(int64.ValueOutOfRange(_)) = int64.from_int(n)
-      Nil
+      assert int64.from_int(n) == Error(UnsafeInteger)
     }
     False -> {
       let assert Ok(x) = int64.from_int(n)
@@ -250,8 +250,7 @@ pub fn from_int_above_max_i64_test() {
     True -> Nil
     False -> {
       let n = max_i64() + 1
-      let assert Error(int64.ValueOutOfRange(_)) = int64.from_int(n)
-      Nil
+      assert int64.from_int(n) == Error(ExceedsInt64)
     }
   }
 }
@@ -261,8 +260,7 @@ pub fn from_int_below_min_i64_test() {
     True -> Nil
     False -> {
       let n = min_i64() - 1
-      let assert Error(int64.ValueOutOfRange(_)) = int64.from_int(n)
-      Nil
+      assert int64.from_int(n) == Error(BelowMinInt64)
     }
   }
 }
