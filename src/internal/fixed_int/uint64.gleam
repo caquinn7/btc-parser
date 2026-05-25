@@ -50,7 +50,7 @@ pub fn from_bytes_le(bytes: BitArray) -> Result(Uint64, FromBytesError) {
   }
 }
 
-/// Error that can occur when constructing an `Uint64` from an `Int`.
+/// Error that can occur when constructing a `Uint64` from an `Int`.
 pub type FromIntError {
   /// The value is negative and cannot be represented as an unsigned integer.
   NegativeValue
