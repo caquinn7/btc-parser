@@ -1,5 +1,7 @@
 import internal/fixed_int/shared_inputs
-import internal/fixed_int/uint64.{InvalidByteCount}
+import internal/fixed_int/uint64.{
+  ExceedsUint64, InvalidByteCount, NegativeValue, UnsafeInteger,
+}
 import support/target
 
 /// 2^64 - 1
@@ -110,8 +112,8 @@ pub fn from_int_max_safe_js_int_test() {
   assert uint64.to_bytes_le(x) == shared_inputs.max_safe_js_int_bytes
 }
 
-pub fn from_int_negative_returns_error_test() {
-  assert uint64.from_int(-1) == Error(uint64.ValueOutOfRange(-1))
+pub fn from_int_negative_int_test() {
+  assert uint64.from_int(-1) == Error(NegativeValue)
 }
 
 pub fn from_int_round_trip_test() {
@@ -125,8 +127,7 @@ pub fn from_int_above_max_safe_js_int_test() {
 
   case target.is_javascript() {
     True -> {
-      let assert Error(uint64.ValueOutOfRange(_)) = uint64.from_int(n)
-      Nil
+      assert uint64.from_int(n) == Error(UnsafeInteger)
     }
     False -> {
       let assert Ok(x) = uint64.from_int(n)
@@ -155,8 +156,7 @@ pub fn from_int_above_max_u64_test() {
     True -> Nil
     False -> {
       let n = max_u64() + 1
-      let assert Error(uint64.ValueOutOfRange(_)) = uint64.from_int(n)
-      Nil
+      assert uint64.from_int(n) == Error(ExceedsUint64)
     }
   }
 }

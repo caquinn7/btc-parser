@@ -18,8 +18,8 @@ pub opaque type Uint64 {
   Uint64(bytes_le: BitArray)
 }
 
-/// Errors that can occur when constructing a `Uint64`.
-pub type Uint64Error {
+/// Error that can occur when constructing a `Uint64` from a `BitArray`.
+pub type FromBytesError {
   /// The provided byte sequence does not contain exactly 8 bytes.
   InvalidByteCount(Int)
 }
@@ -43,32 +43,32 @@ pub type Uint64Error {
 /// from_bytes_le(<<1, 2, 3>>)
 /// // -> Error(InvalidByteCount(3))
 /// ```
-pub fn from_bytes_le(bytes: BitArray) -> Result(Uint64, Uint64Error) {
+pub fn from_bytes_le(bytes: BitArray) -> Result(Uint64, FromBytesError) {
   case bytes {
     <<_:bytes-8>> -> Ok(Uint64(bytes))
     _ -> Error(InvalidByteCount(bit_array.byte_size(bytes)))
   }
 }
 
-/// Errors that can occur when constructing an `Uint64` from an `Int`.
+/// Error that can occur when constructing a `Uint64` from an `Int`.
 pub type FromIntError {
-  /// The value cannot be represented as an unsigned 64-bit integer.
-  ///
-  /// On Erlang: Value is outside the range [0, 2^64 - 1]
-  /// 
-  /// On JavaScript: Value is outside the safe integer range [0, 2^53 - 1],
-  /// which prevents encoding values that have already lost precision
-  ValueOutOfRange(Int)
+  /// The value is negative and cannot be represented as an unsigned integer.
+  NegativeValue
+  /// The value is outside JavaScript's safe integer range.
+  UnsafeInteger
+  /// The value is greater than the maximum unsigned 64-bit integer.
+  ExceedsUint64
 }
 
 /// Constructs a `Uint64` from a Gleam `Int`.
 ///
 /// **Target-specific behavior:**
-/// - **Erlang**: Returns `Error(ValueOutOfRange)` if the value is negative or
-///   exceeds the unsigned 64-bit range [0, 2^64 - 1]
-/// - **JavaScript**: Returns `Error(ValueOutOfRange)` if the value is negative
-///   or exceeds the safe integer range [0, 2^53 - 1], which prevents encoding
-///   values that have already lost precision
+/// - **Erlang**: Returns `Error(NegativeValue)` for negative values and
+///   `Error(ExceedsUint64)` for values greater than 2^64 - 1.
+/// - **JavaScript**: Returns `Error(NegativeValue)` for negative values and
+///   `Error(UnsafeInteger)` for non-negative values greater than
+///   `Number.MAX_SAFE_INTEGER` (2^53 - 1), which prevents encoding values that
+///   may have already lost precision.
 ///
 /// ## Examples
 ///
@@ -77,25 +77,41 @@ pub type FromIntError {
 /// // -> Ok(Uint64) representing 42
 ///
 /// from_int(-1)
-/// // -> Error(ValueOutOfRange(-1))
+/// // -> Error(NegativeValue)
 ///
 /// // On Erlang:
 /// from_int(18_446_744_073_709_551_616)  // 2^64, exceeds max
-/// // -> Error(ValueOutOfRange(18446744073709551616))
+/// // -> Error(ExceedsUint64)
 ///
 /// // On JavaScript:
 /// from_int(9_007_199_254_740_992)  // 2^53, exceeds safe range
-/// // -> Error(ValueOutOfRange(9007199254740992))
+/// // -> Error(UnsafeInteger)
 /// ```
 pub fn from_int(i: Int) -> Result(Uint64, FromIntError) {
-  use bytes <- result.try(
-    i
-    |> do_from_int
-    |> result.replace_error(ValueOutOfRange(i)),
-  )
+  case i < 0 {
+    True -> Error(NegativeValue)
+    False -> do_from_non_negative_int(i)
+  }
+}
 
-  let assert Ok(u64) = from_bytes_le(bytes)
-  Ok(u64)
+fn do_from_non_negative_int(i: Int) -> Result(Uint64, FromIntError) {
+  i
+  |> do_from_int
+  |> result.map(fn(bytes) {
+    let assert Ok(u64) = from_bytes_le(bytes)
+    u64
+  })
+  |> result.map_error(fn(_) {
+    case running_on_javascript() {
+      True -> UnsafeInteger
+      False -> ExceedsUint64
+    }
+  })
+}
+
+@external(javascript, "./fixed_int_ffi.mjs", "runningOnJavaScript")
+fn running_on_javascript() -> Bool {
+  False
 }
 
 @external(javascript, "./fixed_int_ffi.mjs", "uint64FromInt")
