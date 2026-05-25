@@ -1,4 +1,4 @@
-import btc_tx
+import btc_tx.{type Transaction, type Validated}
 import gleam/bit_array
 import gleam/float
 import gleam/int
@@ -36,7 +36,7 @@ pub type PerfCaseResult {
   PerfCaseResult(
     /// Description of the action and transaction shape that were measured.
     label: String,
-    /// Number of bytes in the transaction supplied to each operation.
+    /// Wire-format size of the transaction used for each operation.
     input_size_bytes: Int,
     /// Settings used while collecting the measurements below.
     config: PerfMeasurementConfig,
@@ -53,7 +53,14 @@ pub type PerfCaseResult {
 }
 
 pub fn run() -> PerfResult {
-  PerfResult(cases: [decode_simple_legacy_tx(), decode_simple_segwit_tx()])
+  PerfResult(cases: [
+    decode_simple_legacy_tx(),
+    decode_simple_segwit_tx(),
+    compute_txid_simple_legacy_tx(),
+    compute_wtxid_simple_legacy_tx(),
+    compute_txid_simple_segwit_tx(),
+    compute_wtxid_simple_segwit_tx(),
+  ])
 }
 
 /// Measure decoding a small non-SegWit transaction from already-decoded bytes.
@@ -96,6 +103,71 @@ fn decode_simple_segwit_tx() -> PerfCaseResult {
       Function(
         "decode",
         bench.repeat(config.operations_per_timed_call, btc_tx.decode),
+      ),
+    ],
+    [Warmup(config.warmup_ms), Duration(config.duration_ms), Quiet],
+  )
+  |> build_case_result(bit_array.byte_size(tx_bytes), config)
+}
+
+fn compute_txid_simple_legacy_tx() -> PerfCaseResult {
+  measure_txid_computation(
+    "simple legacy tx",
+    simple_legacy_tx,
+    "compute_txid",
+    btc_tx.compute_txid,
+  )
+}
+
+fn compute_wtxid_simple_legacy_tx() -> PerfCaseResult {
+  measure_txid_computation(
+    "simple legacy tx",
+    simple_legacy_tx,
+    "compute_wtxid",
+    btc_tx.compute_wtxid,
+  )
+}
+
+fn compute_txid_simple_segwit_tx() -> PerfCaseResult {
+  measure_txid_computation(
+    "simple segwit tx",
+    simple_segwit_tx,
+    "compute_txid",
+    btc_tx.compute_txid,
+  )
+}
+
+fn compute_wtxid_simple_segwit_tx() -> PerfCaseResult {
+  measure_txid_computation(
+    "simple segwit tx",
+    simple_segwit_tx,
+    "compute_wtxid",
+    btc_tx.compute_wtxid,
+  )
+}
+
+fn measure_txid_computation(
+  input_label: String,
+  tx_hex: String,
+  function_label: String,
+  compute_id: fn(Transaction(Validated)) -> BitArray,
+) -> PerfCaseResult {
+  let config =
+    PerfMeasurementConfig(
+      operations_per_timed_call: 100,
+      warmup_ms: 500,
+      duration_ms: 2000,
+    )
+  let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
+
+  bench.run(
+    [Input(input_label, validated_tx)],
+    [
+      Function(
+        function_label,
+        bench.repeat(config.operations_per_timed_call, compute_id),
       ),
     ],
     [Warmup(config.warmup_ms), Duration(config.duration_ms), Quiet],
