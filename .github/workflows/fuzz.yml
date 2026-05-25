@@ -1,9 +1,7 @@
 name: fuzz
 
 on:
-  push:
-    branches:
-      - main
+  pull_request:
 
 jobs:
   seed:
