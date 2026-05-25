@@ -18,7 +18,7 @@ pub opaque type Int64 {
   Int64(bytes_le: BitArray)
 }
 
-/// Error that can occur when constructing an `Int64`.
+/// Error that can occur when constructing an `Int64` from a `BitArray`.
 pub type FromBytesError {
   /// The provided byte sequence does not contain exactly 8 bytes.
   InvalidByteCount(Int)
