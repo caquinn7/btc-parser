@@ -97,16 +97,12 @@ function toBigIntSigned(u8) {
 }
 
 export function uint64FromInt(i) {
-  // On JavaScript, validate that the value is within the safe integer range.
-  // Even though list lengths and similar values will never approach this limit,
-  // we guard explicitly so that any out-of-range value produces an explicit
-  // error rather than silently encoding a precision-lost number.
-
   if (typeof i !== 'number' || !Number.isInteger(i)) {
     throw new Error("Expected an integer");
   }
 
-  // Unsigned: reject negative values and values beyond safe integer range
+  // Non-negative unsafe integers may already be rounded by the time they reach
+  // this function, so Gleam maps this generic failure to UnsafeInteger.
   if (i < 0 || i > Number.MAX_SAFE_INTEGER) {
     return Result$Error(undefined);
   }
@@ -119,6 +115,10 @@ export function uint64FromInt(i) {
   }
 
   return Result$Ok(new BitArray(u8));
+}
+
+export function runningOnJavaScript() {
+  return true;
 }
 
 export function int64FromInt(i) {
@@ -153,4 +153,3 @@ export function int64FromInt(i) {
 
   return Result$Ok(new BitArray(u8));
 }
-
