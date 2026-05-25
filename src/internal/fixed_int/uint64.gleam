@@ -101,9 +101,11 @@ fn do_from_non_negative_int(i: Int) -> Result(Uint64, FromIntError) {
     let assert Ok(u64) = from_bytes_le(bytes)
     u64
   })
-  |> result.replace_error(case running_on_javascript() {
-    True -> UnsafeInteger
-    False -> ExceedsUint64
+  |> result.map_error(fn(_) {
+    case running_on_javascript() {
+      True -> UnsafeInteger
+      False -> ExceedsUint64
+    }
   })
 }
 

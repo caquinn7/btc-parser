@@ -127,15 +127,17 @@ pub fn from_int(i: Int) -> Result(Int64, FromIntError) {
     let assert Ok(i64) = from_bytes_le(bytes)
     i64
   })
-  |> result.replace_error(case running_on_javascript() {
-    True -> UnsafeInteger
-    // `do_from_int` has already established that this exact Erlang integer is
-    // outside the signed 64-bit range, so its sign identifies the failed bound.
-    False ->
-      case i < 0 {
-        True -> BelowMinInt64
-        False -> ExceedsInt64
-      }
+  |> result.map_error(fn(_) {
+    case running_on_javascript() {
+      True -> UnsafeInteger
+      // `do_from_int` has already established that this exact Erlang integer is
+      // outside the signed 64-bit range, so its sign identifies the failed bound.
+      False ->
+        case i < 0 {
+          True -> BelowMinInt64
+          False -> ExceedsInt64
+        }
+    }
   })
 }
 
