@@ -1,12 +1,12 @@
 import argv
 import fuzz_test/fuzz_test.{type FuzzResult, type IterationFailure, type SeedTx}
 import gleam/crypto
-import gleam/float
 import gleam/int
 import gleam/io
 import gleam/list
 import gleam/string
-import perf_test/perf_test.{type PerfCaseResult, type PerfResult}
+import perf_test/perf_test
+import perf_test/report
 import simplifile
 
 const usage_msg = "usage:
@@ -25,45 +25,8 @@ fn perf_command() -> Nil {
   io.println("Executing performance tests...\n")
 
   perf_test.run()
-  |> perf_result_to_string
+  |> report.to_string
   |> io.println
-}
-
-fn perf_result_to_string(perf_result: PerfResult) -> String {
-  perf_result.cases
-  |> list.map(perf_case_result_to_string)
-  |> string.join("\n\n")
-}
-
-fn perf_case_result_to_string(case_result: PerfCaseResult) -> String {
-  "case: "
-  <> case_result.label
-  <> "\ninput size: "
-  <> int.to_string(case_result.input_size_bytes)
-  <> " bytes"
-  <> "\noperations per timed call: "
-  <> int.to_string(case_result.config.operations_per_timed_call)
-  <> " operations"
-  <> "\nwarmup: "
-  <> int.to_string(case_result.config.warmup_ms)
-  <> "ms"
-  <> "\nduration: "
-  <> int.to_string(case_result.config.duration_ms)
-  <> "ms"
-  <> "\ntimed calls recorded: "
-  <> int.to_string(case_result.timed_call_count)
-  <> "\nmeasured time: "
-  <> float.to_string(float.to_precision(case_result.measured_ms, 3))
-  <> "ms"
-  <> "\nthroughput: "
-  <> float.to_string(float.to_precision(case_result.operations_per_second, 2))
-  <> " operations/s"
-  <> "\ntime per operation: "
-  <> float.to_string(float.to_precision(
-    case_result.microseconds_per_operation,
-    3,
-  ))
-  <> "us"
 }
 
 fn fuzz_command(args: List(String)) -> Nil {
