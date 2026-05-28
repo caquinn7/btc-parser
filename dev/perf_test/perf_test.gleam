@@ -60,6 +60,10 @@ pub fn run() -> PerfResult {
     compute_wtxid_simple_legacy_tx(),
     compute_txid_simple_segwit_tx(),
     compute_wtxid_simple_segwit_tx(),
+    serialize_stripped_simple_legacy_tx(),
+    serialize_witness_simple_legacy_tx(),
+    serialize_stripped_simple_segwit_tx(),
+    serialize_witness_simple_segwit_tx(),
   ])
 }
 
@@ -78,6 +82,7 @@ fn measure_tx_decoding(input_label: String, tx_hex: String) -> PerfCaseResult {
       warmup_ms: 500,
       duration_ms: 2000,
     )
+
   let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
   let assert Ok(_) = btc_tx.decode(tx_bytes)
 
@@ -95,7 +100,7 @@ fn measure_tx_decoding(input_label: String, tx_hex: String) -> PerfCaseResult {
 }
 
 fn compute_txid_simple_legacy_tx() -> PerfCaseResult {
-  measure_txid_computation(
+  measure_validated_tx_operation(
     "simple legacy tx",
     simple_legacy_tx,
     "compute_txid",
@@ -104,7 +109,7 @@ fn compute_txid_simple_legacy_tx() -> PerfCaseResult {
 }
 
 fn compute_wtxid_simple_legacy_tx() -> PerfCaseResult {
-  measure_txid_computation(
+  measure_validated_tx_operation(
     "simple legacy tx",
     simple_legacy_tx,
     "compute_wtxid",
@@ -113,7 +118,7 @@ fn compute_wtxid_simple_legacy_tx() -> PerfCaseResult {
 }
 
 fn compute_txid_simple_segwit_tx() -> PerfCaseResult {
-  measure_txid_computation(
+  measure_validated_tx_operation(
     "simple segwit tx",
     simple_segwit_tx,
     "compute_txid",
@@ -122,7 +127,7 @@ fn compute_txid_simple_segwit_tx() -> PerfCaseResult {
 }
 
 fn compute_wtxid_simple_segwit_tx() -> PerfCaseResult {
-  measure_txid_computation(
+  measure_validated_tx_operation(
     "simple segwit tx",
     simple_segwit_tx,
     "compute_wtxid",
@@ -130,11 +135,47 @@ fn compute_wtxid_simple_segwit_tx() -> PerfCaseResult {
   )
 }
 
-fn measure_txid_computation(
+fn serialize_stripped_simple_legacy_tx() -> PerfCaseResult {
+  measure_validated_tx_operation(
+    "simple legacy tx",
+    simple_legacy_tx,
+    "to_stripped_bytes",
+    btc_tx.to_stripped_bytes,
+  )
+}
+
+fn serialize_witness_simple_legacy_tx() -> PerfCaseResult {
+  measure_validated_tx_operation(
+    "simple legacy tx",
+    simple_legacy_tx,
+    "to_witness_bytes",
+    btc_tx.to_witness_bytes,
+  )
+}
+
+fn serialize_stripped_simple_segwit_tx() -> PerfCaseResult {
+  measure_validated_tx_operation(
+    "simple segwit tx",
+    simple_segwit_tx,
+    "to_stripped_bytes",
+    btc_tx.to_stripped_bytes,
+  )
+}
+
+fn serialize_witness_simple_segwit_tx() -> PerfCaseResult {
+  measure_validated_tx_operation(
+    "simple segwit tx",
+    simple_segwit_tx,
+    "to_witness_bytes",
+    btc_tx.to_witness_bytes,
+  )
+}
+
+fn measure_validated_tx_operation(
   input_label: String,
   tx_hex: String,
   function_label: String,
-  compute_id: fn(Transaction(Validated)) -> BitArray,
+  operation: fn(Transaction(Validated)) -> BitArray,
 ) -> PerfCaseResult {
   let config =
     PerfMeasurementConfig(
@@ -142,6 +183,7 @@ fn measure_txid_computation(
       warmup_ms: 500,
       duration_ms: 2000,
     )
+
   let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
   let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
@@ -151,7 +193,7 @@ fn measure_txid_computation(
     [
       Function(
         function_label,
-        bench.repeat(config.operations_per_timed_call, compute_id),
+        bench.repeat(config.operations_per_timed_call, operation),
       ),
     ],
     [Warmup(config.warmup_ms), Duration(config.duration_ms), Quiet],
