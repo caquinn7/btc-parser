@@ -1,4 +1,4 @@
-import btc_tx.{type Transaction, type Validated}
+import btc_tx.{type Parsed, type Transaction, type Validated, DuplicateInput}
 import gleam/bit_array
 import gleam/float
 import gleam/int
@@ -56,6 +56,15 @@ pub fn run() -> PerfResult {
   PerfResult(cases: [
     decode_simple_legacy_tx(),
     decode_simple_segwit_tx(),
+    validate_consensus_valid_inputs(1),
+    validate_consensus_valid_inputs(20),
+    validate_consensus_valid_inputs(100),
+    validate_consensus_valid_inputs(500),
+    validate_consensus_valid_inputs(1000),
+    validate_consensus_late_duplicate_inputs(20),
+    validate_consensus_late_duplicate_inputs(100),
+    validate_consensus_late_duplicate_inputs(500),
+    validate_consensus_late_duplicate_inputs(1000),
     compute_txid_simple_legacy_tx(),
     compute_wtxid_simple_legacy_tx(),
     compute_txid_simple_segwit_tx(),
@@ -66,6 +75,8 @@ pub fn run() -> PerfResult {
     serialize_witness_simple_segwit_tx(),
   ])
 }
+
+// tx decoding
 
 fn decode_simple_legacy_tx() -> PerfCaseResult {
   measure_tx_decoding("simple legacy tx", simple_legacy_tx)
@@ -98,6 +109,159 @@ fn measure_tx_decoding(input_label: String, tx_hex: String) -> PerfCaseResult {
   )
   |> build_case_result(bit_array.byte_size(tx_bytes), config)
 }
+
+// consensus validation
+
+fn validate_consensus_valid_inputs(input_count: Int) -> PerfCaseResult {
+  measure_validate_consensus(
+    "valid inputs=" <> int.to_string(input_count),
+    build_validation_tx(input_count, False),
+    ExpectValid,
+    validate_consensus_measurement_config(input_count),
+  )
+}
+
+fn validate_consensus_late_duplicate_inputs(
+  input_count: Int,
+) -> PerfCaseResult {
+  measure_validate_consensus(
+    "late duplicate inputs=" <> int.to_string(input_count),
+    build_validation_tx(input_count, True),
+    ExpectLateDuplicate(input_count:),
+    validate_consensus_measurement_config(input_count),
+  )
+}
+
+fn measure_validate_consensus(
+  input_label: String,
+  tx_bytes: BitArray,
+  expectation: ValidationExpectation,
+  config: PerfMeasurementConfig,
+) -> PerfCaseResult {
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  preflight_validate_consensus(parsed_tx, expectation)
+
+  bench.run(
+    [Input(input_label, parsed_tx)],
+    [
+      Function(
+        "validate_consensus",
+        bench.repeat(
+          config.operations_per_timed_call,
+          btc_tx.validate_consensus,
+        ),
+      ),
+    ],
+    [Warmup(config.warmup_ms), Duration(config.duration_ms), Quiet],
+  )
+  |> build_case_result(bit_array.byte_size(tx_bytes), config)
+}
+
+fn build_validation_tx(input_count: Int, duplicate_last: Bool) -> BitArray {
+  let inputs = build_validation_inputs(0, input_count, duplicate_last, <<>>)
+  let output = <<1000:little-size(64), compact_size(0):bits>>
+
+  <<
+    1:little-size(32),
+    compact_size(input_count):bits,
+    inputs:bits,
+    compact_size(1):bits,
+    output:bits,
+    0:little-size(32),
+  >>
+}
+
+fn build_validation_inputs(
+  index: Int,
+  input_count: Int,
+  duplicate_last: Bool,
+  acc: BitArray,
+) -> BitArray {
+  case index >= input_count {
+    True -> acc
+    False -> {
+      let input = build_validation_input(index, input_count, duplicate_last)
+      build_validation_inputs(index + 1, input_count, duplicate_last, <<
+        acc:bits,
+        input:bits,
+      >>)
+    }
+  }
+}
+
+fn build_validation_input(
+  index: Int,
+  input_count: Int,
+  duplicate_last: Bool,
+) -> BitArray {
+  let prev_txid = {
+    let prevout_index = case duplicate_last && index == input_count - 1 {
+      True -> 0
+      False -> index
+    }
+    <<prevout_index:little-size(32), 0:size(224)>>
+  }
+
+  <<
+    prev_txid:bits,
+    0:little-size(32),
+    compact_size(0):bits,
+    0xFFFFFFFF:little-size(32),
+  >>
+}
+
+fn compact_size(n: Int) -> BitArray {
+  case n {
+    _ if n < 0 -> panic as "compact_size: negative values not supported"
+    _ if n <= 252 -> <<n:size(8)>>
+    _ if n <= 65_535 -> <<0xFD, n:little-size(16)>>
+    _ if n <= 4_294_967_295 -> <<0xFE, n:little-size(32)>>
+    _ -> <<0xFF, n:little-size(64)>>
+  }
+}
+
+fn validate_consensus_measurement_config(
+  input_count: Int,
+) -> PerfMeasurementConfig {
+  PerfMeasurementConfig(
+    // Fast validation cases use larger batches to reduce timer overhead. The
+    // 500+ input cases use smaller batches so slow JS runs still record enough
+    // timed calls for stable throughput estimates.
+    operations_per_timed_call: case input_count >= 500 {
+      True -> 10
+      False -> 100
+    },
+    warmup_ms: 500,
+    duration_ms: 2000,
+  )
+}
+
+type ValidationExpectation {
+  ExpectValid
+  ExpectLateDuplicate(input_count: Int)
+}
+
+fn preflight_validate_consensus(
+  parsed_tx: Transaction(Parsed),
+  expectation: ValidationExpectation,
+) -> Nil {
+  case expectation {
+    ExpectValid -> {
+      let assert Ok(_) = btc_tx.validate_consensus(parsed_tx)
+      Nil
+    }
+
+    ExpectLateDuplicate(input_count) -> {
+      let assert [first_input, ..] = btc_tx.get_inputs(parsed_tx)
+      let dup_prev_out = btc_tx.get_input_prev_out(first_input)
+
+      assert btc_tx.validate_consensus(parsed_tx)
+        == Error([DuplicateInput(dup_prev_out, 0, input_count - 1)])
+    }
+  }
+}
+
+// txid computation
 
 fn compute_txid_simple_legacy_tx() -> PerfCaseResult {
   measure_validated_tx_operation(
@@ -135,6 +299,8 @@ fn compute_wtxid_simple_segwit_tx() -> PerfCaseResult {
   )
 }
 
+// tx serialization
+
 fn serialize_stripped_simple_legacy_tx() -> PerfCaseResult {
   measure_validated_tx_operation(
     "simple legacy tx",
@@ -170,6 +336,8 @@ fn serialize_witness_simple_segwit_tx() -> PerfCaseResult {
     btc_tx.to_witness_bytes,
   )
 }
+
+// shared helpers
 
 fn measure_validated_tx_operation(
   input_label: String,
