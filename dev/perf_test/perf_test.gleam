@@ -1,3 +1,17 @@
+//// Performance benchmarks for the public `btc_tx` transaction workflows.
+////
+//// The suite measures repeated operations that callers are expected to pay for:
+//// decoding, context-free consensus validation, transaction id computation, and
+//// serialization. Input construction, hex decoding, preflight assertions, and
+//// consensus validation needed to prepare `Transaction(Validated)` values are
+//// intentionally performed before timing begins.
+////
+//// Benchmark cases run one or more logical operations per timed call. Fast
+//// cases use larger batches to reduce timer overhead; slower cases can use
+//// smaller batches, down to one operation per timed call. Reported throughput
+//// and latency are converted back to one logical operation, such as one
+//// `decode` or one `compute_txid` call.
+
 import btc_tx.{
   type Parsed, type Transaction, type Validated, DuplicateInput, ParseFailed,
   PolicyLimitExceeded,
@@ -70,8 +84,13 @@ pub fn run() -> PerfResult {
   |> PerfResult
 }
 
-// tx decoding
+// Transaction decoding
 
+/// Measures `btc_tx.decode` from byte arrays that are prepared before timing.
+/// This group includes valid legacy/SegWit fixtures plus malformed inputs that
+/// exercise different failure paths: late truncation, which fails after most of
+/// the transaction has been parsed, and policy-limit violations, which should
+/// reject before doing unnecessary payload work.
 fn measure_tx_decoding() -> List(PerfCaseResult) {
   let config = standard_measurement_config()
 
@@ -136,6 +155,8 @@ fn oversized_scriptsig_policy_input(
   let script_sig_size = max_script_size + 1
   let script_sig = <<0:size({ script_sig_size * 8 })>>
 
+  // Include the oversized script bytes so this rejects on policy after the
+  // length is decoded, rather than rejecting earlier as truncated input.
   let tx_bytes = <<
     1:little-size(32),
     compact_size(1):bits,
@@ -153,8 +174,12 @@ fn oversized_scriptsig_policy_input(
   PerfInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
 
-// consensus validation
+// Consensus validation
 
+/// Measures `btc_tx.validate_consensus` on already-parsed synthetic transactions.
+/// The valid cases exercise full success-path input scanning. The late-duplicate
+/// cases place the duplicate prevout at the end so rejection still walks nearly
+/// the whole input list.
 fn measure_consensus_validation() -> List(PerfCaseResult) {
   [
     measure_validation_inputs(
@@ -348,8 +373,11 @@ fn preflight_validate_consensus(
   }
 }
 
-// txid computation
+// Txid computation
 
+/// Measures `compute_txid` and `compute_wtxid` on already-validated fixtures.
+/// This excludes decode and consensus-validation cost, leaving serialization and
+/// double-SHA256 work inside the timed region.
 fn measure_txid_computation() -> List(PerfCaseResult) {
   let config = standard_measurement_config()
 
@@ -369,8 +397,11 @@ fn measure_txid_computation() -> List(PerfCaseResult) {
   )
 }
 
-// tx serialization
+// Transaction serialization
 
+/// Measures `to_stripped_bytes` and `to_witness_bytes` on already-validated
+/// fixtures. Legacy and SegWit transactions are both included because witness
+/// serialization changes the code path and payload shape.
 fn measure_tx_serialization() -> List(PerfCaseResult) {
   let config = standard_measurement_config()
 
