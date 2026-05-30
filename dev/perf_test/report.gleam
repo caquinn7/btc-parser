@@ -71,7 +71,7 @@ fn row_to_string(row: List(String), widths: List(Int)) -> String {
 
 fn divider_to_string(widths: List(Int)) -> String {
   widths
-  |> list.map(fn(width) { string.repeat("-", width) })
+  |> list.map(string.repeat("-", _))
   |> string.join("  ")
 }
 

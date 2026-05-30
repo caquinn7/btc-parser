@@ -6,8 +6,8 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleamy/bench.{
-  type BenchResults, BenchResults, Duration, Function, Input, Quiet,
-  Set as BenchSet, Warmup,
+  type BenchResults, type Function, type Input, type Set as BenchSet,
+  BenchResults, Duration, Function, Input, Quiet, Set as BenchSet, Warmup,
 }
 
 const simple_legacy_tx = "0200000001f83913d8a4af4da53774c45cf074d35c8c6df3dd322f5b2a63cfba609ce6fb164d0000006b483045022100ce7670637cc52de4d7a0063e8a253271f09e282f3f99e8d78e20240f3b769ec90220742aea257871b277a19665434e6007850e54fc2bc64a4b5ff05c107ebf82ef460121032af93439c5e3debd027f60975cc0decc6c5b4e51bc44cbeb06a67aad69f45efafdffffff02458f0000000000001600148b068869b732322472e647126c6da8ce4d2bc5778d790000000000001976a914c76c2748f354526db26c9fbd2e2de47b990678fe88ac00000000"
@@ -54,106 +54,68 @@ pub type PerfCaseResult {
   )
 }
 
+type PerfInput(a) {
+  PerfInput(label: String, input_size_bytes: Int, value: a)
+}
+
 pub fn run() -> PerfResult {
-  PerfResult(cases: [
-    decode_simple_legacy_tx(),
-    decode_simple_segwit_tx(),
-    decode_late_truncated_simple_legacy_tx(),
-    decode_late_truncated_simple_segwit_tx(),
-    validate_consensus_valid_inputs(1),
-    validate_consensus_valid_inputs(20),
-    validate_consensus_valid_inputs(100),
-    validate_consensus_valid_inputs(500),
-    validate_consensus_valid_inputs(1000),
-    validate_consensus_late_duplicate_inputs(20),
-    validate_consensus_late_duplicate_inputs(100),
-    validate_consensus_late_duplicate_inputs(500),
-    validate_consensus_late_duplicate_inputs(1000),
-    compute_txid_simple_legacy_tx(),
-    compute_wtxid_simple_legacy_tx(),
-    compute_txid_simple_segwit_tx(),
-    compute_wtxid_simple_segwit_tx(),
-    serialize_stripped_simple_legacy_tx(),
-    serialize_witness_simple_legacy_tx(),
-    serialize_stripped_simple_segwit_tx(),
-    serialize_witness_simple_segwit_tx(),
-  ])
+  [
+    measure_tx_decoding(),
+    measure_consensus_validation(),
+    measure_txid_computation(),
+    measure_tx_serialization(),
+  ]
+  |> list.flatten
+  |> PerfResult
 }
 
 // tx decoding
 
-fn decode_simple_legacy_tx() -> PerfCaseResult {
-  measure_tx_decoding("simple legacy tx", simple_legacy_tx)
-}
+fn measure_tx_decoding() -> List(PerfCaseResult) {
+  let config = standard_measurement_config()
 
-fn decode_simple_segwit_tx() -> PerfCaseResult {
-  measure_tx_decoding("simple segwit tx", simple_segwit_tx)
-}
-
-fn decode_late_truncated_simple_legacy_tx() -> PerfCaseResult {
-  measure_late_truncated_tx_decoding(
-    "late truncated simple legacy tx",
-    simple_legacy_tx,
-  )
-}
-
-fn decode_late_truncated_simple_segwit_tx() -> PerfCaseResult {
-  measure_late_truncated_tx_decoding(
-    "late truncated simple segwit tx",
-    simple_segwit_tx,
-  )
-}
-
-fn measure_tx_decoding(input_label: String, tx_hex: String) -> PerfCaseResult {
-  let config =
-    PerfMeasurementConfig(
-      operations_per_timed_call: 100,
-      warmup_ms: 500,
-      duration_ms: 2000,
-    )
-
-  let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
-  let assert Ok(_) = btc_tx.decode(tx_bytes)
-
-  bench.run(
-    [Input(input_label, tx_bytes)],
+  run_bench_cases(
+    [
+      decoded_tx_input("simple legacy tx", simple_legacy_tx),
+      decoded_tx_input("simple segwit tx", simple_segwit_tx),
+      late_truncated_tx_input(
+        "late truncated simple legacy tx",
+        simple_legacy_tx,
+      ),
+      late_truncated_tx_input(
+        "late truncated simple segwit tx",
+        simple_segwit_tx,
+      ),
+    ],
     [
       Function(
         "decode",
         bench.repeat(config.operations_per_timed_call, btc_tx.decode),
       ),
     ],
-    [Warmup(config.warmup_ms), Duration(config.duration_ms), Quiet],
+    config,
   )
-  |> build_case_result(bit_array.byte_size(tx_bytes), config)
 }
 
-fn measure_late_truncated_tx_decoding(
+fn decoded_tx_input(
   input_label: String,
   tx_hex: String,
-) -> PerfCaseResult {
-  let config =
-    PerfMeasurementConfig(
-      operations_per_timed_call: 100,
-      warmup_ms: 500,
-      duration_ms: 2000,
-    )
+) -> PerfInput(BitArray) {
+  let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
+  let assert Ok(_) = btc_tx.decode(tx_bytes)
 
+  PerfInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
+}
+
+fn late_truncated_tx_input(
+  input_label: String,
+  tx_hex: String,
+) -> PerfInput(BitArray) {
   let assert Ok(valid_tx_bytes) = bit_array.base16_decode(tx_hex)
   let tx_bytes = drop_last_byte(valid_tx_bytes)
   let assert Error(ParseFailed(_)) = btc_tx.decode(tx_bytes)
 
-  bench.run(
-    [Input(input_label, tx_bytes)],
-    [
-      Function(
-        "decode",
-        bench.repeat(config.operations_per_timed_call, btc_tx.decode),
-      ),
-    ],
-    [Warmup(config.warmup_ms), Duration(config.duration_ms), Quiet],
-  )
-  |> build_case_result(bit_array.byte_size(tx_bytes), config)
+  PerfInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
 
 fn drop_last_byte(bytes: BitArray) -> BitArray {
@@ -164,37 +126,77 @@ fn drop_last_byte(bytes: BitArray) -> BitArray {
 
 // consensus validation
 
-fn validate_consensus_valid_inputs(input_count: Int) -> PerfCaseResult {
-  measure_validate_consensus(
+fn measure_consensus_validation() -> List(PerfCaseResult) {
+  [
+    measure_validation_inputs(
+      [1, 20, 100],
+      valid_validation_input,
+      fast_validate_consensus_measurement_config(),
+    ),
+    measure_validation_inputs(
+      [500, 1000],
+      valid_validation_input,
+      large_validate_consensus_measurement_config(),
+    ),
+    measure_validation_inputs(
+      [20, 100],
+      late_duplicate_validation_input,
+      fast_validate_consensus_measurement_config(),
+    ),
+    measure_validation_inputs(
+      [500, 1000],
+      late_duplicate_validation_input,
+      large_validate_consensus_measurement_config(),
+    ),
+  ]
+  |> list.flatten
+}
+
+fn measure_validation_inputs(
+  input_counts: List(Int),
+  build_input: fn(Int) -> PerfInput(Transaction(Parsed)),
+  config: PerfMeasurementConfig,
+) -> List(PerfCaseResult) {
+  input_counts
+  |> list.map(build_input)
+  |> measure_validate_consensus(config)
+}
+
+fn valid_validation_input(input_count: Int) -> PerfInput(Transaction(Parsed)) {
+  validation_input(
     "valid inputs=" <> int.to_string(input_count),
     build_validation_tx(input_count, False),
     ExpectValid,
-    validate_consensus_measurement_config(input_count),
   )
 }
 
-fn validate_consensus_late_duplicate_inputs(
+fn late_duplicate_validation_input(
   input_count: Int,
-) -> PerfCaseResult {
-  measure_validate_consensus(
+) -> PerfInput(Transaction(Parsed)) {
+  validation_input(
     "late duplicate inputs=" <> int.to_string(input_count),
     build_validation_tx(input_count, True),
     ExpectLateDuplicate(input_count:),
-    validate_consensus_measurement_config(input_count),
   )
 }
 
-fn measure_validate_consensus(
-  input_label: String,
+fn validation_input(
+  label: String,
   tx_bytes: BitArray,
   expectation: ValidationExpectation,
-  config: PerfMeasurementConfig,
-) -> PerfCaseResult {
+) -> PerfInput(Transaction(Parsed)) {
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
   preflight_validate_consensus(parsed_tx, expectation)
 
-  bench.run(
-    [Input(input_label, parsed_tx)],
+  PerfInput(label, bit_array.byte_size(tx_bytes), parsed_tx)
+}
+
+fn measure_validate_consensus(
+  inputs: List(PerfInput(Transaction(Parsed))),
+  config: PerfMeasurementConfig,
+) -> List(PerfCaseResult) {
+  run_bench_cases(
+    inputs,
     [
       Function(
         "validate_consensus",
@@ -204,9 +206,8 @@ fn measure_validate_consensus(
         ),
       ),
     ],
-    [Warmup(config.warmup_ms), Duration(config.duration_ms), Quiet],
+    config,
   )
-  |> build_case_result(bit_array.byte_size(tx_bytes), config)
 }
 
 fn build_validation_tx(input_count: Int, duplicate_last: Bool) -> BitArray {
@@ -272,17 +273,22 @@ fn compact_size(n: Int) -> BitArray {
   }
 }
 
+/// Uses larger batches for fast validation cases to reduce timer overhead.
+fn fast_validate_consensus_measurement_config() -> PerfMeasurementConfig {
+  validate_consensus_measurement_config(100)
+}
+
+/// Uses smaller batches for 500+ input cases so slow JS runs still record
+/// enough timed calls for stable throughput estimates.
+fn large_validate_consensus_measurement_config() -> PerfMeasurementConfig {
+  validate_consensus_measurement_config(10)
+}
+
 fn validate_consensus_measurement_config(
-  input_count: Int,
+  operations_per_timed_call: Int,
 ) -> PerfMeasurementConfig {
   PerfMeasurementConfig(
-    // Fast validation cases use larger batches to reduce timer overhead. The
-    // 500+ input cases use smaller batches so slow JS runs still record enough
-    // timed calls for stable throughput estimates.
-    operations_per_timed_call: case input_count >= 500 {
-      True -> 10
-      False -> 100
-    },
+    operations_per_timed_call:,
     warmup_ms: 500,
     duration_ms: 2000,
   )
@@ -315,119 +321,111 @@ fn preflight_validate_consensus(
 
 // txid computation
 
-fn compute_txid_simple_legacy_tx() -> PerfCaseResult {
-  measure_validated_tx_operation(
-    "simple legacy tx",
-    simple_legacy_tx,
-    "compute_txid",
-    btc_tx.compute_txid,
-  )
-}
+fn measure_txid_computation() -> List(PerfCaseResult) {
+  let config = standard_measurement_config()
 
-fn compute_wtxid_simple_legacy_tx() -> PerfCaseResult {
-  measure_validated_tx_operation(
-    "simple legacy tx",
-    simple_legacy_tx,
-    "compute_wtxid",
-    btc_tx.compute_wtxid,
-  )
-}
-
-fn compute_txid_simple_segwit_tx() -> PerfCaseResult {
-  measure_validated_tx_operation(
-    "simple segwit tx",
-    simple_segwit_tx,
-    "compute_txid",
-    btc_tx.compute_txid,
-  )
-}
-
-fn compute_wtxid_simple_segwit_tx() -> PerfCaseResult {
-  measure_validated_tx_operation(
-    "simple segwit tx",
-    simple_segwit_tx,
-    "compute_wtxid",
-    btc_tx.compute_wtxid,
+  run_bench_cases(
+    simple_validated_tx_inputs(),
+    [
+      Function(
+        "compute_txid",
+        bench.repeat(config.operations_per_timed_call, btc_tx.compute_txid),
+      ),
+      Function(
+        "compute_wtxid",
+        bench.repeat(config.operations_per_timed_call, btc_tx.compute_wtxid),
+      ),
+    ],
+    config,
   )
 }
 
 // tx serialization
 
-fn serialize_stripped_simple_legacy_tx() -> PerfCaseResult {
-  measure_validated_tx_operation(
-    "simple legacy tx",
-    simple_legacy_tx,
-    "to_stripped_bytes",
-    btc_tx.to_stripped_bytes,
-  )
-}
+fn measure_tx_serialization() -> List(PerfCaseResult) {
+  let config = standard_measurement_config()
 
-fn serialize_witness_simple_legacy_tx() -> PerfCaseResult {
-  measure_validated_tx_operation(
-    "simple legacy tx",
-    simple_legacy_tx,
-    "to_witness_bytes",
-    btc_tx.to_witness_bytes,
-  )
-}
-
-fn serialize_stripped_simple_segwit_tx() -> PerfCaseResult {
-  measure_validated_tx_operation(
-    "simple segwit tx",
-    simple_segwit_tx,
-    "to_stripped_bytes",
-    btc_tx.to_stripped_bytes,
-  )
-}
-
-fn serialize_witness_simple_segwit_tx() -> PerfCaseResult {
-  measure_validated_tx_operation(
-    "simple segwit tx",
-    simple_segwit_tx,
-    "to_witness_bytes",
-    btc_tx.to_witness_bytes,
+  run_bench_cases(
+    simple_validated_tx_inputs(),
+    [
+      Function(
+        "to_stripped_bytes",
+        bench.repeat(config.operations_per_timed_call, btc_tx.to_stripped_bytes),
+      ),
+      Function(
+        "to_witness_bytes",
+        bench.repeat(config.operations_per_timed_call, btc_tx.to_witness_bytes),
+      ),
+    ],
+    config,
   )
 }
 
 // shared helpers
 
-fn measure_validated_tx_operation(
+fn standard_measurement_config() -> PerfMeasurementConfig {
+  PerfMeasurementConfig(
+    operations_per_timed_call: 100,
+    warmup_ms: 500,
+    duration_ms: 2000,
+  )
+}
+
+fn simple_validated_tx_inputs() -> List(PerfInput(Transaction(Validated))) {
+  [
+    validated_tx_input("simple legacy tx", simple_legacy_tx),
+    validated_tx_input("simple segwit tx", simple_segwit_tx),
+  ]
+}
+
+fn validated_tx_input(
   input_label: String,
   tx_hex: String,
-  function_label: String,
-  operation: fn(Transaction(Validated)) -> BitArray,
-) -> PerfCaseResult {
-  let config =
-    PerfMeasurementConfig(
-      operations_per_timed_call: 100,
-      warmup_ms: 500,
-      duration_ms: 2000,
-    )
-
+) -> PerfInput(Transaction(Validated)) {
   let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
   let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
 
-  bench.run(
-    [Input(input_label, validated_tx)],
-    [
-      Function(
-        function_label,
-        bench.repeat(config.operations_per_timed_call, operation),
-      ),
-    ],
-    [Warmup(config.warmup_ms), Duration(config.duration_ms), Quiet],
-  )
-  |> build_case_result(bit_array.byte_size(tx_bytes), config)
+  PerfInput(input_label, bit_array.byte_size(tx_bytes), validated_tx)
 }
 
-fn build_case_result(
+fn run_bench_cases(
+  inputs: List(PerfInput(a)),
+  functions: List(Function(a, b)),
+  config: PerfMeasurementConfig,
+) -> List(PerfCaseResult) {
+  let bench_inputs = list.map(inputs, to_bench_input)
+  let bench_options = [
+    Warmup(config.warmup_ms),
+    Duration(config.duration_ms),
+    Quiet,
+  ]
+
+  bench_inputs
+  |> bench.run(functions, bench_options)
+  |> build_case_results(inputs, config)
+}
+
+fn to_bench_input(input: PerfInput(a)) -> Input(a) {
+  let PerfInput(label, _, value) = input
+  Input(label, value)
+}
+
+fn build_case_results(
   results: BenchResults,
-  input_size_bytes: Int,
+  inputs: List(PerfInput(a)),
+  config: PerfMeasurementConfig,
+) -> List(PerfCaseResult) {
+  let BenchResults(_options, sets) = results
+  list.map(sets, build_set_case_result(_, inputs, config))
+}
+
+fn build_set_case_result(
+  set: BenchSet,
+  inputs: List(PerfInput(a)),
   config: PerfMeasurementConfig,
 ) -> PerfCaseResult {
-  let assert BenchResults(_options, [BenchSet(input_label, fn_label, samples)]) =
-    results
+  let BenchSet(input_label, fn_label, samples) = set
 
   let timed_call_count = list.length(samples)
   let measured_ms = float.sum(samples)
@@ -441,11 +439,29 @@ fn build_case_result(
 
   PerfCaseResult(
     label: fn_label <> " " <> input_label,
-    input_size_bytes:,
+    input_size_bytes: find_input_size_bytes(inputs, input_label),
     config:,
     timed_call_count:,
     measured_ms:,
     operations_per_second:,
     microseconds_per_operation:,
   )
+}
+
+fn find_input_size_bytes(
+  inputs: List(PerfInput(a)),
+  input_label: String,
+) -> Int {
+  let assert Ok(input_size_bytes) =
+    inputs
+    |> list.find_map(fn(input) {
+      let PerfInput(label, input_size_bytes, _) = input
+
+      case label == input_label {
+        True -> Ok(input_size_bytes)
+        False -> Error(Nil)
+      }
+    })
+
+  input_size_bytes
 }
