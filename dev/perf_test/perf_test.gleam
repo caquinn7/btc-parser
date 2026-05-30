@@ -1,4 +1,6 @@
-import btc_tx.{type Parsed, type Transaction, type Validated, DuplicateInput}
+import btc_tx.{
+  type Parsed, type Transaction, type Validated, DuplicateInput, ParseFailed,
+}
 import gleam/bit_array
 import gleam/float
 import gleam/int
@@ -56,6 +58,8 @@ pub fn run() -> PerfResult {
   PerfResult(cases: [
     decode_simple_legacy_tx(),
     decode_simple_segwit_tx(),
+    decode_late_truncated_simple_legacy_tx(),
+    decode_late_truncated_simple_segwit_tx(),
     validate_consensus_valid_inputs(1),
     validate_consensus_valid_inputs(20),
     validate_consensus_valid_inputs(100),
@@ -86,6 +90,20 @@ fn decode_simple_segwit_tx() -> PerfCaseResult {
   measure_tx_decoding("simple segwit tx", simple_segwit_tx)
 }
 
+fn decode_late_truncated_simple_legacy_tx() -> PerfCaseResult {
+  measure_late_truncated_tx_decoding(
+    "late truncated simple legacy tx",
+    simple_legacy_tx,
+  )
+}
+
+fn decode_late_truncated_simple_segwit_tx() -> PerfCaseResult {
+  measure_late_truncated_tx_decoding(
+    "late truncated simple segwit tx",
+    simple_segwit_tx,
+  )
+}
+
 fn measure_tx_decoding(input_label: String, tx_hex: String) -> PerfCaseResult {
   let config =
     PerfMeasurementConfig(
@@ -108,6 +126,40 @@ fn measure_tx_decoding(input_label: String, tx_hex: String) -> PerfCaseResult {
     [Warmup(config.warmup_ms), Duration(config.duration_ms), Quiet],
   )
   |> build_case_result(bit_array.byte_size(tx_bytes), config)
+}
+
+fn measure_late_truncated_tx_decoding(
+  input_label: String,
+  tx_hex: String,
+) -> PerfCaseResult {
+  let config =
+    PerfMeasurementConfig(
+      operations_per_timed_call: 100,
+      warmup_ms: 500,
+      duration_ms: 2000,
+    )
+
+  let assert Ok(valid_tx_bytes) = bit_array.base16_decode(tx_hex)
+  let tx_bytes = drop_last_byte(valid_tx_bytes)
+  let assert Error(ParseFailed(_)) = btc_tx.decode(tx_bytes)
+
+  bench.run(
+    [Input(input_label, tx_bytes)],
+    [
+      Function(
+        "decode",
+        bench.repeat(config.operations_per_timed_call, btc_tx.decode),
+      ),
+    ],
+    [Warmup(config.warmup_ms), Duration(config.duration_ms), Quiet],
+  )
+  |> build_case_result(bit_array.byte_size(tx_bytes), config)
+}
+
+fn drop_last_byte(bytes: BitArray) -> BitArray {
+  let len = bit_array.byte_size(bytes)
+  let assert Ok(truncated) = bit_array.slice(bytes, 0, len - 1)
+  truncated
 }
 
 // consensus validation
