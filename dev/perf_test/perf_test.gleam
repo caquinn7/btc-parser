@@ -1,5 +1,6 @@
 import btc_tx.{
   type Parsed, type Transaction, type Validated, DuplicateInput, ParseFailed,
+  PolicyLimitExceeded,
 }
 import gleam/bit_array
 import gleam/float
@@ -86,6 +87,7 @@ fn measure_tx_decoding() -> List(PerfCaseResult) {
         "late truncated simple segwit tx",
         simple_segwit_tx,
       ),
+      oversized_scriptsig_policy_input("oversized scriptSig policy tx"),
     ],
     [
       Function(
@@ -122,6 +124,33 @@ fn drop_last_byte(bytes: BitArray) -> BitArray {
   let len = bit_array.byte_size(bytes)
   let assert Ok(truncated) = bit_array.slice(bytes, 0, len - 1)
   truncated
+}
+
+fn oversized_scriptsig_policy_input(
+  input_label: String,
+) -> PerfInput(BitArray) {
+  let max_script_size =
+    btc_tx.default_decode_policy()
+    |> btc_tx.decode_policy_max_script_size
+
+  let script_sig_size = max_script_size + 1
+  let script_sig = <<0:size({ script_sig_size * 8 })>>
+
+  let tx_bytes = <<
+    1:little-size(32),
+    compact_size(1):bits,
+    0:size(256),
+    0:little-size(32),
+    compact_size(script_sig_size):bits,
+    script_sig:bits,
+    0xFFFFFFFF:little-size(32),
+  >>
+
+  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+  assert btc_tx.parse_error_kind(parse_err)
+    == PolicyLimitExceeded(script_sig_size, max_script_size)
+
+  PerfInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
 
 // consensus validation
