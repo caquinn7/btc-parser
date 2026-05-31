@@ -87,7 +87,9 @@ pub fn run() -> PerfResult {
   |> PerfResult
 }
 
+// ==============================================================================
 // Transaction decoding
+// ==============================================================================
 
 /// Measures `btc_tx.decode` from byte arrays that are prepared before timing.
 /// This group includes valid legacy/SegWit fixtures, synthetic many-input legacy
@@ -96,33 +98,24 @@ pub fn run() -> PerfResult {
 /// and policy-limit violations, which should reject before doing unnecessary
 /// payload work.
 fn measure_tx_decoding() -> List(PerfCaseResult) {
-  let config = measurement_config(100)
+  let fixture_inputs = [
+    decoded_tx_input("simple legacy tx", simple_legacy_tx),
+    decoded_tx_input("simple segwit tx", simple_segwit_tx),
+    decoded_tx_input("witness-heavy p2wsh tx", witness_heavy_p2wsh_tx),
+    late_truncated_tx_input("late truncated simple legacy tx", simple_legacy_tx),
+    late_truncated_tx_input("late truncated simple segwit tx", simple_segwit_tx),
+    oversized_scriptsig_policy_input("oversized scriptSig policy tx"),
+  ]
 
   [
-    measure_decode(
-      [
-        decoded_tx_input("simple legacy tx", simple_legacy_tx),
-        decoded_tx_input("simple segwit tx", simple_segwit_tx),
-        decoded_tx_input("witness-heavy p2wsh tx", witness_heavy_p2wsh_tx),
-        late_truncated_tx_input(
-          "late truncated simple legacy tx",
-          simple_legacy_tx,
-        ),
-        late_truncated_tx_input(
-          "late truncated simple segwit tx",
-          simple_segwit_tx,
-        ),
-        oversized_scriptsig_policy_input("oversized scriptSig policy tx"),
-      ],
-      config,
-    ),
-    measure_many_input_decoding(
+    measure_decode(fixture_inputs, measurement_config(100)),
+    measure_synthetic_legacy_decoding(
       [1, 20, 100],
-      small_input_vector_measurement_config(),
+      small_synthetic_tx_measurement_config(),
     ),
-    measure_many_input_decoding(
+    measure_synthetic_legacy_decoding(
       [500, 1000],
-      large_input_vector_measurement_config(),
+      large_synthetic_tx_measurement_config(),
     ),
   ]
   |> list.flatten
@@ -144,21 +137,21 @@ fn measure_decode(
   )
 }
 
-fn measure_many_input_decoding(
-  input_counts: List(Int),
+fn measure_synthetic_legacy_decoding(
+  tx_input_counts: List(Int),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
-  input_counts
+  tx_input_counts
   |> list.map(synthetic_decode_input)
   |> measure_decode(config)
 }
 
-fn synthetic_decode_input(input_count: Int) -> PerfInput(BitArray) {
-  let tx_bytes = build_synthetic_legacy_tx(input_count, UniquePrevouts)
+fn synthetic_decode_input(tx_input_count: Int) -> PerfInput(BitArray) {
+  let tx_bytes = build_synthetic_legacy_tx(tx_input_count, UniquePrevouts)
   let assert Ok(_) = btc_tx.decode(tx_bytes)
 
   PerfInput(
-    "legacy tx inputs=" <> int.to_string(input_count),
+    "legacy tx inputs=" <> int.to_string(tx_input_count),
     bit_array.byte_size(tx_bytes),
     tx_bytes,
   )
@@ -220,7 +213,9 @@ fn oversized_scriptsig_policy_input(
   PerfInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
 
+// ==============================================================================
 // Consensus validation
+// ==============================================================================
 
 /// Measures `btc_tx.validate_consensus` on already-parsed synthetic transactions.
 /// The valid cases exercise full success-path input scanning. The late-duplicate
@@ -230,23 +225,23 @@ fn measure_consensus_validation() -> List(PerfCaseResult) {
   [
     measure_validation_inputs(
       [1, 20, 100],
-      valid_validation_input,
-      small_input_vector_measurement_config(),
+      valid_consensus_input,
+      small_synthetic_tx_measurement_config(),
     ),
     measure_validation_inputs(
       [500, 1000],
-      valid_validation_input,
-      large_input_vector_measurement_config(),
+      valid_consensus_input,
+      large_synthetic_tx_measurement_config(),
     ),
     measure_validation_inputs(
       [20, 100],
-      late_duplicate_validation_input,
-      small_input_vector_measurement_config(),
+      late_duplicate_consensus_input,
+      small_synthetic_tx_measurement_config(),
     ),
     measure_validation_inputs(
       [500, 1000],
-      late_duplicate_validation_input,
-      large_input_vector_measurement_config(),
+      late_duplicate_consensus_input,
+      large_synthetic_tx_measurement_config(),
     ),
   ]
   |> list.flatten
@@ -262,7 +257,7 @@ fn measure_validation_inputs(
   |> measure_validate_consensus(config)
 }
 
-fn valid_validation_input(input_count: Int) -> PerfInput(Transaction(Parsed)) {
+fn valid_consensus_input(input_count: Int) -> PerfInput(Transaction(Parsed)) {
   validation_input(
     "valid inputs=" <> int.to_string(input_count),
     build_synthetic_legacy_tx(input_count, UniquePrevouts),
@@ -270,12 +265,12 @@ fn valid_validation_input(input_count: Int) -> PerfInput(Transaction(Parsed)) {
   )
 }
 
-fn late_duplicate_validation_input(
+fn late_duplicate_consensus_input(
   input_count: Int,
 ) -> PerfInput(Transaction(Parsed)) {
   validation_input(
     "late duplicate inputs=" <> int.to_string(input_count),
-    build_synthetic_legacy_tx(input_count, DuplicateLastPrevout),
+    build_synthetic_legacy_tx(input_count, LastPrevoutDuplicatesFirst),
     ExpectLateDuplicate(input_count:),
   )
 }
@@ -335,7 +330,9 @@ fn preflight_validate_consensus(
   }
 }
 
-// Txid computation
+// ==============================================================================
+// Txid computation & serialization
+// ==============================================================================
 
 /// Measures `compute_txid` and `compute_wtxid` on already-validated fixtures.
 /// This excludes decode and consensus-validation cost, leaving serialization and
@@ -359,8 +356,6 @@ fn measure_txid_computation() -> List(PerfCaseResult) {
   )
 }
 
-// Transaction serialization
-
 /// Measures `to_stripped_bytes` and `to_witness_bytes` on already-validated
 /// fixtures. Legacy and SegWit transactions are both included because witness
 /// serialization changes the code path and payload shape.
@@ -383,116 +378,15 @@ fn measure_tx_serialization() -> List(PerfCaseResult) {
   )
 }
 
-// transaction building
-
-type PrevoutPattern {
-  UniquePrevouts
-  DuplicateLastPrevout
-}
-
-fn build_synthetic_legacy_tx(
-  input_count: Int,
-  prevout_pattern: PrevoutPattern,
-) -> BitArray {
-  let inputs =
-    build_synthetic_legacy_inputs(0, input_count, prevout_pattern, <<>>)
-
-  let output = <<1000:little-size(64), compact_size(0):bits>>
-
-  <<
-    1:little-size(32),
-    compact_size(input_count):bits,
-    inputs:bits,
-    compact_size(1):bits,
-    output:bits,
-    0:little-size(32),
-  >>
-}
-
-fn build_synthetic_legacy_inputs(
-  index: Int,
-  input_count: Int,
-  prevout_pattern: PrevoutPattern,
-  acc: BitArray,
-) -> BitArray {
-  case index >= input_count {
-    True -> acc
-    False -> {
-      let input =
-        build_synthetic_legacy_input(index, input_count, prevout_pattern)
-      build_synthetic_legacy_inputs(index + 1, input_count, prevout_pattern, <<
-        acc:bits,
-        input:bits,
-      >>)
-    }
-  }
-}
-
-fn build_synthetic_legacy_input(
-  index: Int,
-  input_count: Int,
-  prevout_pattern: PrevoutPattern,
-) -> BitArray {
-  let prev_txid = {
-    let prevout_index = prevout_index(index, input_count, prevout_pattern)
-    <<prevout_index:little-size(32), 0:size(224)>>
-  }
-
-  <<
-    prev_txid:bits,
-    0:little-size(32),
-    compact_size(0):bits,
-    0xFFFFFFFF:little-size(32),
-  >>
-}
-
-fn prevout_index(
-  index: Int,
-  input_count: Int,
-  prevout_pattern: PrevoutPattern,
-) -> Int {
-  case prevout_pattern {
-    UniquePrevouts -> index
-    DuplicateLastPrevout ->
-      case index == input_count - 1 {
-        True -> 0
-        False -> index
-      }
-  }
-}
-
-fn compact_size(n: Int) -> BitArray {
-  case n {
-    _ if n < 0 -> panic as "compact_size: negative values not supported"
-    _ if n <= 252 -> <<n:size(8)>>
-    _ if n <= 65_535 -> <<0xFD, n:little-size(16)>>
-    _ if n <= 4_294_967_295 -> <<0xFE, n:little-size(32)>>
-    _ -> <<0xFF, n:little-size(64)>>
-  }
-}
-
-// shared helpers
-
-fn measurement_config(operations_per_timed_call: Int) -> PerfMeasurementConfig {
-  PerfMeasurementConfig(
-    operations_per_timed_call:,
-    warmup_ms: 500,
-    duration_ms: 2000,
-  )
-}
-
-/// Uses larger batches for smaller input-vector cases to reduce timer overhead.
-fn small_input_vector_measurement_config() -> PerfMeasurementConfig {
-  measurement_config(100)
-}
-
-/// Uses smaller batches for 500+ input-vector cases so slow JS runs still
-/// record enough timed calls for stable throughput estimates.
-fn large_input_vector_measurement_config() -> PerfMeasurementConfig {
-  measurement_config(10)
-}
-
 fn validated_tx_inputs() -> List(PerfInput(Transaction(Validated))) {
+  let validated_tx_input = fn(input_label, tx_hex) {
+    let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
+    let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+    let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
+
+    PerfInput(input_label, bit_array.byte_size(tx_bytes), validated_tx)
+  }
+
   [
     validated_tx_input("simple legacy tx", simple_legacy_tx),
     validated_tx_input("simple segwit tx", simple_segwit_tx),
@@ -500,16 +394,9 @@ fn validated_tx_inputs() -> List(PerfInput(Transaction(Validated))) {
   ]
 }
 
-fn validated_tx_input(
-  input_label: String,
-  tx_hex: String,
-) -> PerfInput(Transaction(Validated)) {
-  let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
-
-  PerfInput(input_label, bit_array.byte_size(tx_bytes), validated_tx)
-}
+// ==============================================================================
+// Run cases
+// ==============================================================================
 
 fn run_bench_cases(
   inputs: List(PerfInput(a)),
@@ -586,4 +473,124 @@ fn find_input_size_bytes(
     })
 
   input_size_bytes
+}
+
+// ==============================================================================
+// Transaction builders
+// ==============================================================================
+
+type SyntheticPrevoutPattern {
+  UniquePrevouts
+  LastPrevoutDuplicatesFirst
+}
+
+fn build_synthetic_legacy_tx(
+  input_count: Int,
+  prevout_pattern: SyntheticPrevoutPattern,
+) -> BitArray {
+  let inputs =
+    build_synthetic_legacy_inputs(0, input_count, prevout_pattern, <<>>)
+
+  let output = <<1000:little-size(64), compact_size(0):bits>>
+
+  <<
+    1:little-size(32),
+    compact_size(input_count):bits,
+    inputs:bits,
+    compact_size(1):bits,
+    output:bits,
+    0:little-size(32),
+  >>
+}
+
+fn build_synthetic_legacy_inputs(
+  index: Int,
+  input_count: Int,
+  prevout_pattern: SyntheticPrevoutPattern,
+  acc: BitArray,
+) -> BitArray {
+  case index >= input_count {
+    True -> acc
+    False -> {
+      let input =
+        build_synthetic_legacy_input(index, input_count, prevout_pattern)
+
+      let acc = <<acc:bits, input:bits>>
+
+      build_synthetic_legacy_inputs(
+        index + 1,
+        input_count,
+        prevout_pattern,
+        acc,
+      )
+    }
+  }
+}
+
+fn build_synthetic_legacy_input(
+  index: Int,
+  input_count: Int,
+  prevout_pattern: SyntheticPrevoutPattern,
+) -> BitArray {
+  let prev_txid = {
+    let prev_txid_seed =
+      synthetic_prev_txid_seed(index, input_count, prevout_pattern)
+
+    <<prev_txid_seed:little-size(32), 0:size(224)>>
+  }
+
+  <<
+    prev_txid:bits,
+    0:little-size(32),
+    compact_size(0):bits,
+    0xFFFFFFFF:little-size(32),
+  >>
+}
+
+fn synthetic_prev_txid_seed(
+  index: Int,
+  input_count: Int,
+  prevout_pattern: SyntheticPrevoutPattern,
+) -> Int {
+  case prevout_pattern {
+    UniquePrevouts -> index
+    LastPrevoutDuplicatesFirst ->
+      case index == input_count - 1 {
+        True -> 0
+        False -> index
+      }
+  }
+}
+
+fn compact_size(n: Int) -> BitArray {
+  case n {
+    _ if n < 0 -> panic as "compact_size: negative values not supported"
+    _ if n <= 252 -> <<n:size(8)>>
+    _ if n <= 65_535 -> <<0xFD, n:little-size(16)>>
+    _ if n <= 4_294_967_295 -> <<0xFE, n:little-size(32)>>
+    _ -> <<0xFF, n:little-size(64)>>
+  }
+}
+
+// ==============================================================================
+// Measurement configs
+// ==============================================================================
+
+fn measurement_config(operations_per_timed_call: Int) -> PerfMeasurementConfig {
+  PerfMeasurementConfig(
+    operations_per_timed_call:,
+    warmup_ms: 500,
+    duration_ms: 2000,
+  )
+}
+
+/// Uses larger batches for smaller input/output-vector cases to reduce timer overhead.
+fn small_synthetic_tx_measurement_config() -> PerfMeasurementConfig {
+  measurement_config(100)
+}
+
+/// Uses smaller batches for 500+ input/output-vector cases so slow JS runs still
+/// record enough timed calls for stable throughput estimates.
+fn large_synthetic_tx_measurement_config() -> PerfMeasurementConfig {
+  measurement_config(10)
 }
