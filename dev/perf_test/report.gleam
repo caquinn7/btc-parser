@@ -2,7 +2,9 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/string
-import perf_test/perf_test.{type PerfCaseResult, type PerfResult}
+import perf_test/perf_test.{
+  type PerfCaseResult, type PerfResult, type PerfSection,
+}
 
 pub fn to_string(perf_result: PerfResult) -> String {
   let headings = [
@@ -16,15 +18,49 @@ pub fn to_string(perf_result: PerfResult) -> String {
     "ops/s",
     "us/op",
   ]
-  let rows = list.map(perf_result.cases, case_result_to_row)
+
+  let rows =
+    perf_result.sections
+    |> list.map(section_to_width_rows)
+    |> list.flatten
+
   let widths = column_widths([headings, ..rows])
 
-  [
-    row_to_string(headings, widths),
-    divider_to_string(widths),
-    ..list.map(rows, fn(row) { row_to_string(row, widths) })
-  ]
+  let section_lines =
+    perf_result.sections
+    |> list.map(section_to_string(_, widths))
+    |> string.join("\n\n")
+
+  case perf_result.sections {
+    [] -> [row_to_string(headings, widths), divider_to_string(widths)]
+    _ -> [
+      row_to_string(headings, widths),
+      divider_to_string(widths),
+      section_lines,
+    ]
+  }
   |> string.join("\n")
+}
+
+fn section_to_width_rows(section: PerfSection) -> List(List(String)) {
+  [[section_title(section)], ..list.map(section.cases, case_result_to_row)]
+}
+
+fn section_to_string(section: PerfSection, widths: List(Int)) -> String {
+  let case_lines =
+    section.cases
+    |> list.map(fn(case_result) {
+      case_result
+      |> case_result_to_row
+      |> row_to_string(widths)
+    })
+
+  [section_title(section), ..case_lines]
+  |> string.join("\n")
+}
+
+fn section_title(section: PerfSection) -> String {
+  "[" <> section.title <> "]"
 }
 
 fn case_result_to_row(case_result: PerfCaseResult) -> List(String) {
@@ -46,10 +82,23 @@ fn column_widths(rows: List(List(String))) -> List(Int) {
     [] -> []
     [first, ..rest] ->
       list.fold(rest, list.map(first, string.length), fn(widths, row) {
-        list.map2(widths, row, fn(width, value) {
-          int.max(width, string.length(value))
-        })
+        max_column_widths(widths, row)
       })
+  }
+}
+
+fn max_column_widths(widths: List(Int), row: List(String)) -> List(Int) {
+  case widths, row {
+    [], [] -> []
+    [], [value, ..values] -> [
+      string.length(value),
+      ..max_column_widths([], values)
+    ]
+    [width, ..widths], [] -> [width, ..widths]
+    [width, ..widths], [value, ..values] -> [
+      int.max(width, string.length(value)),
+      ..max_column_widths(widths, values)
+    ]
   }
 }
 

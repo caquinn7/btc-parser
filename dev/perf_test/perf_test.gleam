@@ -36,7 +36,12 @@ const witness_heavy_p2wsh_tx = "010000000001041d77f8ba9cb7292d2c8d28f7860440c20a
 
 /// Results for one invocation of the performance suite.
 pub type PerfResult {
-  PerfResult(cases: List(PerfCaseResult))
+  PerfResult(sections: List(PerfSection))
+}
+
+/// Named group of performance cases shown together in the report.
+pub type PerfSection {
+  PerfSection(title: String, cases: List(PerfCaseResult))
 }
 
 /// Settings used to collect measurements for a performance case.
@@ -86,8 +91,8 @@ pub fn run() -> PerfResult {
   [
     measure_tx_decoding(),
     measure_consensus_validation(),
-    measure_txid_computation(),
-    measure_tx_serialization(),
+    [measure_txid_computation()],
+    [measure_tx_serialization()],
   ]
   |> list.flatten
   |> PerfResult
@@ -99,26 +104,67 @@ pub fn run() -> PerfResult {
 
 /// Measures `btc_tx.decode` from byte arrays that are prepared before timing.
 /// This group includes valid legacy/SegWit fixtures, synthetic many-input and
-/// many-output legacy transactions, plus malformed inputs that exercise
-/// different failure paths: late truncation, which fails after most of the
-/// transaction has been parsed, and policy-limit violations, which should reject
+/// many-output legacy transactions, malformed inputs that fail after most of the
+/// transaction has been parsed, and policy-limit violations that should reject
 /// before doing unnecessary payload work.
-fn measure_tx_decoding() -> List(PerfCaseResult) {
+fn measure_tx_decoding() -> List(PerfSection) {
+  [
+    measure_fixture_tx_decoding(),
+    measure_synthetic_input_tx_decoding(),
+    measure_synthetic_output_tx_decoding(),
+    measure_malformed_tx_decoding(),
+    measure_policy_limit_tx_decoding(),
+  ]
+}
+
+fn measure_fixture_tx_decoding() -> PerfSection {
   let fixture_decode_inputs = [
     decoded_tx_input("simple legacy tx", simple_legacy_tx),
     decoded_tx_input("simple segwit tx", simple_segwit_tx),
     decoded_tx_input("witness-heavy tx", witness_heavy_p2wsh_tx),
-    late_truncated_tx_input("late truncated simple legacy tx", simple_legacy_tx),
-    late_truncated_tx_input("late truncated simple segwit tx", simple_segwit_tx),
-    oversized_scriptsig_policy_input("oversized scriptSig policy tx"),
   ]
 
-  [
+  PerfSection(
+    "decode / fixtures",
     measure_decode(fixture_decode_inputs, measurement_config(100)),
+  )
+}
+
+fn measure_synthetic_input_tx_decoding() -> PerfSection {
+  PerfSection(
+    "decode / synthetic inputs",
     measure_decode_curve(synthetic_input_count_decode_cases),
+  )
+}
+
+fn measure_synthetic_output_tx_decoding() -> PerfSection {
+  PerfSection(
+    "decode / synthetic outputs",
     measure_decode_curve(synthetic_output_count_decode_cases),
+  )
+}
+
+fn measure_malformed_tx_decoding() -> PerfSection {
+  let malformed_decode_inputs = [
+    late_truncated_tx_input("late truncated simple legacy tx", simple_legacy_tx),
+    late_truncated_tx_input("late truncated simple segwit tx", simple_segwit_tx),
   ]
-  |> list.flatten
+
+  PerfSection(
+    "decode / malformed",
+    measure_decode(malformed_decode_inputs, measurement_config(100)),
+  )
+}
+
+fn measure_policy_limit_tx_decoding() -> PerfSection {
+  let policy_limit_decode_inputs = [
+    oversized_scriptsig_policy_input("oversized scriptSig tx"),
+  ]
+
+  PerfSection(
+    "decode / policy limits",
+    measure_decode(policy_limit_decode_inputs, measurement_config(100)),
+  )
 }
 
 fn measure_decode(
@@ -266,30 +312,49 @@ fn oversized_scriptsig_policy_input(
 /// The valid cases exercise full success-path input scanning. The late-duplicate
 /// cases place the duplicate prevout at the end so rejection still walks nearly
 /// the whole input list.
-fn measure_consensus_validation() -> List(PerfCaseResult) {
+fn measure_consensus_validation() -> List(PerfSection) {
   [
-    measure_validation_inputs(
-      [1, 20, 100],
-      valid_consensus_input,
-      small_synthetic_tx_measurement_config(),
-    ),
-    measure_validation_inputs(
-      [500, 1000],
-      valid_consensus_input,
-      large_synthetic_tx_measurement_config(),
-    ),
-    measure_validation_inputs(
-      [20, 100],
-      late_duplicate_consensus_input,
-      small_synthetic_tx_measurement_config(),
-    ),
-    measure_validation_inputs(
-      [500, 1000],
-      late_duplicate_consensus_input,
-      large_synthetic_tx_measurement_config(),
-    ),
+    measure_valid_consensus_validation(),
+    measure_duplicate_consensus_validation(),
   ]
-  |> list.flatten
+}
+
+fn measure_valid_consensus_validation() -> PerfSection {
+  let cases =
+    [
+      measure_validation_inputs(
+        [1, 20, 100],
+        valid_consensus_input,
+        small_synthetic_tx_measurement_config(),
+      ),
+      measure_validation_inputs(
+        [500, 1000],
+        valid_consensus_input,
+        large_synthetic_tx_measurement_config(),
+      ),
+    ]
+    |> list.flatten
+
+  PerfSection("validate_consensus / valid inputs", cases)
+}
+
+fn measure_duplicate_consensus_validation() -> PerfSection {
+  let cases =
+    [
+      measure_validation_inputs(
+        [20, 100],
+        late_duplicate_consensus_input,
+        small_synthetic_tx_measurement_config(),
+      ),
+      measure_validation_inputs(
+        [500, 1000],
+        late_duplicate_consensus_input,
+        large_synthetic_tx_measurement_config(),
+      ),
+    ]
+    |> list.flatten
+
+  PerfSection("validate_consensus / duplicate inputs", cases)
 }
 
 fn measure_validation_inputs(
@@ -382,45 +447,77 @@ fn preflight_validate_consensus(
 /// Measures `compute_txid` and `compute_wtxid` on already-validated fixtures.
 /// This excludes decode and consensus-validation cost, leaving serialization and
 /// double-SHA256 work inside the timed region.
-fn measure_txid_computation() -> List(PerfCaseResult) {
+fn measure_txid_computation() -> PerfSection {
   let config = measurement_config(100)
+  let inputs = validated_tx_inputs()
 
-  run_bench_cases(
-    validated_tx_inputs(),
+  let cases =
     [
-      Function(
-        "compute_txid",
-        bench.repeat(config.operations_per_timed_call, btc_tx.compute_txid),
+      run_bench_cases(
+        inputs,
+        [
+          Function(
+            "compute_txid",
+            bench.repeat(config.operations_per_timed_call, btc_tx.compute_txid),
+          ),
+        ],
+        config,
       ),
-      Function(
-        "compute_wtxid",
-        bench.repeat(config.operations_per_timed_call, btc_tx.compute_wtxid),
+      run_bench_cases(
+        inputs,
+        [
+          Function(
+            "compute_wtxid",
+            bench.repeat(config.operations_per_timed_call, btc_tx.compute_wtxid),
+          ),
+        ],
+        config,
       ),
-    ],
-    config,
-  )
+    ]
+    |> list.flatten
+
+  PerfSection("txid computation / fixtures", cases)
 }
 
 /// Measures `to_stripped_bytes` and `to_witness_bytes` on already-validated
 /// fixtures. Legacy and SegWit transactions are both included because witness
 /// serialization changes the code path and payload shape.
-fn measure_tx_serialization() -> List(PerfCaseResult) {
+fn measure_tx_serialization() -> PerfSection {
   let config = measurement_config(100)
+  let inputs = validated_tx_inputs()
 
-  run_bench_cases(
-    validated_tx_inputs(),
+  let cases =
     [
-      Function(
-        "to_stripped_bytes",
-        bench.repeat(config.operations_per_timed_call, btc_tx.to_stripped_bytes),
+      run_bench_cases(
+        inputs,
+        [
+          Function(
+            "to_stripped_bytes",
+            bench.repeat(
+              config.operations_per_timed_call,
+              btc_tx.to_stripped_bytes,
+            ),
+          ),
+        ],
+        config,
       ),
-      Function(
-        "to_witness_bytes",
-        bench.repeat(config.operations_per_timed_call, btc_tx.to_witness_bytes),
+      run_bench_cases(
+        inputs,
+        [
+          Function(
+            "to_witness_bytes",
+            bench.repeat(
+              config.operations_per_timed_call,
+              btc_tx.to_witness_bytes,
+            ),
+          ),
+        ],
+        config,
       ),
-    ],
-    config,
-  )
+    ]
+    |> list.flatten
+
+  PerfSection("serialization / fixtures", cases)
 }
 
 fn validated_tx_inputs() -> List(PerfInput(Transaction(Validated))) {
