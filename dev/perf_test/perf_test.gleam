@@ -87,6 +87,16 @@ type SyntheticLegacyDecodeCase {
   SyntheticLegacyDecodeCase(label: String, input_count: Int, output_count: Int)
 }
 
+type SyntheticSegwitDecodeCase {
+  SyntheticSegwitDecodeCase(
+    label: String,
+    input_count: Int,
+    output_count: Int,
+    witness_items_per_input: Int,
+    witness_item_size: Int,
+  )
+}
+
 pub fn run() -> PerfResult {
   [
     measure_tx_decoding(),
@@ -104,7 +114,8 @@ pub fn run() -> PerfResult {
 
 /// Measures `btc_tx.decode` from byte arrays that are prepared before timing.
 /// This group includes valid legacy/SegWit fixtures, synthetic many-input and
-/// many-output legacy transactions, malformed inputs that fail after most of the
+/// many-output legacy transactions, synthetic SegWit transactions that isolate
+/// witness scaling dimensions, malformed inputs that fail after most of the
 /// transaction has been parsed, and policy-limit violations that should reject
 /// before doing unnecessary payload work.
 fn measure_tx_decoding() -> List(PerfSection) {
@@ -112,6 +123,9 @@ fn measure_tx_decoding() -> List(PerfSection) {
     measure_fixture_tx_decoding(),
     measure_synthetic_input_tx_decoding(),
     measure_synthetic_output_tx_decoding(),
+    measure_synthetic_segwit_input_tx_decoding(),
+    measure_synthetic_witness_item_tx_decoding(),
+    measure_synthetic_witness_payload_tx_decoding(),
     measure_malformed_tx_decoding(),
     measure_policy_limit_tx_decoding(),
   ]
@@ -142,6 +156,39 @@ fn measure_synthetic_output_tx_decoding() -> PerfSection {
     "decode / synthetic outputs",
     measure_decode_curve(synthetic_output_count_decode_cases),
   )
+}
+
+fn measure_synthetic_segwit_input_tx_decoding() -> PerfSection {
+  PerfSection(
+    "decode / synthetic segwit inputs",
+    measure_synthetic_segwit_decode_curve(
+      synthetic_segwit_input_count_decode_cases,
+    ),
+  )
+}
+
+fn measure_synthetic_witness_item_tx_decoding() -> PerfSection {
+  PerfSection(
+    "decode / synthetic witness items",
+    measure_synthetic_segwit_decode_curve(synthetic_witness_item_decode_cases),
+  )
+}
+
+fn measure_synthetic_witness_payload_tx_decoding() -> PerfSection {
+  let cases =
+    [
+      measure_synthetic_segwit_decoding(
+        synthetic_witness_payload_decode_cases([64, 1024, 10_000]),
+        small_synthetic_tx_measurement_config(),
+      ),
+      measure_synthetic_segwit_decoding(
+        synthetic_witness_payload_decode_cases([50_000, 100_000]),
+        large_synthetic_tx_measurement_config(),
+      ),
+    ]
+    |> list.flatten
+
+  PerfSection("decode / synthetic witness payload", cases)
 }
 
 fn measure_malformed_tx_decoding() -> PerfSection {
@@ -208,6 +255,31 @@ fn measure_synthetic_legacy_decoding(
   |> measure_decode(config)
 }
 
+fn measure_synthetic_segwit_decode_curve(
+  build_cases: fn(List(Int)) -> List(SyntheticSegwitDecodeCase),
+) -> List(PerfCaseResult) {
+  [
+    measure_synthetic_segwit_decoding(
+      build_cases([1, 20, 100]),
+      small_synthetic_tx_measurement_config(),
+    ),
+    measure_synthetic_segwit_decoding(
+      build_cases([500, 1000]),
+      large_synthetic_tx_measurement_config(),
+    ),
+  ]
+  |> list.flatten
+}
+
+fn measure_synthetic_segwit_decoding(
+  cases: List(SyntheticSegwitDecodeCase),
+  config: PerfMeasurementConfig,
+) -> List(PerfCaseResult) {
+  cases
+  |> list.map(synthetic_segwit_decode_input)
+  |> measure_decode(config)
+}
+
 fn synthetic_input_count_decode_cases(
   input_counts: List(Int),
 ) -> List(SyntheticLegacyDecodeCase) {
@@ -234,18 +306,81 @@ fn synthetic_output_count_decode_cases(
   })
 }
 
+fn synthetic_segwit_input_count_decode_cases(
+  input_counts: List(Int),
+) -> List(SyntheticSegwitDecodeCase) {
+  input_counts
+  |> list.map(fn(input_count) {
+    SyntheticSegwitDecodeCase(
+      label: "segwit tx inputs=" <> int.to_string(input_count),
+      input_count:,
+      output_count: 1,
+      witness_items_per_input: 2,
+      witness_item_size: 32,
+    )
+  })
+}
+
+fn synthetic_witness_item_decode_cases(
+  witness_item_counts: List(Int),
+) -> List(SyntheticSegwitDecodeCase) {
+  witness_item_counts
+  |> list.map(fn(witness_items_per_input) {
+    SyntheticSegwitDecodeCase(
+      label: "segwit tx witness_items="
+        <> int.to_string(witness_items_per_input),
+      input_count: 1,
+      output_count: 1,
+      witness_items_per_input:,
+      witness_item_size: 32,
+    )
+  })
+}
+
+fn synthetic_witness_payload_decode_cases(
+  witness_item_sizes: List(Int),
+) -> List(SyntheticSegwitDecodeCase) {
+  witness_item_sizes
+  |> list.map(fn(witness_item_size) {
+    SyntheticSegwitDecodeCase(
+      label: "segwit tx witness_bytes=" <> int.to_string(witness_item_size),
+      input_count: 1,
+      output_count: 1,
+      witness_items_per_input: 1,
+      witness_item_size:,
+    )
+  })
+}
+
 fn synthetic_legacy_decode_input(
   synthetic_case: SyntheticLegacyDecodeCase,
 ) -> PerfInput(BitArray) {
-  let SyntheticLegacyDecodeCase(label, input_count, output_count) =
-    synthetic_case
-
   let tx_bytes =
-    build_synthetic_legacy_tx(input_count, output_count, UniquePrevouts)
+    build_synthetic_legacy_tx(
+      synthetic_case.input_count,
+      synthetic_case.output_count,
+      UniquePrevouts,
+    )
 
   let assert Ok(_) = btc_tx.decode(tx_bytes)
 
-  PerfInput(label, bit_array.byte_size(tx_bytes), tx_bytes)
+  PerfInput(synthetic_case.label, bit_array.byte_size(tx_bytes), tx_bytes)
+}
+
+fn synthetic_segwit_decode_input(
+  synthetic_case: SyntheticSegwitDecodeCase,
+) -> PerfInput(BitArray) {
+  let tx_bytes =
+    build_synthetic_segwit_tx(
+      synthetic_case.input_count,
+      synthetic_case.output_count,
+      synthetic_case.witness_items_per_input,
+      synthetic_case.witness_item_size,
+    )
+
+  let assert Ok(_) = btc_tx.decode(tx_bytes)
+
+  PerfInput(synthetic_case.label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
 
 fn decoded_tx_input(
@@ -646,6 +781,37 @@ fn build_synthetic_legacy_tx(
   >>
 }
 
+fn build_synthetic_segwit_tx(
+  input_count: Int,
+  output_count: Int,
+  witness_items_per_input: Int,
+  witness_item_size: Int,
+) -> BitArray {
+  let inputs =
+    build_synthetic_legacy_inputs(0, input_count, UniquePrevouts, <<>>)
+
+  let outputs = build_synthetic_legacy_outputs(output_count, <<>>)
+
+  let witnesses =
+    build_synthetic_witnesses(
+      input_count,
+      witness_items_per_input,
+      witness_item_size,
+    )
+
+  <<
+    1:little-size(32),
+    0x00,
+    0x01,
+    compact_size(input_count):bits,
+    inputs:bits,
+    compact_size(output_count):bits,
+    outputs:bits,
+    witnesses:bits,
+    0:little-size(32),
+  >>
+}
+
 fn build_synthetic_legacy_inputs(
   index: Int,
   input_count: Int,
@@ -699,6 +865,71 @@ fn build_synthetic_legacy_outputs(remaining: Int, acc: BitArray) -> BitArray {
       build_synthetic_legacy_outputs(remaining - 1, acc)
     }
   }
+}
+
+fn build_synthetic_witnesses(
+  input_count: Int,
+  items_per_input: Int,
+  item_size: Int,
+) -> BitArray {
+  build_synthetic_witnesses_loop(input_count, items_per_input, item_size, <<>>)
+}
+
+fn build_synthetic_witnesses_loop(
+  remaining: Int,
+  items_per_input: Int,
+  item_size: Int,
+  acc: BitArray,
+) -> BitArray {
+  case remaining <= 0 {
+    True -> acc
+    False -> {
+      let witness_stack =
+        build_synthetic_witness_stack(items_per_input, item_size)
+
+      let acc = <<acc:bits, witness_stack:bits>>
+      build_synthetic_witnesses_loop(
+        remaining - 1,
+        items_per_input,
+        item_size,
+        acc,
+      )
+    }
+  }
+}
+
+fn build_synthetic_witness_stack(
+  items_per_input: Int,
+  item_size: Int,
+) -> BitArray {
+  let items = build_synthetic_witness_items(items_per_input, item_size, <<>>)
+  <<
+    compact_size(items_per_input):bits,
+    items:bits,
+  >>
+}
+
+fn build_synthetic_witness_items(
+  remaining: Int,
+  item_size: Int,
+  acc: BitArray,
+) -> BitArray {
+  case remaining <= 0 {
+    True -> acc
+    False -> {
+      let item = build_synthetic_witness_item(item_size)
+      let acc = <<acc:bits, item:bits>>
+      build_synthetic_witness_items(remaining - 1, item_size, acc)
+    }
+  }
+}
+
+fn build_synthetic_witness_item(item_size: Int) -> BitArray {
+  let payload = <<0:size({ item_size * 8 })>>
+  <<
+    compact_size(item_size):bits,
+    payload:bits,
+  >>
 }
 
 fn synthetic_prev_txid_seed(
