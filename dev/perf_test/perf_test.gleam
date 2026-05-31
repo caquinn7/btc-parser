@@ -25,8 +25,10 @@ import gleamy/bench.{
   BenchResults, Duration, Function, Input, Quiet, Set as BenchSet, Warmup,
 }
 
+/// Legacy P2PKH-style spend: one input, with P2WPKH and P2PKH outputs.
 const simple_legacy_tx = "0200000001f83913d8a4af4da53774c45cf074d35c8c6df3dd322f5b2a63cfba609ce6fb164d0000006b483045022100ce7670637cc52de4d7a0063e8a253271f09e282f3f99e8d78e20240f3b769ec90220742aea257871b277a19665434e6007850e54fc2bc64a4b5ff05c107ebf82ef460121032af93439c5e3debd027f60975cc0decc6c5b4e51bc44cbeb06a67aad69f45efafdffffff02458f0000000000001600148b068869b732322472e647126c6da8ce4d2bc5778d790000000000001976a914c76c2748f354526db26c9fbd2e2de47b990678fe88ac00000000"
 
+/// SegWit P2WPKH-style spend: one input with a 2-item witness stack.
 const simple_segwit_tx = "02000000000101d09297d88fec299d4db728704b56d9e766339b458a42d9a7eac7a1a590e072eb4600000000ffffffff0126071400000000001976a91484548ba3fb385d7d75e5eb31238743206fb8662188ac02483045022100a7690635724cf3ece95afb51b9d0192b3f366b794ee8ccd5cf8dd7bbfaeca027022010376517622589099b18cf43274d145a74a467770973d274949b1c03ef15d550012102019e5e7ef9ee827420bf12e9d8339cdc9102c8fceb5a8187d7bb7072b4db690a00000000"
 
 /// P2WSH multisig spend: four inputs, each with a 5-item witness stack.
@@ -76,6 +78,10 @@ type PerfInput(a) {
   PerfInput(label: String, input_size_bytes: Int, value: a)
 }
 
+type SyntheticLegacyDecodeCase {
+  SyntheticLegacyDecodeCase(label: String, input_count: Int, output_count: Int)
+}
+
 pub fn run() -> PerfResult {
   [
     measure_tx_decoding(),
@@ -92,31 +98,25 @@ pub fn run() -> PerfResult {
 // ==============================================================================
 
 /// Measures `btc_tx.decode` from byte arrays that are prepared before timing.
-/// This group includes valid legacy/SegWit fixtures, synthetic many-input legacy
-/// transactions, plus malformed inputs that exercise different failure paths:
-/// late truncation, which fails after most of the transaction has been parsed,
-/// and policy-limit violations, which should reject before doing unnecessary
-/// payload work.
+/// This group includes valid legacy/SegWit fixtures, synthetic many-input and
+/// many-output legacy transactions, plus malformed inputs that exercise
+/// different failure paths: late truncation, which fails after most of the
+/// transaction has been parsed, and policy-limit violations, which should reject
+/// before doing unnecessary payload work.
 fn measure_tx_decoding() -> List(PerfCaseResult) {
-  let fixture_inputs = [
+  let fixture_decode_inputs = [
     decoded_tx_input("simple legacy tx", simple_legacy_tx),
     decoded_tx_input("simple segwit tx", simple_segwit_tx),
-    decoded_tx_input("witness-heavy p2wsh tx", witness_heavy_p2wsh_tx),
+    decoded_tx_input("witness-heavy tx", witness_heavy_p2wsh_tx),
     late_truncated_tx_input("late truncated simple legacy tx", simple_legacy_tx),
     late_truncated_tx_input("late truncated simple segwit tx", simple_segwit_tx),
     oversized_scriptsig_policy_input("oversized scriptSig policy tx"),
   ]
 
   [
-    measure_decode(fixture_inputs, measurement_config(100)),
-    measure_synthetic_legacy_decoding(
-      [1, 20, 100],
-      small_synthetic_tx_measurement_config(),
-    ),
-    measure_synthetic_legacy_decoding(
-      [500, 1000],
-      large_synthetic_tx_measurement_config(),
-    ),
+    measure_decode(fixture_decode_inputs, measurement_config(100)),
+    measure_decode_curve(synthetic_input_count_decode_cases),
+    measure_decode_curve(synthetic_output_count_decode_cases),
   ]
   |> list.flatten
 }
@@ -137,24 +137,69 @@ fn measure_decode(
   )
 }
 
+fn measure_decode_curve(
+  build_cases: fn(List(Int)) -> List(SyntheticLegacyDecodeCase),
+) -> List(PerfCaseResult) {
+  [
+    measure_synthetic_legacy_decoding(
+      build_cases([1, 20, 100]),
+      small_synthetic_tx_measurement_config(),
+    ),
+    measure_synthetic_legacy_decoding(
+      build_cases([500, 1000]),
+      large_synthetic_tx_measurement_config(),
+    ),
+  ]
+  |> list.flatten
+}
+
 fn measure_synthetic_legacy_decoding(
-  tx_input_counts: List(Int),
+  cases: List(SyntheticLegacyDecodeCase),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
-  tx_input_counts
-  |> list.map(synthetic_decode_input)
+  cases
+  |> list.map(synthetic_legacy_decode_input)
   |> measure_decode(config)
 }
 
-fn synthetic_decode_input(tx_input_count: Int) -> PerfInput(BitArray) {
-  let tx_bytes = build_synthetic_legacy_tx(tx_input_count, UniquePrevouts)
+fn synthetic_input_count_decode_cases(
+  input_counts: List(Int),
+) -> List(SyntheticLegacyDecodeCase) {
+  input_counts
+  |> list.map(fn(input_count) {
+    SyntheticLegacyDecodeCase(
+      label: "legacy tx inputs=" <> int.to_string(input_count),
+      input_count:,
+      output_count: 1,
+    )
+  })
+}
+
+fn synthetic_output_count_decode_cases(
+  output_counts: List(Int),
+) -> List(SyntheticLegacyDecodeCase) {
+  output_counts
+  |> list.map(fn(output_count) {
+    SyntheticLegacyDecodeCase(
+      label: "legacy tx outputs=" <> int.to_string(output_count),
+      input_count: 1,
+      output_count:,
+    )
+  })
+}
+
+fn synthetic_legacy_decode_input(
+  synthetic_case: SyntheticLegacyDecodeCase,
+) -> PerfInput(BitArray) {
+  let SyntheticLegacyDecodeCase(label, input_count, output_count) =
+    synthetic_case
+
+  let tx_bytes =
+    build_synthetic_legacy_tx(input_count, output_count, UniquePrevouts)
+
   let assert Ok(_) = btc_tx.decode(tx_bytes)
 
-  PerfInput(
-    "legacy tx inputs=" <> int.to_string(tx_input_count),
-    bit_array.byte_size(tx_bytes),
-    tx_bytes,
-  )
+  PerfInput(label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
 
 fn decoded_tx_input(
@@ -260,7 +305,7 @@ fn measure_validation_inputs(
 fn valid_consensus_input(input_count: Int) -> PerfInput(Transaction(Parsed)) {
   validation_input(
     "valid inputs=" <> int.to_string(input_count),
-    build_synthetic_legacy_tx(input_count, UniquePrevouts),
+    build_synthetic_legacy_tx(input_count, 1, UniquePrevouts),
     ExpectValid,
   )
 }
@@ -270,7 +315,7 @@ fn late_duplicate_consensus_input(
 ) -> PerfInput(Transaction(Parsed)) {
   validation_input(
     "late duplicate inputs=" <> int.to_string(input_count),
-    build_synthetic_legacy_tx(input_count, LastPrevoutDuplicatesFirst),
+    build_synthetic_legacy_tx(input_count, 1, LastPrevoutDuplicatesFirst),
     ExpectLateDuplicate(input_count:),
   )
 }
@@ -390,7 +435,7 @@ fn validated_tx_inputs() -> List(PerfInput(Transaction(Validated))) {
   [
     validated_tx_input("simple legacy tx", simple_legacy_tx),
     validated_tx_input("simple segwit tx", simple_segwit_tx),
-    validated_tx_input("witness-heavy p2wsh tx", witness_heavy_p2wsh_tx),
+    validated_tx_input("witness-heavy tx", witness_heavy_p2wsh_tx),
   ]
 }
 
@@ -486,19 +531,20 @@ type SyntheticPrevoutPattern {
 
 fn build_synthetic_legacy_tx(
   input_count: Int,
+  output_count: Int,
   prevout_pattern: SyntheticPrevoutPattern,
 ) -> BitArray {
   let inputs =
     build_synthetic_legacy_inputs(0, input_count, prevout_pattern, <<>>)
 
-  let output = <<1000:little-size(64), compact_size(0):bits>>
+  let outputs = build_synthetic_legacy_outputs(output_count, <<>>)
 
   <<
     1:little-size(32),
     compact_size(input_count):bits,
     inputs:bits,
-    compact_size(1):bits,
-    output:bits,
+    compact_size(output_count):bits,
+    outputs:bits,
     0:little-size(32),
   >>
 }
@@ -545,6 +591,17 @@ fn build_synthetic_legacy_input(
     compact_size(0):bits,
     0xFFFFFFFF:little-size(32),
   >>
+}
+
+fn build_synthetic_legacy_outputs(remaining: Int, acc: BitArray) -> BitArray {
+  case remaining <= 0 {
+    True -> acc
+    False -> {
+      let output = <<1000:little-size(64), compact_size(0):bits>>
+      let acc = <<acc:bits, output:bits>>
+      build_synthetic_legacy_outputs(remaining - 1, acc)
+    }
+  }
 }
 
 fn synthetic_prev_txid_seed(
