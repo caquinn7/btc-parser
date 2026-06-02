@@ -83,8 +83,8 @@ type PerfInput(a) {
   PerfInput(label: String, input_size_bytes: Int, value: a)
 }
 
-type SyntheticLegacyDecodeCase {
-  SyntheticLegacyDecodeCase(label: String, input_count: Int, output_count: Int)
+type SyntheticLegacyTxCase {
+  SyntheticLegacyTxCase(label: String, input_count: Int, output_count: Int)
 }
 
 type SyntheticSegwitDecodeCase {
@@ -101,8 +101,8 @@ pub fn run() -> PerfResult {
   [
     measure_tx_decoding(),
     measure_consensus_validation(),
-    [measure_txid_computation()],
-    [measure_tx_serialization()],
+    measure_txid_computation(),
+    measure_tx_serialization(),
   ]
   |> list.flatten
   |> PerfResult
@@ -147,14 +147,14 @@ fn measure_fixture_tx_decoding() -> PerfSection {
 fn measure_synthetic_input_tx_decoding() -> PerfSection {
   PerfSection(
     "decode / synthetic inputs",
-    measure_decode_curve(synthetic_input_count_decode_cases),
+    measure_decode_curve(synthetic_input_count_tx_cases),
   )
 }
 
 fn measure_synthetic_output_tx_decoding() -> PerfSection {
   PerfSection(
     "decode / synthetic outputs",
-    measure_decode_curve(synthetic_output_count_decode_cases),
+    measure_decode_curve(synthetic_output_count_tx_cases),
   )
 }
 
@@ -231,7 +231,7 @@ fn measure_decode(
 }
 
 fn measure_decode_curve(
-  build_cases: fn(List(Int)) -> List(SyntheticLegacyDecodeCase),
+  build_cases: fn(List(Int)) -> List(SyntheticLegacyTxCase),
 ) -> List(PerfCaseResult) {
   [
     measure_synthetic_legacy_decoding(
@@ -247,7 +247,7 @@ fn measure_decode_curve(
 }
 
 fn measure_synthetic_legacy_decoding(
-  cases: List(SyntheticLegacyDecodeCase),
+  cases: List(SyntheticLegacyTxCase),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   cases
@@ -280,12 +280,12 @@ fn measure_synthetic_segwit_decoding(
   |> measure_decode(config)
 }
 
-fn synthetic_input_count_decode_cases(
+fn synthetic_input_count_tx_cases(
   input_counts: List(Int),
-) -> List(SyntheticLegacyDecodeCase) {
+) -> List(SyntheticLegacyTxCase) {
   input_counts
   |> list.map(fn(input_count) {
-    SyntheticLegacyDecodeCase(
+    SyntheticLegacyTxCase(
       label: "legacy tx inputs=" <> int.to_string(input_count),
       input_count:,
       output_count: 1,
@@ -293,12 +293,12 @@ fn synthetic_input_count_decode_cases(
   })
 }
 
-fn synthetic_output_count_decode_cases(
+fn synthetic_output_count_tx_cases(
   output_counts: List(Int),
-) -> List(SyntheticLegacyDecodeCase) {
+) -> List(SyntheticLegacyTxCase) {
   output_counts
   |> list.map(fn(output_count) {
-    SyntheticLegacyDecodeCase(
+    SyntheticLegacyTxCase(
       label: "legacy tx outputs=" <> int.to_string(output_count),
       input_count: 1,
       output_count:,
@@ -353,7 +353,7 @@ fn synthetic_witness_payload_decode_cases(
 }
 
 fn synthetic_legacy_decode_input(
-  synthetic_case: SyntheticLegacyDecodeCase,
+  synthetic_case: SyntheticLegacyTxCase,
 ) -> PerfInput(BitArray) {
   let tx_bytes =
     build_synthetic_legacy_tx(
@@ -579,80 +579,234 @@ fn preflight_validate_consensus(
 // Txid computation & serialization
 // ==============================================================================
 
-/// Measures `compute_txid` and `compute_wtxid` on already-validated fixtures.
-/// This excludes decode and consensus-validation cost, leaving serialization and
-/// double-SHA256 work inside the timed region.
-fn measure_txid_computation() -> PerfSection {
-  let config = measurement_config(100)
-  let inputs = validated_tx_inputs()
+/// Measures `compute_txid` and `compute_wtxid` on already-validated
+/// transactions. This excludes decode and consensus-validation cost, leaving
+/// serialization and double-SHA256 work inside the timed region.
+fn measure_txid_computation() -> List(PerfSection) {
+  [
+    measure_fixture_txid_computation(),
+    measure_synthetic_input_txid_computation(),
+    measure_synthetic_output_txid_computation(),
+  ]
+}
 
-  let cases =
-    [
-      run_bench_cases(
-        inputs,
-        [
-          Function(
-            "compute_txid",
-            bench.repeat(config.operations_per_timed_call, btc_tx.compute_txid),
-          ),
-        ],
-        config,
-      ),
-      run_bench_cases(
-        inputs,
-        [
-          Function(
-            "compute_wtxid",
-            bench.repeat(config.operations_per_timed_call, btc_tx.compute_wtxid),
-          ),
-        ],
-        config,
-      ),
-    ]
-    |> list.flatten
+fn measure_fixture_txid_computation() -> PerfSection {
+  PerfSection(
+    "txid computation / fixtures",
+    measure_txid_functions(validated_tx_inputs(), measurement_config(100)),
+  )
+}
 
-  PerfSection("txid computation / fixtures", cases)
+fn measure_synthetic_input_txid_computation() -> PerfSection {
+  PerfSection(
+    "txid computation / synthetic inputs",
+    measure_synthetic_legacy_txid_curve(synthetic_input_count_tx_cases),
+  )
+}
+
+fn measure_synthetic_output_txid_computation() -> PerfSection {
+  PerfSection(
+    "txid computation / synthetic outputs",
+    measure_synthetic_legacy_txid_curve(synthetic_output_count_tx_cases),
+  )
 }
 
 /// Measures `to_stripped_bytes` and `to_witness_bytes` on already-validated
-/// fixtures. Legacy and SegWit transactions are both included because witness
-/// serialization changes the code path and payload shape.
-fn measure_tx_serialization() -> PerfSection {
-  let config = measurement_config(100)
-  let inputs = validated_tx_inputs()
+/// transactions. Fixture cases include legacy and SegWit transactions because
+/// witness serialization changes the code path and payload shape.
+fn measure_tx_serialization() -> List(PerfSection) {
+  [
+    measure_fixture_tx_serialization(),
+    measure_synthetic_input_tx_serialization(),
+    measure_synthetic_output_tx_serialization(),
+  ]
+}
 
-  let cases =
+fn measure_fixture_tx_serialization() -> PerfSection {
+  PerfSection(
+    "serialization / fixtures",
+    measure_serialization_functions(
+      validated_tx_inputs(),
+      measurement_config(100),
+    ),
+  )
+}
+
+fn measure_synthetic_input_tx_serialization() -> PerfSection {
+  PerfSection(
+    "serialization / synthetic inputs",
+    measure_synthetic_legacy_serialization_curve(synthetic_input_count_tx_cases),
+  )
+}
+
+fn measure_synthetic_output_tx_serialization() -> PerfSection {
+  PerfSection(
+    "serialization / synthetic outputs",
+    measure_synthetic_legacy_serialization_curve(
+      synthetic_output_count_tx_cases,
+    ),
+  )
+}
+
+fn measure_synthetic_legacy_txid_curve(
+  build_cases: fn(List(Int)) -> List(SyntheticLegacyTxCase),
+) -> List(PerfCaseResult) {
+  let small_cases = build_cases([1, 20, 100])
+  let large_cases = build_cases([500, 1000])
+  let small_config = small_synthetic_tx_measurement_config()
+  let large_config = large_synthetic_tx_measurement_config()
+
+  [
+    measure_synthetic_legacy_validated_function(
+      small_cases,
+      small_config,
+      "compute_txid",
+      btc_tx.compute_txid,
+    ),
+    measure_synthetic_legacy_validated_function(
+      large_cases,
+      large_config,
+      "compute_txid",
+      btc_tx.compute_txid,
+    ),
+    measure_synthetic_legacy_validated_function(
+      small_cases,
+      small_config,
+      "compute_wtxid",
+      btc_tx.compute_wtxid,
+    ),
+    measure_synthetic_legacy_validated_function(
+      large_cases,
+      large_config,
+      "compute_wtxid",
+      btc_tx.compute_wtxid,
+    ),
+  ]
+  |> list.flatten
+}
+
+fn measure_synthetic_legacy_serialization_curve(
+  build_cases: fn(List(Int)) -> List(SyntheticLegacyTxCase),
+) -> List(PerfCaseResult) {
+  let small_cases = build_cases([1, 20, 100])
+  let large_cases = build_cases([500, 1000])
+  let small_config = small_synthetic_tx_measurement_config()
+  let large_config = large_synthetic_tx_measurement_config()
+
+  [
+    measure_synthetic_legacy_validated_function(
+      small_cases,
+      small_config,
+      "to_stripped_bytes",
+      btc_tx.to_stripped_bytes,
+    ),
+    measure_synthetic_legacy_validated_function(
+      large_cases,
+      large_config,
+      "to_stripped_bytes",
+      btc_tx.to_stripped_bytes,
+    ),
+    measure_synthetic_legacy_validated_function(
+      small_cases,
+      small_config,
+      "to_witness_bytes",
+      btc_tx.to_witness_bytes,
+    ),
+    measure_synthetic_legacy_validated_function(
+      large_cases,
+      large_config,
+      "to_witness_bytes",
+      btc_tx.to_witness_bytes,
+    ),
+  ]
+  |> list.flatten
+}
+
+fn measure_synthetic_legacy_validated_function(
+  cases: List(SyntheticLegacyTxCase),
+  config: PerfMeasurementConfig,
+  function_label: String,
+  measured_function: fn(Transaction(Validated)) -> BitArray,
+) -> List(PerfCaseResult) {
+  cases
+  |> list.map(synthetic_legacy_validated_input)
+  |> measure_validated_tx_function(config, function_label, measured_function)
+}
+
+fn measure_txid_functions(
+  inputs: List(PerfInput(Transaction(Validated))),
+  config: PerfMeasurementConfig,
+) -> List(PerfCaseResult) {
+  [
+    measure_validated_tx_function(
+      inputs,
+      config,
+      "compute_txid",
+      btc_tx.compute_txid,
+    ),
+    measure_validated_tx_function(
+      inputs,
+      config,
+      "compute_wtxid",
+      btc_tx.compute_wtxid,
+    ),
+  ]
+  |> list.flatten
+}
+
+fn measure_serialization_functions(
+  inputs: List(PerfInput(Transaction(Validated))),
+  config: PerfMeasurementConfig,
+) -> List(PerfCaseResult) {
+  [
+    measure_validated_tx_function(
+      inputs,
+      config,
+      "to_stripped_bytes",
+      btc_tx.to_stripped_bytes,
+    ),
+    measure_validated_tx_function(
+      inputs,
+      config,
+      "to_witness_bytes",
+      btc_tx.to_witness_bytes,
+    ),
+  ]
+  |> list.flatten
+}
+
+fn measure_validated_tx_function(
+  inputs: List(PerfInput(Transaction(Validated))),
+  config: PerfMeasurementConfig,
+  function_label: String,
+  measured_function: fn(Transaction(Validated)) -> BitArray,
+) -> List(PerfCaseResult) {
+  run_bench_cases(
+    inputs,
     [
-      run_bench_cases(
-        inputs,
-        [
-          Function(
-            "to_stripped_bytes",
-            bench.repeat(
-              config.operations_per_timed_call,
-              btc_tx.to_stripped_bytes,
-            ),
-          ),
-        ],
-        config,
+      Function(
+        function_label,
+        bench.repeat(config.operations_per_timed_call, measured_function),
       ),
-      run_bench_cases(
-        inputs,
-        [
-          Function(
-            "to_witness_bytes",
-            bench.repeat(
-              config.operations_per_timed_call,
-              btc_tx.to_witness_bytes,
-            ),
-          ),
-        ],
-        config,
-      ),
-    ]
-    |> list.flatten
+    ],
+    config,
+  )
+}
 
-  PerfSection("serialization / fixtures", cases)
+fn synthetic_legacy_validated_input(
+  synthetic_case: SyntheticLegacyTxCase,
+) -> PerfInput(Transaction(Validated)) {
+  let tx_bytes =
+    build_synthetic_legacy_tx(
+      synthetic_case.input_count,
+      synthetic_case.output_count,
+      UniquePrevouts,
+    )
+
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
+
+  PerfInput(synthetic_case.label, bit_array.byte_size(tx_bytes), validated_tx)
 }
 
 fn validated_tx_inputs() -> List(PerfInput(Transaction(Validated))) {
