@@ -727,7 +727,7 @@ fn measure_synthetic_segwit_input_txid_computation() -> PerfSection {
 fn measure_synthetic_witness_item_txid_computation() -> PerfSection {
   PerfSection(
     "txid computation / synthetic witness items",
-    measure_synthetic_segwit_txid_curve(synthetic_witness_item_tx_specs),
+    measure_synthetic_witness_wtxid_curve(synthetic_witness_item_tx_specs),
   )
 }
 
@@ -739,18 +739,6 @@ fn measure_synthetic_witness_payload_txid_computation() -> PerfSection {
 
   let cases =
     [
-      measure_synthetic_segwit_validated_function(
-        small_specs,
-        small_config,
-        "compute_txid",
-        btc_tx.compute_txid,
-      ),
-      measure_synthetic_segwit_validated_function(
-        large_specs,
-        large_config,
-        "compute_txid",
-        btc_tx.compute_txid,
-      ),
       measure_synthetic_segwit_validated_function(
         small_specs,
         small_config,
@@ -821,7 +809,7 @@ fn measure_synthetic_segwit_input_tx_serialization() -> PerfSection {
 fn measure_synthetic_witness_item_tx_serialization() -> PerfSection {
   PerfSection(
     "serialization / synthetic witness items",
-    measure_synthetic_segwit_serialization_curve(
+    measure_synthetic_witness_serialization_curve(
       synthetic_witness_item_tx_specs,
     ),
   )
@@ -835,18 +823,6 @@ fn measure_synthetic_witness_payload_tx_serialization() -> PerfSection {
 
   let cases =
     [
-      measure_synthetic_segwit_validated_function(
-        small_specs,
-        small_config,
-        "to_stripped_bytes",
-        btc_tx.to_stripped_bytes,
-      ),
-      measure_synthetic_segwit_validated_function(
-        large_specs,
-        large_config,
-        "to_stripped_bytes",
-        btc_tx.to_stripped_bytes,
-      ),
       measure_synthetic_segwit_validated_function(
         small_specs,
         small_config,
@@ -976,6 +952,31 @@ fn measure_synthetic_segwit_txid_curve(
   |> list.flatten
 }
 
+fn measure_synthetic_witness_wtxid_curve(
+  build_specs: fn(List(Int)) -> List(SyntheticSegwitTxSpec),
+) -> List(PerfCaseResult) {
+  let small_specs = build_specs([1, 20, 100])
+  let large_specs = build_specs([500, 1000])
+  let small_config = small_synthetic_tx_measurement_config()
+  let large_config = large_synthetic_tx_measurement_config()
+
+  [
+    measure_synthetic_segwit_validated_function(
+      small_specs,
+      small_config,
+      "compute_wtxid",
+      btc_tx.compute_wtxid,
+    ),
+    measure_synthetic_segwit_validated_function(
+      large_specs,
+      large_config,
+      "compute_wtxid",
+      btc_tx.compute_wtxid,
+    ),
+  ]
+  |> list.flatten
+}
+
 fn measure_synthetic_segwit_serialization_curve(
   build_specs: fn(List(Int)) -> List(SyntheticSegwitTxSpec),
 ) -> List(PerfCaseResult) {
@@ -997,6 +998,31 @@ fn measure_synthetic_segwit_serialization_curve(
       "to_stripped_bytes",
       btc_tx.to_stripped_bytes,
     ),
+    measure_synthetic_segwit_validated_function(
+      small_specs,
+      small_config,
+      "to_witness_bytes",
+      btc_tx.to_witness_bytes,
+    ),
+    measure_synthetic_segwit_validated_function(
+      large_specs,
+      large_config,
+      "to_witness_bytes",
+      btc_tx.to_witness_bytes,
+    ),
+  ]
+  |> list.flatten
+}
+
+fn measure_synthetic_witness_serialization_curve(
+  build_specs: fn(List(Int)) -> List(SyntheticSegwitTxSpec),
+) -> List(PerfCaseResult) {
+  let small_specs = build_specs([1, 20, 100])
+  let large_specs = build_specs([500, 1000])
+  let small_config = small_synthetic_tx_measurement_config()
+  let large_config = large_synthetic_tx_measurement_config()
+
+  [
     measure_synthetic_segwit_validated_function(
       small_specs,
       small_config,
