@@ -862,18 +862,6 @@ fn measure_synthetic_legacy_txid_curve(
       "compute_txid",
       btc_tx.compute_txid,
     ),
-    measure_synthetic_legacy_validated_function(
-      small_specs,
-      small_config,
-      "compute_wtxid",
-      btc_tx.compute_wtxid,
-    ),
-    measure_synthetic_legacy_validated_function(
-      large_specs,
-      large_config,
-      "compute_wtxid",
-      btc_tx.compute_wtxid,
-    ),
   ]
   |> list.flatten
 }
@@ -898,18 +886,6 @@ fn measure_synthetic_legacy_serialization_curve(
       large_config,
       "to_stripped_bytes",
       btc_tx.to_stripped_bytes,
-    ),
-    measure_synthetic_legacy_validated_function(
-      small_specs,
-      small_config,
-      "to_witness_bytes",
-      btc_tx.to_witness_bytes,
-    ),
-    measure_synthetic_legacy_validated_function(
-      large_specs,
-      large_config,
-      "to_witness_bytes",
-      btc_tx.to_witness_bytes,
     ),
   ]
   |> list.flatten
