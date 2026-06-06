@@ -79,16 +79,16 @@ pub type PerfCaseResult {
   )
 }
 
-type PerfInput(a) {
-  PerfInput(label: String, input_size_bytes: Int, value: a)
+type PerfCaseInput(a) {
+  PerfCaseInput(label: String, input_size_bytes: Int, value: a)
 }
 
-type SyntheticLegacyTxCase {
-  SyntheticLegacyTxCase(label: String, input_count: Int, output_count: Int)
+type SyntheticLegacyTxSpec {
+  SyntheticLegacyTxSpec(label: String, input_count: Int, output_count: Int)
 }
 
-type SyntheticSegwitTxCase {
-  SyntheticSegwitTxCase(
+type SyntheticSegwitTxSpec {
+  SyntheticSegwitTxSpec(
     label: String,
     input_count: Int,
     output_count: Int,
@@ -133,9 +133,9 @@ fn measure_tx_decoding() -> List(PerfSection) {
 
 fn measure_fixture_tx_decoding() -> PerfSection {
   let fixture_decode_inputs = [
-    decoded_tx_input("simple legacy tx", simple_legacy_tx),
-    decoded_tx_input("simple segwit tx", simple_segwit_tx),
-    decoded_tx_input("witness-heavy tx", witness_heavy_p2wsh_tx),
+    fixture_decode_case("simple legacy tx", simple_legacy_tx),
+    fixture_decode_case("simple segwit tx", simple_segwit_tx),
+    fixture_decode_case("witness-heavy tx", witness_heavy_p2wsh_tx),
   ]
 
   PerfSection(
@@ -147,28 +147,28 @@ fn measure_fixture_tx_decoding() -> PerfSection {
 fn measure_synthetic_input_tx_decoding() -> PerfSection {
   PerfSection(
     "decode / synthetic inputs",
-    measure_decode_curve(synthetic_input_count_tx_cases),
+    measure_decode_curve(synthetic_input_count_tx_specs),
   )
 }
 
 fn measure_synthetic_output_tx_decoding() -> PerfSection {
   PerfSection(
     "decode / synthetic outputs",
-    measure_decode_curve(synthetic_output_count_tx_cases),
+    measure_decode_curve(synthetic_output_count_tx_specs),
   )
 }
 
 fn measure_synthetic_segwit_input_tx_decoding() -> PerfSection {
   PerfSection(
     "decode / synthetic segwit inputs",
-    measure_synthetic_segwit_decode_curve(synthetic_segwit_input_count_tx_cases),
+    measure_synthetic_segwit_decode_curve(synthetic_segwit_input_count_tx_specs),
   )
 }
 
 fn measure_synthetic_witness_item_tx_decoding() -> PerfSection {
   PerfSection(
     "decode / synthetic witness items",
-    measure_synthetic_segwit_decode_curve(synthetic_witness_item_tx_cases),
+    measure_synthetic_segwit_decode_curve(synthetic_witness_item_tx_specs),
   )
 }
 
@@ -176,11 +176,11 @@ fn measure_synthetic_witness_payload_tx_decoding() -> PerfSection {
   let cases =
     [
       measure_synthetic_segwit_decoding(
-        synthetic_witness_payload_tx_cases([64, 1024, 10_000]),
+        synthetic_witness_payload_tx_specs([64, 1024, 10_000]),
         small_synthetic_tx_measurement_config(),
       ),
       measure_synthetic_segwit_decoding(
-        synthetic_witness_payload_tx_cases([50_000, 100_000]),
+        synthetic_witness_payload_tx_specs([50_000, 100_000]),
         large_synthetic_tx_measurement_config(),
       ),
     ]
@@ -191,8 +191,14 @@ fn measure_synthetic_witness_payload_tx_decoding() -> PerfSection {
 
 fn measure_malformed_tx_decoding() -> PerfSection {
   let malformed_decode_inputs = [
-    late_truncated_tx_input("late truncated simple legacy tx", simple_legacy_tx),
-    late_truncated_tx_input("late truncated simple segwit tx", simple_segwit_tx),
+    late_truncated_decode_case(
+      "late truncated simple legacy tx",
+      simple_legacy_tx,
+    ),
+    late_truncated_decode_case(
+      "late truncated simple segwit tx",
+      simple_segwit_tx,
+    ),
   ]
 
   PerfSection(
@@ -203,7 +209,7 @@ fn measure_malformed_tx_decoding() -> PerfSection {
 
 fn measure_policy_limit_tx_decoding() -> PerfSection {
   let policy_limit_decode_inputs = [
-    oversized_scriptsig_policy_input("oversized scriptSig tx"),
+    oversized_scriptsig_policy_decode_case("oversized scriptSig tx"),
   ]
 
   PerfSection(
@@ -213,7 +219,7 @@ fn measure_policy_limit_tx_decoding() -> PerfSection {
 }
 
 fn measure_decode(
-  inputs: List(PerfInput(BitArray)),
+  inputs: List(PerfCaseInput(BitArray)),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   run_bench_cases(
@@ -229,15 +235,15 @@ fn measure_decode(
 }
 
 fn measure_decode_curve(
-  build_cases: fn(List(Int)) -> List(SyntheticLegacyTxCase),
+  build_specs: fn(List(Int)) -> List(SyntheticLegacyTxSpec),
 ) -> List(PerfCaseResult) {
   [
     measure_synthetic_legacy_decoding(
-      build_cases([1, 20, 100]),
+      build_specs([1, 20, 100]),
       small_synthetic_tx_measurement_config(),
     ),
     measure_synthetic_legacy_decoding(
-      build_cases([500, 1000]),
+      build_specs([500, 1000]),
       large_synthetic_tx_measurement_config(),
     ),
   ]
@@ -245,24 +251,24 @@ fn measure_decode_curve(
 }
 
 fn measure_synthetic_legacy_decoding(
-  cases: List(SyntheticLegacyTxCase),
+  specs: List(SyntheticLegacyTxSpec),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
-  cases
-  |> list.map(synthetic_legacy_decode_input)
+  specs
+  |> list.map(synthetic_legacy_decode_case)
   |> measure_decode(config)
 }
 
 fn measure_synthetic_segwit_decode_curve(
-  build_cases: fn(List(Int)) -> List(SyntheticSegwitTxCase),
+  build_specs: fn(List(Int)) -> List(SyntheticSegwitTxSpec),
 ) -> List(PerfCaseResult) {
   [
     measure_synthetic_segwit_decoding(
-      build_cases([1, 20, 100]),
+      build_specs([1, 20, 100]),
       small_synthetic_tx_measurement_config(),
     ),
     measure_synthetic_segwit_decoding(
-      build_cases([500, 1000]),
+      build_specs([500, 1000]),
       large_synthetic_tx_measurement_config(),
     ),
   ]
@@ -270,20 +276,20 @@ fn measure_synthetic_segwit_decode_curve(
 }
 
 fn measure_synthetic_segwit_decoding(
-  cases: List(SyntheticSegwitTxCase),
+  specs: List(SyntheticSegwitTxSpec),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
-  cases
-  |> list.map(synthetic_segwit_decode_input)
+  specs
+  |> list.map(synthetic_segwit_decode_case)
   |> measure_decode(config)
 }
 
-fn synthetic_input_count_tx_cases(
+fn synthetic_input_count_tx_specs(
   input_counts: List(Int),
-) -> List(SyntheticLegacyTxCase) {
+) -> List(SyntheticLegacyTxSpec) {
   input_counts
   |> list.map(fn(input_count) {
-    SyntheticLegacyTxCase(
+    SyntheticLegacyTxSpec(
       label: "legacy tx inputs=" <> int.to_string(input_count),
       input_count:,
       output_count: 1,
@@ -291,12 +297,12 @@ fn synthetic_input_count_tx_cases(
   })
 }
 
-fn synthetic_output_count_tx_cases(
+fn synthetic_output_count_tx_specs(
   output_counts: List(Int),
-) -> List(SyntheticLegacyTxCase) {
+) -> List(SyntheticLegacyTxSpec) {
   output_counts
   |> list.map(fn(output_count) {
-    SyntheticLegacyTxCase(
+    SyntheticLegacyTxSpec(
       label: "legacy tx outputs=" <> int.to_string(output_count),
       input_count: 1,
       output_count:,
@@ -304,12 +310,12 @@ fn synthetic_output_count_tx_cases(
   })
 }
 
-fn synthetic_segwit_input_count_tx_cases(
+fn synthetic_segwit_input_count_tx_specs(
   input_counts: List(Int),
-) -> List(SyntheticSegwitTxCase) {
+) -> List(SyntheticSegwitTxSpec) {
   input_counts
   |> list.map(fn(input_count) {
-    SyntheticSegwitTxCase(
+    SyntheticSegwitTxSpec(
       label: "segwit tx inputs=" <> int.to_string(input_count),
       input_count:,
       output_count: 1,
@@ -319,12 +325,12 @@ fn synthetic_segwit_input_count_tx_cases(
   })
 }
 
-fn synthetic_witness_item_tx_cases(
+fn synthetic_witness_item_tx_specs(
   witness_item_counts: List(Int),
-) -> List(SyntheticSegwitTxCase) {
+) -> List(SyntheticSegwitTxSpec) {
   witness_item_counts
   |> list.map(fn(witness_items_per_input) {
-    SyntheticSegwitTxCase(
+    SyntheticSegwitTxSpec(
       label: "segwit tx witness_items="
         <> int.to_string(witness_items_per_input),
       input_count: 1,
@@ -335,12 +341,12 @@ fn synthetic_witness_item_tx_cases(
   })
 }
 
-fn synthetic_witness_payload_tx_cases(
+fn synthetic_witness_payload_tx_specs(
   witness_item_sizes: List(Int),
-) -> List(SyntheticSegwitTxCase) {
+) -> List(SyntheticSegwitTxSpec) {
   witness_item_sizes
   |> list.map(fn(witness_item_size) {
-    SyntheticSegwitTxCase(
+    SyntheticSegwitTxSpec(
       label: "segwit tx witness_bytes=" <> int.to_string(witness_item_size),
       input_count: 1,
       output_count: 1,
@@ -350,56 +356,56 @@ fn synthetic_witness_payload_tx_cases(
   })
 }
 
-fn synthetic_legacy_decode_input(
-  synthetic_case: SyntheticLegacyTxCase,
-) -> PerfInput(BitArray) {
+fn synthetic_legacy_decode_case(
+  synthetic_spec: SyntheticLegacyTxSpec,
+) -> PerfCaseInput(BitArray) {
   let tx_bytes =
     build_synthetic_legacy_tx(
-      synthetic_case.input_count,
-      synthetic_case.output_count,
+      synthetic_spec.input_count,
+      synthetic_spec.output_count,
       UniquePrevouts,
     )
 
   let assert Ok(_) = btc_tx.decode(tx_bytes)
 
-  PerfInput(synthetic_case.label, bit_array.byte_size(tx_bytes), tx_bytes)
+  PerfCaseInput(synthetic_spec.label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
 
-fn synthetic_segwit_decode_input(
-  synthetic_case: SyntheticSegwitTxCase,
-) -> PerfInput(BitArray) {
+fn synthetic_segwit_decode_case(
+  synthetic_spec: SyntheticSegwitTxSpec,
+) -> PerfCaseInput(BitArray) {
   let tx_bytes =
     build_synthetic_segwit_tx(
-      synthetic_case.input_count,
-      synthetic_case.output_count,
-      synthetic_case.witness_items_per_input,
-      synthetic_case.witness_item_size,
+      synthetic_spec.input_count,
+      synthetic_spec.output_count,
+      synthetic_spec.witness_items_per_input,
+      synthetic_spec.witness_item_size,
     )
 
   let assert Ok(_) = btc_tx.decode(tx_bytes)
 
-  PerfInput(synthetic_case.label, bit_array.byte_size(tx_bytes), tx_bytes)
+  PerfCaseInput(synthetic_spec.label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
 
-fn decoded_tx_input(
+fn fixture_decode_case(
   input_label: String,
   tx_hex: String,
-) -> PerfInput(BitArray) {
+) -> PerfCaseInput(BitArray) {
   let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
   let assert Ok(_) = btc_tx.decode(tx_bytes)
 
-  PerfInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
+  PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
 
-fn late_truncated_tx_input(
+fn late_truncated_decode_case(
   input_label: String,
   tx_hex: String,
-) -> PerfInput(BitArray) {
+) -> PerfCaseInput(BitArray) {
   let assert Ok(valid_tx_bytes) = bit_array.base16_decode(tx_hex)
   let tx_bytes = drop_last_byte(valid_tx_bytes)
   let assert Error(ParseFailed(_)) = btc_tx.decode(tx_bytes)
 
-  PerfInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
+  PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
 
 fn drop_last_byte(bytes: BitArray) -> BitArray {
@@ -408,9 +414,9 @@ fn drop_last_byte(bytes: BitArray) -> BitArray {
   truncated
 }
 
-fn oversized_scriptsig_policy_input(
+fn oversized_scriptsig_policy_decode_case(
   input_label: String,
-) -> PerfInput(BitArray) {
+) -> PerfCaseInput(BitArray) {
   let max_script_size =
     btc_tx.default_decode_policy()
     |> btc_tx.decode_policy_max_script_size
@@ -434,7 +440,7 @@ fn oversized_scriptsig_policy_input(
   assert btc_tx.parse_error_kind(parse_err)
     == PolicyLimitExceeded(script_sig_size, max_script_size)
 
-  PerfInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
+  PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
 
 // ==============================================================================
@@ -455,14 +461,14 @@ fn measure_consensus_validation() -> List(PerfSection) {
 fn measure_valid_consensus_validation() -> PerfSection {
   let cases =
     [
-      measure_validation_inputs(
+      measure_validation_input_counts(
         [1, 20, 100],
-        valid_consensus_input,
+        valid_input_count_consensus_case,
         small_synthetic_tx_measurement_config(),
       ),
-      measure_validation_inputs(
+      measure_validation_input_counts(
         [500, 1000],
-        valid_consensus_input,
+        valid_input_count_consensus_case,
         large_synthetic_tx_measurement_config(),
       ),
     ]
@@ -474,14 +480,14 @@ fn measure_valid_consensus_validation() -> PerfSection {
 fn measure_duplicate_consensus_validation() -> PerfSection {
   let cases =
     [
-      measure_validation_inputs(
+      measure_validation_input_counts(
         [20, 100],
-        late_duplicate_consensus_input,
+        late_duplicate_input_count_consensus_case,
         small_synthetic_tx_measurement_config(),
       ),
-      measure_validation_inputs(
+      measure_validation_input_counts(
         [500, 1000],
-        late_duplicate_consensus_input,
+        late_duplicate_input_count_consensus_case,
         large_synthetic_tx_measurement_config(),
       ),
     ]
@@ -490,47 +496,49 @@ fn measure_duplicate_consensus_validation() -> PerfSection {
   PerfSection("validate_consensus / duplicate inputs", cases)
 }
 
-fn measure_validation_inputs(
+fn measure_validation_input_counts(
   input_counts: List(Int),
-  build_input: fn(Int) -> PerfInput(Transaction(Parsed)),
+  build_case: fn(Int) -> PerfCaseInput(Transaction(Parsed)),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   input_counts
-  |> list.map(build_input)
+  |> list.map(build_case)
   |> measure_validate_consensus(config)
 }
 
-fn valid_consensus_input(input_count: Int) -> PerfInput(Transaction(Parsed)) {
-  validation_input(
+fn valid_input_count_consensus_case(
+  input_count: Int,
+) -> PerfCaseInput(Transaction(Parsed)) {
+  consensus_validation_case(
     "valid inputs=" <> int.to_string(input_count),
     build_synthetic_legacy_tx(input_count, 1, UniquePrevouts),
     ExpectValid,
   )
 }
 
-fn late_duplicate_consensus_input(
+fn late_duplicate_input_count_consensus_case(
   input_count: Int,
-) -> PerfInput(Transaction(Parsed)) {
-  validation_input(
+) -> PerfCaseInput(Transaction(Parsed)) {
+  consensus_validation_case(
     "late duplicate inputs=" <> int.to_string(input_count),
     build_synthetic_legacy_tx(input_count, 1, LastPrevoutDuplicatesFirst),
     ExpectLateDuplicate(input_count:),
   )
 }
 
-fn validation_input(
+fn consensus_validation_case(
   label: String,
   tx_bytes: BitArray,
   expectation: ValidationExpectation,
-) -> PerfInput(Transaction(Parsed)) {
+) -> PerfCaseInput(Transaction(Parsed)) {
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
   preflight_validate_consensus(parsed_tx, expectation)
 
-  PerfInput(label, bit_array.byte_size(tx_bytes), parsed_tx)
+  PerfCaseInput(label, bit_array.byte_size(tx_bytes), parsed_tx)
 }
 
 fn measure_validate_consensus(
-  inputs: List(PerfInput(Transaction(Parsed))),
+  inputs: List(PerfCaseInput(Transaction(Parsed))),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   run_bench_cases(
@@ -594,66 +602,69 @@ fn measure_txid_computation() -> List(PerfSection) {
 fn measure_fixture_txid_computation() -> PerfSection {
   PerfSection(
     "txid computation / fixtures",
-    measure_txid_functions(validated_tx_inputs(), measurement_config(100)),
+    measure_txid_functions(
+      fixture_validated_tx_cases(),
+      measurement_config(100),
+    ),
   )
 }
 
 fn measure_synthetic_input_txid_computation() -> PerfSection {
   PerfSection(
     "txid computation / synthetic inputs",
-    measure_synthetic_legacy_txid_curve(synthetic_input_count_tx_cases),
+    measure_synthetic_legacy_txid_curve(synthetic_input_count_tx_specs),
   )
 }
 
 fn measure_synthetic_output_txid_computation() -> PerfSection {
   PerfSection(
     "txid computation / synthetic outputs",
-    measure_synthetic_legacy_txid_curve(synthetic_output_count_tx_cases),
+    measure_synthetic_legacy_txid_curve(synthetic_output_count_tx_specs),
   )
 }
 
 fn measure_synthetic_segwit_input_txid_computation() -> PerfSection {
   PerfSection(
     "txid computation / synthetic segwit inputs",
-    measure_synthetic_segwit_txid_curve(synthetic_segwit_input_count_tx_cases),
+    measure_synthetic_segwit_txid_curve(synthetic_segwit_input_count_tx_specs),
   )
 }
 
 fn measure_synthetic_witness_item_txid_computation() -> PerfSection {
   PerfSection(
     "txid computation / synthetic witness items",
-    measure_synthetic_segwit_txid_curve(synthetic_witness_item_tx_cases),
+    measure_synthetic_segwit_txid_curve(synthetic_witness_item_tx_specs),
   )
 }
 
 fn measure_synthetic_witness_payload_txid_computation() -> PerfSection {
-  let small_cases = synthetic_witness_payload_tx_cases([64, 1024, 10_000])
-  let large_cases = synthetic_witness_payload_tx_cases([50_000, 100_000])
+  let small_specs = synthetic_witness_payload_tx_specs([64, 1024, 10_000])
+  let large_specs = synthetic_witness_payload_tx_specs([50_000, 100_000])
   let small_config = small_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
 
   let cases =
     [
       measure_synthetic_segwit_validated_function(
-        small_cases,
+        small_specs,
         small_config,
         "compute_txid",
         btc_tx.compute_txid,
       ),
       measure_synthetic_segwit_validated_function(
-        large_cases,
+        large_specs,
         large_config,
         "compute_txid",
         btc_tx.compute_txid,
       ),
       measure_synthetic_segwit_validated_function(
-        small_cases,
+        small_specs,
         small_config,
         "compute_wtxid",
         btc_tx.compute_wtxid,
       ),
       measure_synthetic_segwit_validated_function(
-        large_cases,
+        large_specs,
         large_config,
         "compute_wtxid",
         btc_tx.compute_wtxid,
@@ -682,7 +693,7 @@ fn measure_fixture_tx_serialization() -> PerfSection {
   PerfSection(
     "serialization / fixtures",
     measure_serialization_functions(
-      validated_tx_inputs(),
+      fixture_validated_tx_cases(),
       measurement_config(100),
     ),
   )
@@ -691,7 +702,7 @@ fn measure_fixture_tx_serialization() -> PerfSection {
 fn measure_synthetic_input_tx_serialization() -> PerfSection {
   PerfSection(
     "serialization / synthetic inputs",
-    measure_synthetic_legacy_serialization_curve(synthetic_input_count_tx_cases),
+    measure_synthetic_legacy_serialization_curve(synthetic_input_count_tx_specs),
   )
 }
 
@@ -699,7 +710,7 @@ fn measure_synthetic_output_tx_serialization() -> PerfSection {
   PerfSection(
     "serialization / synthetic outputs",
     measure_synthetic_legacy_serialization_curve(
-      synthetic_output_count_tx_cases,
+      synthetic_output_count_tx_specs,
     ),
   )
 }
@@ -708,7 +719,7 @@ fn measure_synthetic_segwit_input_tx_serialization() -> PerfSection {
   PerfSection(
     "serialization / synthetic segwit inputs",
     measure_synthetic_segwit_serialization_curve(
-      synthetic_segwit_input_count_tx_cases,
+      synthetic_segwit_input_count_tx_specs,
     ),
   )
 }
@@ -717,39 +728,39 @@ fn measure_synthetic_witness_item_tx_serialization() -> PerfSection {
   PerfSection(
     "serialization / synthetic witness items",
     measure_synthetic_segwit_serialization_curve(
-      synthetic_witness_item_tx_cases,
+      synthetic_witness_item_tx_specs,
     ),
   )
 }
 
 fn measure_synthetic_witness_payload_tx_serialization() -> PerfSection {
-  let small_cases = synthetic_witness_payload_tx_cases([64, 1024, 10_000])
-  let large_cases = synthetic_witness_payload_tx_cases([50_000, 100_000])
+  let small_specs = synthetic_witness_payload_tx_specs([64, 1024, 10_000])
+  let large_specs = synthetic_witness_payload_tx_specs([50_000, 100_000])
   let small_config = small_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
 
   let cases =
     [
       measure_synthetic_segwit_validated_function(
-        small_cases,
+        small_specs,
         small_config,
         "to_stripped_bytes",
         btc_tx.to_stripped_bytes,
       ),
       measure_synthetic_segwit_validated_function(
-        large_cases,
+        large_specs,
         large_config,
         "to_stripped_bytes",
         btc_tx.to_stripped_bytes,
       ),
       measure_synthetic_segwit_validated_function(
-        small_cases,
+        small_specs,
         small_config,
         "to_witness_bytes",
         btc_tx.to_witness_bytes,
       ),
       measure_synthetic_segwit_validated_function(
-        large_cases,
+        large_specs,
         large_config,
         "to_witness_bytes",
         btc_tx.to_witness_bytes,
@@ -761,34 +772,34 @@ fn measure_synthetic_witness_payload_tx_serialization() -> PerfSection {
 }
 
 fn measure_synthetic_legacy_txid_curve(
-  build_cases: fn(List(Int)) -> List(SyntheticLegacyTxCase),
+  build_specs: fn(List(Int)) -> List(SyntheticLegacyTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_cases = build_cases([1, 20, 100])
-  let large_cases = build_cases([500, 1000])
+  let small_specs = build_specs([1, 20, 100])
+  let large_specs = build_specs([500, 1000])
   let small_config = small_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
 
   [
     measure_synthetic_legacy_validated_function(
-      small_cases,
+      small_specs,
       small_config,
       "compute_txid",
       btc_tx.compute_txid,
     ),
     measure_synthetic_legacy_validated_function(
-      large_cases,
+      large_specs,
       large_config,
       "compute_txid",
       btc_tx.compute_txid,
     ),
     measure_synthetic_legacy_validated_function(
-      small_cases,
+      small_specs,
       small_config,
       "compute_wtxid",
       btc_tx.compute_wtxid,
     ),
     measure_synthetic_legacy_validated_function(
-      large_cases,
+      large_specs,
       large_config,
       "compute_wtxid",
       btc_tx.compute_wtxid,
@@ -798,34 +809,34 @@ fn measure_synthetic_legacy_txid_curve(
 }
 
 fn measure_synthetic_legacy_serialization_curve(
-  build_cases: fn(List(Int)) -> List(SyntheticLegacyTxCase),
+  build_specs: fn(List(Int)) -> List(SyntheticLegacyTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_cases = build_cases([1, 20, 100])
-  let large_cases = build_cases([500, 1000])
+  let small_specs = build_specs([1, 20, 100])
+  let large_specs = build_specs([500, 1000])
   let small_config = small_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
 
   [
     measure_synthetic_legacy_validated_function(
-      small_cases,
+      small_specs,
       small_config,
       "to_stripped_bytes",
       btc_tx.to_stripped_bytes,
     ),
     measure_synthetic_legacy_validated_function(
-      large_cases,
+      large_specs,
       large_config,
       "to_stripped_bytes",
       btc_tx.to_stripped_bytes,
     ),
     measure_synthetic_legacy_validated_function(
-      small_cases,
+      small_specs,
       small_config,
       "to_witness_bytes",
       btc_tx.to_witness_bytes,
     ),
     measure_synthetic_legacy_validated_function(
-      large_cases,
+      large_specs,
       large_config,
       "to_witness_bytes",
       btc_tx.to_witness_bytes,
@@ -835,34 +846,34 @@ fn measure_synthetic_legacy_serialization_curve(
 }
 
 fn measure_synthetic_segwit_txid_curve(
-  build_cases: fn(List(Int)) -> List(SyntheticSegwitTxCase),
+  build_specs: fn(List(Int)) -> List(SyntheticSegwitTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_cases = build_cases([1, 20, 100])
-  let large_cases = build_cases([500, 1000])
+  let small_specs = build_specs([1, 20, 100])
+  let large_specs = build_specs([500, 1000])
   let small_config = small_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
 
   [
     measure_synthetic_segwit_validated_function(
-      small_cases,
+      small_specs,
       small_config,
       "compute_txid",
       btc_tx.compute_txid,
     ),
     measure_synthetic_segwit_validated_function(
-      large_cases,
+      large_specs,
       large_config,
       "compute_txid",
       btc_tx.compute_txid,
     ),
     measure_synthetic_segwit_validated_function(
-      small_cases,
+      small_specs,
       small_config,
       "compute_wtxid",
       btc_tx.compute_wtxid,
     ),
     measure_synthetic_segwit_validated_function(
-      large_cases,
+      large_specs,
       large_config,
       "compute_wtxid",
       btc_tx.compute_wtxid,
@@ -872,34 +883,34 @@ fn measure_synthetic_segwit_txid_curve(
 }
 
 fn measure_synthetic_segwit_serialization_curve(
-  build_cases: fn(List(Int)) -> List(SyntheticSegwitTxCase),
+  build_specs: fn(List(Int)) -> List(SyntheticSegwitTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_cases = build_cases([1, 20, 100])
-  let large_cases = build_cases([500, 1000])
+  let small_specs = build_specs([1, 20, 100])
+  let large_specs = build_specs([500, 1000])
   let small_config = small_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
 
   [
     measure_synthetic_segwit_validated_function(
-      small_cases,
+      small_specs,
       small_config,
       "to_stripped_bytes",
       btc_tx.to_stripped_bytes,
     ),
     measure_synthetic_segwit_validated_function(
-      large_cases,
+      large_specs,
       large_config,
       "to_stripped_bytes",
       btc_tx.to_stripped_bytes,
     ),
     measure_synthetic_segwit_validated_function(
-      small_cases,
+      small_specs,
       small_config,
       "to_witness_bytes",
       btc_tx.to_witness_bytes,
     ),
     measure_synthetic_segwit_validated_function(
-      large_cases,
+      large_specs,
       large_config,
       "to_witness_bytes",
       btc_tx.to_witness_bytes,
@@ -909,29 +920,29 @@ fn measure_synthetic_segwit_serialization_curve(
 }
 
 fn measure_synthetic_legacy_validated_function(
-  cases: List(SyntheticLegacyTxCase),
+  specs: List(SyntheticLegacyTxSpec),
   config: PerfMeasurementConfig,
   function_label: String,
   measured_function: fn(Transaction(Validated)) -> BitArray,
 ) -> List(PerfCaseResult) {
-  cases
-  |> list.map(synthetic_legacy_validated_input)
+  specs
+  |> list.map(synthetic_legacy_validated_case)
   |> measure_validated_tx_function(config, function_label, measured_function)
 }
 
 fn measure_synthetic_segwit_validated_function(
-  cases: List(SyntheticSegwitTxCase),
+  specs: List(SyntheticSegwitTxSpec),
   config: PerfMeasurementConfig,
   function_label: String,
   measured_function: fn(Transaction(Validated)) -> BitArray,
 ) -> List(PerfCaseResult) {
-  cases
-  |> list.map(synthetic_segwit_validated_input)
+  specs
+  |> list.map(synthetic_segwit_validated_case)
   |> measure_validated_tx_function(config, function_label, measured_function)
 }
 
 fn measure_txid_functions(
-  inputs: List(PerfInput(Transaction(Validated))),
+  inputs: List(PerfCaseInput(Transaction(Validated))),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   [
@@ -952,7 +963,7 @@ fn measure_txid_functions(
 }
 
 fn measure_serialization_functions(
-  inputs: List(PerfInput(Transaction(Validated))),
+  inputs: List(PerfCaseInput(Transaction(Validated))),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   [
@@ -973,7 +984,7 @@ fn measure_serialization_functions(
 }
 
 fn measure_validated_tx_function(
-  inputs: List(PerfInput(Transaction(Validated))),
+  inputs: List(PerfCaseInput(Transaction(Validated))),
   config: PerfMeasurementConfig,
   function_label: String,
   measured_function: fn(Transaction(Validated)) -> BitArray,
@@ -990,52 +1001,60 @@ fn measure_validated_tx_function(
   )
 }
 
-fn synthetic_legacy_validated_input(
-  synthetic_case: SyntheticLegacyTxCase,
-) -> PerfInput(Transaction(Validated)) {
+fn synthetic_legacy_validated_case(
+  synthetic_spec: SyntheticLegacyTxSpec,
+) -> PerfCaseInput(Transaction(Validated)) {
   let tx_bytes =
     build_synthetic_legacy_tx(
-      synthetic_case.input_count,
-      synthetic_case.output_count,
+      synthetic_spec.input_count,
+      synthetic_spec.output_count,
       UniquePrevouts,
     )
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
   let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
 
-  PerfInput(synthetic_case.label, bit_array.byte_size(tx_bytes), validated_tx)
+  PerfCaseInput(
+    synthetic_spec.label,
+    bit_array.byte_size(tx_bytes),
+    validated_tx,
+  )
 }
 
-fn synthetic_segwit_validated_input(
-  synthetic_case: SyntheticSegwitTxCase,
-) -> PerfInput(Transaction(Validated)) {
+fn synthetic_segwit_validated_case(
+  synthetic_spec: SyntheticSegwitTxSpec,
+) -> PerfCaseInput(Transaction(Validated)) {
   let tx_bytes =
     build_synthetic_segwit_tx(
-      synthetic_case.input_count,
-      synthetic_case.output_count,
-      synthetic_case.witness_items_per_input,
-      synthetic_case.witness_item_size,
+      synthetic_spec.input_count,
+      synthetic_spec.output_count,
+      synthetic_spec.witness_items_per_input,
+      synthetic_spec.witness_item_size,
     )
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
   let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
 
-  PerfInput(synthetic_case.label, bit_array.byte_size(tx_bytes), validated_tx)
+  PerfCaseInput(
+    synthetic_spec.label,
+    bit_array.byte_size(tx_bytes),
+    validated_tx,
+  )
 }
 
-fn validated_tx_inputs() -> List(PerfInput(Transaction(Validated))) {
-  let validated_tx_input = fn(input_label, tx_hex) {
+fn fixture_validated_tx_cases() -> List(PerfCaseInput(Transaction(Validated))) {
+  let fixture_validated_tx_case = fn(input_label, tx_hex) {
     let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
     let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
     let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
 
-    PerfInput(input_label, bit_array.byte_size(tx_bytes), validated_tx)
+    PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), validated_tx)
   }
 
   [
-    validated_tx_input("simple legacy tx", simple_legacy_tx),
-    validated_tx_input("simple segwit tx", simple_segwit_tx),
-    validated_tx_input("witness-heavy tx", witness_heavy_p2wsh_tx),
+    fixture_validated_tx_case("simple legacy tx", simple_legacy_tx),
+    fixture_validated_tx_case("simple segwit tx", simple_segwit_tx),
+    fixture_validated_tx_case("witness-heavy tx", witness_heavy_p2wsh_tx),
   ]
 }
 
@@ -1044,7 +1063,7 @@ fn validated_tx_inputs() -> List(PerfInput(Transaction(Validated))) {
 // ==============================================================================
 
 fn run_bench_cases(
-  inputs: List(PerfInput(a)),
+  inputs: List(PerfCaseInput(a)),
   functions: List(Function(a, b)),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
@@ -1060,14 +1079,14 @@ fn run_bench_cases(
   |> build_case_results(inputs, config)
 }
 
-fn to_bench_input(input: PerfInput(a)) -> Input(a) {
-  let PerfInput(label, _, value) = input
+fn to_bench_input(input: PerfCaseInput(a)) -> Input(a) {
+  let PerfCaseInput(label, _, value) = input
   Input(label, value)
 }
 
 fn build_case_results(
   results: BenchResults,
-  inputs: List(PerfInput(a)),
+  inputs: List(PerfCaseInput(a)),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   let BenchResults(_options, sets) = results
@@ -1076,7 +1095,7 @@ fn build_case_results(
 
 fn build_set_case_result(
   set: BenchSet,
-  inputs: List(PerfInput(a)),
+  inputs: List(PerfCaseInput(a)),
   config: PerfMeasurementConfig,
 ) -> PerfCaseResult {
   let BenchSet(input_label, fn_label, samples) = set
@@ -1103,13 +1122,13 @@ fn build_set_case_result(
 }
 
 fn find_input_size_bytes(
-  inputs: List(PerfInput(a)),
+  inputs: List(PerfCaseInput(a)),
   input_label: String,
 ) -> Int {
   let assert Ok(input_size_bytes) =
     inputs
     |> list.find_map(fn(input) {
-      let PerfInput(label, input_size_bytes, _) = input
+      let PerfCaseInput(label, input_size_bytes, _) = input
 
       case label == input_label {
         True -> Ok(input_size_bytes)
