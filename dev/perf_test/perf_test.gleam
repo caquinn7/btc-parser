@@ -14,7 +14,7 @@
 
 import btc_tx.{
   type Parsed, type Transaction, type Validated, DuplicateInput, ParseFailed,
-  PolicyLimitExceeded,
+  PolicyLimitExceeded, TotalOutputValueOutOfRange,
 }
 import gleam/bit_array
 import gleam/float
@@ -33,6 +33,8 @@ const simple_segwit_tx = "02000000000101d09297d88fec299d4db728704b56d9e766339b45
 
 /// P2WSH multisig spend: four inputs, each with a 5-item witness stack.
 const witness_heavy_p2wsh_tx = "010000000001041d77f8ba9cb7292d2c8d28f7860440c20a695a5ac1b008184351bfd167b1de571100000000fdffffff0e3598526cbf5c071dd670bf1ea2a3d3344531b7cdd0b2803822dc875897315f0400000000ffffffff7c40dfa04ff141d4fe9b78672fdeb94606f964adbb30f0740a93d9b561d2a2730500000000ffffffff1afb4550a6b5ba51133ea1049c758ca4b4dd073a63f1bb3980af72de2235bcbe1100000000ffffffff022b3d0f000000000017a914183fad2e1a32ae1bc65ef3ca3664be338e23d676875c53140000000000220020262aa3a633769751560133c647f56948da4099acf9176b51831b17a180aba7900500483045022100b0f4d44a96453f3bd231d392702c6d88f39469c9f56d3d31abf3498a5554a79102202a55e22cd4390c5e7e51ed02321fa45149f9620654a4473125afd8a98502ae3f01483045022100ecc78689ce66035290d331ac9dbf4cb2392f22b7b127bc24dfbe93981fa6f0e902202cfe5fb41d529b49cf7394a7ec49dd69d49e4f1e15bb16a9e1a577468c5e5d5d01483045022100fca785f594914776f74d01943946252f2be2b80b6d96d9d9669e0e89c5715f6702202d649e5cc3a10c68bd23d5c51e6d91123bec8a0fafb896c60a00efad1bddcfbd018b532102532c7265b2a352e9a2e216edddd5f5cb921f6502b30f3dd42535871f2371cf262102705d91275933db288ba8ba940feb56d6d1d804f77b31de16811b518d9b27dab7210276eb537ec808034480ca7d38b431674d5979088cfae267ec8acd2d57e968dac721029fe1a87be21851bc0a4f3ded0e1758bbeecc7be201a1e7ee7282f77886b8b09d54ae050047304402204cbf2e84f64ce78ff8927ab644884fed95903f56cdfe82404d457f31f12b794202206b56afc382429cfdb44b8fbc3cc016440387a177549dc858ec4ccb135cb4e633014730440220129f8de1bce23635b0aae96c05b6671987760ba14fc4caf7345f0f763a40bc39022011420d6f749094b924bbd115576064ec8718de5449d8972d1490ead123c8349101473044022026ff639597d3dc7cc6286bd01b30e09f44ba5725d4c4e9eb5e228299b12664d002201cd70fdea7a16060def6cd345e5e04056975db2347c4a0eaf0728950eeea57cd018b532102b2a01169433767d3d69a6a4540f21ed91e13d86f48bc8f054d25c347287dc75b2103a2b06276509980518481722afe378cc5cce6e331fb90cde756c3233e6d2936722103be3359e6f3f90eb2c78cece0c66e92772d3af3b67a4cf15d8a6ab0e60b07aa082103f28f4f14ef2fc63f840a6fee7117f5f188ed386c9ee37578587a10b34904d91f54ae050047304402206678ad5f654d188e007f497004c7acb1742149c52c83b4baa525c69907ab6e5f02206575e2a323e8f4d61daa8efc334f3e9fb356c9be31939f0b2a9fed7b81af7f420147304402205f41dddf5198b36522c4fad44babb6604638d8e8544e25225d10d38dd5d58dde022002494ef946fd26f9ac10f3d692328a575249f3a0575cebd7ee53600a8c15e7df014730440220424d5833867f6d9225b81ad77dc954fde2c2deb8eda0f60bf5596d3ed908382402204dcc96eea1a0c1a0c82523cc41be1189dfdafedea346c898897f866c32d39983018b532102dd7d60f3278cc6c59358379fbfa1cd3579f287f526b6537ce5258f91f0d17f1e21035289b8951701046732417df9e635db32e395c680b23d1663616c922a409b72a421035cba8725cc106f7188a2ad017a2252c612a174347a88db41b8c93c51f0aadd7421038823210cadbffa3a4e4bd5d19c47dc7a356320c439e074da945e6153d03525da54ae0500483045022100ac5e0d6268b11afa7a2b28fe9ee84da98a4413f5978863de2dfc084c72354d8e02206d45a484d23f98569a73b10a13d2795946cbe81382bc8526305307b3c1ea75d301473044022041ab10e81aa083a0ff4c0851fbb35678dc10b0e1ae838821df82c20d69b40169022027d6d819e8e820945f0537eba476c8aa0eb9ee2a48ab37559ec09fb1ca0e1e9601473044022010ba6168e3ddb7ca2f70b04329ab3c373e0dc594b48999eecb96c8933380e01f02206a71a244e8d2a3f5c152241d581196cfd9b8ae87ed134f9e53cb6c04788c3380018b53210301065882a06bb9246bb761d9905cfeeeeed6ff218777960fb8c65ea5710709fc21031ace900028040ec46b9d89da58f72e41d1a331cf21f4bef5420dfd68680648c321034c3d7498d35ded063716d66c9f9dcdc82d54094d33ae1d72c2a3b547c27ee0ec2103c5d55f5ec64876c572acc0f9de94ada8e7964bca8d27a838291178d15f564cf754ae00000000"
+
+const max_satoshis = 2_100_000_000_000_000
 
 /// Results for one invocation of the performance suite.
 pub type PerfResult {
@@ -448,17 +450,19 @@ fn oversized_scriptsig_policy_decode_case(
 // ==============================================================================
 
 /// Measures `btc_tx.validate_consensus` on already-parsed synthetic transactions.
-/// The valid cases exercise full success-path input scanning. The late-duplicate
-/// cases place the duplicate prevout at the end so rejection still walks nearly
-/// the whole input list.
+/// The valid cases exercise full success-path input-count and output-count
+/// scanning. The late-duplicate cases place the duplicate prevout at the end so
+/// rejection still walks nearly the whole input list.
 fn measure_consensus_validation() -> List(PerfSection) {
   [
-    measure_valid_consensus_validation(),
-    measure_duplicate_consensus_validation(),
+    measure_consensus_validation_valid_inputs(),
+    measure_consensus_validation_valid_outputs(),
+    measure_consensus_validation_duplicate_input(),
+    measure_consensus_validation_output_overflow(),
   ]
 }
 
-fn measure_valid_consensus_validation() -> PerfSection {
+fn measure_consensus_validation_valid_inputs() -> PerfSection {
   let cases =
     [
       measure_validation_input_counts(
@@ -477,7 +481,24 @@ fn measure_valid_consensus_validation() -> PerfSection {
   PerfSection("validate_consensus / valid inputs", cases)
 }
 
-fn measure_duplicate_consensus_validation() -> PerfSection {
+fn measure_consensus_validation_valid_outputs() -> PerfSection {
+  let cases =
+    [
+      measure_validation_output_counts(
+        [1, 20, 100],
+        small_synthetic_tx_measurement_config(),
+      ),
+      measure_validation_output_counts(
+        [500, 1000],
+        large_synthetic_tx_measurement_config(),
+      ),
+    ]
+    |> list.flatten
+
+  PerfSection("validate_consensus / valid outputs", cases)
+}
+
+fn measure_consensus_validation_duplicate_input() -> PerfSection {
   let cases =
     [
       measure_validation_input_counts(
@@ -496,6 +517,23 @@ fn measure_duplicate_consensus_validation() -> PerfSection {
   PerfSection("validate_consensus / duplicate inputs", cases)
 }
 
+fn measure_consensus_validation_output_overflow() -> PerfSection {
+  let cases =
+    [
+      measure_validation_output_overflow_counts(
+        [20, 100],
+        small_synthetic_tx_measurement_config(),
+      ),
+      measure_validation_output_overflow_counts(
+        [500, 1000],
+        large_synthetic_tx_measurement_config(),
+      ),
+    ]
+    |> list.flatten
+
+  PerfSection("validate_consensus / output overflow", cases)
+}
+
 fn measure_validation_input_counts(
   input_counts: List(Int),
   build_case: fn(Int) -> PerfCaseInput(Transaction(Parsed)),
@@ -506,12 +544,40 @@ fn measure_validation_input_counts(
   |> measure_validate_consensus(config)
 }
 
+fn measure_validation_output_counts(
+  output_counts: List(Int),
+  config: PerfMeasurementConfig,
+) -> List(PerfCaseResult) {
+  output_counts
+  |> list.map(valid_output_count_consensus_case)
+  |> measure_validate_consensus(config)
+}
+
+fn measure_validation_output_overflow_counts(
+  output_counts: List(Int),
+  config: PerfMeasurementConfig,
+) -> List(PerfCaseResult) {
+  output_counts
+  |> list.map(output_overflow_count_consensus_case)
+  |> measure_validate_consensus(config)
+}
+
 fn valid_input_count_consensus_case(
   input_count: Int,
 ) -> PerfCaseInput(Transaction(Parsed)) {
   consensus_validation_case(
     "valid inputs=" <> int.to_string(input_count),
     build_synthetic_legacy_tx(input_count, 1, UniquePrevouts),
+    ExpectValid,
+  )
+}
+
+fn valid_output_count_consensus_case(
+  output_count: Int,
+) -> PerfCaseInput(Transaction(Parsed)) {
+  consensus_validation_case(
+    "valid outputs=" <> int.to_string(output_count),
+    build_synthetic_legacy_tx(1, output_count, UniquePrevouts),
     ExpectValid,
   )
 }
@@ -526,10 +592,27 @@ fn late_duplicate_input_count_consensus_case(
   )
 }
 
+fn output_overflow_count_consensus_case(
+  output_count: Int,
+) -> PerfCaseInput(Transaction(Parsed)) {
+  let outputs = build_output_overflow_outputs(output_count)
+
+  consensus_validation_case(
+    "output overflow outputs=" <> int.to_string(output_count),
+    build_synthetic_legacy_tx_with_outputs(
+      1,
+      outputs,
+      output_count,
+      UniquePrevouts,
+    ),
+    ExpectOutputOverflow(output_count:),
+  )
+}
+
 fn consensus_validation_case(
   label: String,
   tx_bytes: BitArray,
-  expectation: ValidationExpectation,
+  expectation: ConsensusValidationExpectation,
 ) -> PerfCaseInput(Transaction(Parsed)) {
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
   preflight_validate_consensus(parsed_tx, expectation)
@@ -556,14 +639,15 @@ fn measure_validate_consensus(
   )
 }
 
-type ValidationExpectation {
+type ConsensusValidationExpectation {
   ExpectValid
   ExpectLateDuplicate(input_count: Int)
+  ExpectOutputOverflow(output_count: Int)
 }
 
 fn preflight_validate_consensus(
   parsed_tx: Transaction(Parsed),
-  expectation: ValidationExpectation,
+  expectation: ConsensusValidationExpectation,
 ) -> Nil {
   case expectation {
     ExpectValid -> {
@@ -577,6 +661,16 @@ fn preflight_validate_consensus(
 
       assert btc_tx.validate_consensus(parsed_tx)
         == Error([DuplicateInput(dup_prev_out, 0, input_count - 1)])
+    }
+
+    ExpectOutputOverflow(output_count) -> {
+      assert btc_tx.validate_consensus(parsed_tx)
+        == Error([
+          TotalOutputValueOutOfRange(
+            output_count - 1,
+            max_satoshis + output_count - 1,
+          ),
+        ])
     }
   }
 }
@@ -1153,10 +1247,24 @@ fn build_synthetic_legacy_tx(
   output_count: Int,
   prevout_pattern: SyntheticPrevoutPattern,
 ) -> BitArray {
+  let outputs = build_synthetic_legacy_outputs(output_count, <<>>)
+
+  build_synthetic_legacy_tx_with_outputs(
+    input_count,
+    outputs,
+    output_count,
+    prevout_pattern,
+  )
+}
+
+fn build_synthetic_legacy_tx_with_outputs(
+  input_count: Int,
+  outputs: BitArray,
+  output_count: Int,
+  prevout_pattern: SyntheticPrevoutPattern,
+) -> BitArray {
   let inputs =
     build_synthetic_legacy_inputs(0, input_count, prevout_pattern, <<>>)
-
-  let outputs = build_synthetic_legacy_outputs(output_count, <<>>)
 
   <<
     1:little-size(32),
@@ -1247,9 +1355,40 @@ fn build_synthetic_legacy_outputs(remaining: Int, acc: BitArray) -> BitArray {
   case remaining <= 0 {
     True -> acc
     False -> {
-      let output = <<1000:little-size(64), compact_size(0):bits>>
+      let output = build_synthetic_legacy_output(1000)
       let acc = <<acc:bits, output:bits>>
       build_synthetic_legacy_outputs(remaining - 1, acc)
+    }
+  }
+}
+
+fn build_synthetic_legacy_output(value: Int) -> BitArray {
+  <<
+    value:little-size(64),
+    compact_size(0):bits,
+  >>
+}
+
+fn build_output_overflow_outputs(output_count: Int) -> BitArray {
+  build_output_overflow_outputs_loop(0, output_count, <<>>)
+}
+
+fn build_output_overflow_outputs_loop(
+  index: Int,
+  output_count: Int,
+  acc: BitArray,
+) -> BitArray {
+  case index >= output_count {
+    True -> acc
+    False -> {
+      let value = case index == output_count - 1 {
+        True -> max_satoshis
+        False -> 1
+      }
+      let output = build_synthetic_legacy_output(value)
+      let acc = <<acc:bits, output:bits>>
+
+      build_output_overflow_outputs_loop(index + 1, output_count, acc)
     }
   }
 }
