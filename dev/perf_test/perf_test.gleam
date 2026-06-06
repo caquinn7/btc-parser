@@ -13,8 +13,9 @@
 //// `decode` or one `compute_txid` call.
 
 import btc_tx.{
-  type Parsed, type Transaction, type Validated, DuplicateInput, ParseFailed,
-  PolicyLimitExceeded, TotalOutputValueOutOfRange,
+  type Parsed, type Transaction, type Validated, DuplicateInput,
+  InsufficientBytes, ParseFailed, PolicyLimitExceeded,
+  TotalOutputValueOutOfRange, UnexpectedEof,
 }
 import gleam/bit_array
 import gleam/float
@@ -200,6 +201,9 @@ fn measure_malformed_tx_decoding() -> PerfSection {
     late_truncated_decode_case(
       "late truncated simple segwit tx",
       simple_segwit_tx,
+    ),
+    late_truncated_witness_payload_decode_case(
+      "late truncated witness payload tx",
     ),
   ]
 
@@ -405,7 +409,22 @@ fn late_truncated_decode_case(
 ) -> PerfCaseInput(BitArray) {
   let assert Ok(valid_tx_bytes) = bit_array.base16_decode(tx_hex)
   let tx_bytes = drop_last_byte(valid_tx_bytes)
-  let assert Error(ParseFailed(_)) = btc_tx.decode(tx_bytes)
+  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.parse_error_kind(parse_err)
+    == UnexpectedEof(bytes_needed: 4, remaining: 3)
+
+  PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
+}
+
+fn late_truncated_witness_payload_decode_case(
+  input_label: String,
+) -> PerfCaseInput(BitArray) {
+  let tx_bytes = build_late_truncated_witness_payload_tx()
+  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.parse_error_kind(parse_err)
+    == InsufficientBytes(claimed: 32, remaining: 31)
 
   PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
@@ -1306,6 +1325,27 @@ fn build_synthetic_segwit_tx(
     outputs:bits,
     witnesses:bits,
     0:little-size(32),
+  >>
+}
+
+fn build_late_truncated_witness_payload_tx() -> BitArray {
+  let inputs = build_synthetic_legacy_inputs(0, 1, UniquePrevouts, <<>>)
+  let outputs = build_synthetic_legacy_outputs(1, <<>>)
+  let complete_items = build_synthetic_witness_items(99, 32, <<>>)
+  let truncated_payload = <<0:size({ 31 * 8 })>>
+
+  <<
+    1:little-size(32),
+    0x00,
+    0x01,
+    compact_size(1):bits,
+    inputs:bits,
+    compact_size(1):bits,
+    outputs:bits,
+    compact_size(100):bits,
+    complete_items:bits,
+    compact_size(32):bits,
+    truncated_payload:bits,
   >>
 }
 
