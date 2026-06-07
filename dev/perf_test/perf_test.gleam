@@ -1339,7 +1339,7 @@ fn build_synthetic_legacy_tx(
   output_count: Int,
   prevout_pattern: SyntheticPrevoutPattern,
 ) -> BitArray {
-  let outputs = build_synthetic_legacy_outputs(output_count, <<>>)
+  let outputs = build_synthetic_legacy_outputs(output_count)
 
   build_synthetic_legacy_tx_with_outputs(
     input_count,
@@ -1355,8 +1355,7 @@ fn build_synthetic_legacy_tx_with_outputs(
   output_count: Int,
   prevout_pattern: SyntheticPrevoutPattern,
 ) -> BitArray {
-  let inputs =
-    build_synthetic_legacy_inputs(0, input_count, prevout_pattern, <<>>)
+  let inputs = build_synthetic_legacy_inputs(input_count, prevout_pattern)
 
   <<
     1:little-size(32),
@@ -1374,10 +1373,9 @@ fn build_synthetic_segwit_tx(
   witness_items_per_input: Int,
   witness_item_size: Int,
 ) -> BitArray {
-  let inputs =
-    build_synthetic_legacy_inputs(0, input_count, UniquePrevouts, <<>>)
+  let inputs = build_synthetic_legacy_inputs(input_count, UniquePrevouts)
 
-  let outputs = build_synthetic_legacy_outputs(output_count, <<>>)
+  let outputs = build_synthetic_legacy_outputs(output_count)
 
   let witnesses =
     build_synthetic_witnesses(
@@ -1400,9 +1398,9 @@ fn build_synthetic_segwit_tx(
 }
 
 fn build_late_truncated_witness_payload_tx() -> BitArray {
-  let inputs = build_synthetic_legacy_inputs(0, 1, UniquePrevouts, <<>>)
-  let outputs = build_synthetic_legacy_outputs(1, <<>>)
-  let complete_items = build_synthetic_witness_items(99, 32, <<>>)
+  let inputs = build_synthetic_legacy_inputs(1, UniquePrevouts)
+  let outputs = build_synthetic_legacy_outputs(1)
+  let complete_items = build_synthetic_witness_items(99, 32)
   let truncated_payload = <<0:size({ 31 * 8 })>>
 
   <<
@@ -1421,24 +1419,29 @@ fn build_late_truncated_witness_payload_tx() -> BitArray {
 }
 
 fn build_synthetic_legacy_inputs(
+  input_count: Int,
+  prevout_pattern: SyntheticPrevoutPattern,
+) -> BitArray {
+  build_synthetic_legacy_inputs_loop(0, input_count, prevout_pattern, [])
+}
+
+fn build_synthetic_legacy_inputs_loop(
   index: Int,
   input_count: Int,
   prevout_pattern: SyntheticPrevoutPattern,
-  acc: BitArray,
+  acc: List(BitArray),
 ) -> BitArray {
   case index >= input_count {
-    True -> acc
+    True -> concat_reversed(acc)
     False -> {
       let input =
         build_synthetic_legacy_input(index, input_count, prevout_pattern)
 
-      let acc = <<acc:bits, input:bits>>
-
-      build_synthetic_legacy_inputs(
+      build_synthetic_legacy_inputs_loop(
         index + 1,
         input_count,
         prevout_pattern,
-        acc,
+        [input, ..acc],
       )
     }
   }
@@ -1462,13 +1465,19 @@ fn build_synthetic_legacy_input(
   >>
 }
 
-fn build_synthetic_legacy_outputs(remaining: Int, acc: BitArray) -> BitArray {
+fn build_synthetic_legacy_outputs(output_count: Int) -> BitArray {
+  build_synthetic_legacy_outputs_loop(output_count, [])
+}
+
+fn build_synthetic_legacy_outputs_loop(
+  remaining: Int,
+  acc: List(BitArray),
+) -> BitArray {
   case remaining <= 0 {
-    True -> acc
+    True -> concat_reversed(acc)
     False -> {
       let output = build_synthetic_legacy_output(1000)
-      let acc = <<acc:bits, output:bits>>
-      build_synthetic_legacy_outputs(remaining - 1, acc)
+      build_synthetic_legacy_outputs_loop(remaining - 1, [output, ..acc])
     }
   }
 }
@@ -1481,25 +1490,27 @@ fn build_synthetic_legacy_output(value: Int) -> BitArray {
 }
 
 fn build_output_overflow_outputs(output_count: Int) -> BitArray {
-  build_output_overflow_outputs_loop(0, output_count, <<>>)
+  build_output_overflow_outputs_loop(0, output_count, [])
 }
 
 fn build_output_overflow_outputs_loop(
   index: Int,
   output_count: Int,
-  acc: BitArray,
+  acc: List(BitArray),
 ) -> BitArray {
   case index >= output_count {
-    True -> acc
+    True -> concat_reversed(acc)
     False -> {
       let value = case index == output_count - 1 {
         True -> max_satoshis
         False -> 1
       }
       let output = build_synthetic_legacy_output(value)
-      let acc = <<acc:bits, output:bits>>
 
-      build_output_overflow_outputs_loop(index + 1, output_count, acc)
+      build_output_overflow_outputs_loop(index + 1, output_count, [
+        output,
+        ..acc
+      ])
     }
   }
 }
@@ -1509,28 +1520,25 @@ fn build_synthetic_witnesses(
   items_per_input: Int,
   item_size: Int,
 ) -> BitArray {
-  build_synthetic_witnesses_loop(input_count, items_per_input, item_size, <<>>)
+  build_synthetic_witnesses_loop(input_count, items_per_input, item_size, [])
 }
 
 fn build_synthetic_witnesses_loop(
   remaining: Int,
   items_per_input: Int,
   item_size: Int,
-  acc: BitArray,
+  acc: List(BitArray),
 ) -> BitArray {
   case remaining <= 0 {
-    True -> acc
+    True -> concat_reversed(acc)
     False -> {
       let witness_stack =
         build_synthetic_witness_stack(items_per_input, item_size)
 
-      let acc = <<acc:bits, witness_stack:bits>>
-      build_synthetic_witnesses_loop(
-        remaining - 1,
-        items_per_input,
-        item_size,
-        acc,
-      )
+      build_synthetic_witnesses_loop(remaining - 1, items_per_input, item_size, [
+        witness_stack,
+        ..acc
+      ])
     }
   }
 }
@@ -1539,24 +1547,27 @@ fn build_synthetic_witness_stack(
   items_per_input: Int,
   item_size: Int,
 ) -> BitArray {
-  let items = build_synthetic_witness_items(items_per_input, item_size, <<>>)
+  let items = build_synthetic_witness_items(items_per_input, item_size)
   <<
     compact_size(items_per_input):bits,
     items:bits,
   >>
 }
 
-fn build_synthetic_witness_items(
+fn build_synthetic_witness_items(remaining: Int, item_size: Int) -> BitArray {
+  build_synthetic_witness_items_loop(remaining, item_size, [])
+}
+
+fn build_synthetic_witness_items_loop(
   remaining: Int,
   item_size: Int,
-  acc: BitArray,
+  acc: List(BitArray),
 ) -> BitArray {
   case remaining <= 0 {
-    True -> acc
+    True -> concat_reversed(acc)
     False -> {
       let item = build_synthetic_witness_item(item_size)
-      let acc = <<acc:bits, item:bits>>
-      build_synthetic_witness_items(remaining - 1, item_size, acc)
+      build_synthetic_witness_items_loop(remaining - 1, item_size, [item, ..acc])
     }
   }
 }
@@ -1582,6 +1593,12 @@ fn synthetic_prev_txid_seed(
         False -> index
       }
   }
+}
+
+fn concat_reversed(parts: List(BitArray)) -> BitArray {
+  parts
+  |> list.reverse
+  |> bit_array.concat
 }
 
 fn compact_size(n: Int) -> BitArray {
