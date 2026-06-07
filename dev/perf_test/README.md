@@ -173,6 +173,10 @@ The results table has these columns:
 `decode`, `validate_consensus`, `compute_txid`, or serialization call. That
 means rows with different `ops/call` values can still be compared.
 
+Batching is chosen by operation shape. Very fast rows use larger batches to
+reduce timer overhead, while slow witness-inclusive SegWit rows use smaller
+batches so JavaScript runs still record enough timed calls for useful estimates.
+
 ## When To Add A Benchmark
 
 Add a benchmark when it answers at least one of these questions:

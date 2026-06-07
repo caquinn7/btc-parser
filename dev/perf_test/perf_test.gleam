@@ -162,7 +162,9 @@ fn measure_synthetic_output_tx_decoding() -> PerfSection {
 fn measure_synthetic_segwit_input_tx_decoding() -> PerfSection {
   PerfSection(
     "decode / synthetic segwit inputs",
-    measure_synthetic_segwit_decode_curve(synthetic_segwit_input_count_tx_specs),
+    measure_synthetic_segwit_input_decode_curve(
+      synthetic_segwit_input_count_tx_specs,
+    ),
   )
 }
 
@@ -265,6 +267,26 @@ fn measure_synthetic_segwit_decode_curve(
     measure_synthetic_decoding(
       build_specs([1000]),
       large_synthetic_tx_measurement_config(),
+    ),
+  ]
+  |> list.flatten
+}
+
+fn measure_synthetic_segwit_input_decode_curve(
+  build_specs: fn(List(Int)) -> List(SyntheticTxSpec),
+) -> List(PerfCaseResult) {
+  [
+    measure_synthetic_decoding(
+      build_specs([1]),
+      small_synthetic_tx_measurement_config(),
+    ),
+    measure_synthetic_decoding(
+      build_specs([100]),
+      medium_synthetic_tx_measurement_config(),
+    ),
+    measure_synthetic_decoding(
+      build_specs([1000]),
+      slow_synthetic_tx_measurement_config(),
     ),
   ]
   |> list.flatten
@@ -979,8 +1001,15 @@ fn measure_synthetic_segwit_txid_curve(
 ) -> List(PerfCaseResult) {
   let small_specs = build_specs([20, 100])
   let large_specs = build_specs([1000])
+
+  let small_witness_specs = build_specs([20])
+  let medium_witness_specs = build_specs([100])
+  let slow_witness_specs = build_specs([1000])
+
   let small_config = small_synthetic_tx_measurement_config()
+  let medium_config = medium_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
+  let slow_config = slow_synthetic_tx_measurement_config()
 
   [
     measure_synthetic_validated_function(
@@ -996,14 +1025,20 @@ fn measure_synthetic_segwit_txid_curve(
       btc_tx.compute_txid,
     ),
     measure_synthetic_validated_function(
-      small_specs,
+      small_witness_specs,
       small_config,
       "compute_wtxid",
       btc_tx.compute_wtxid,
     ),
     measure_synthetic_validated_function(
-      large_specs,
-      large_config,
+      medium_witness_specs,
+      medium_config,
+      "compute_wtxid",
+      btc_tx.compute_wtxid,
+    ),
+    measure_synthetic_validated_function(
+      slow_witness_specs,
+      slow_config,
       "compute_wtxid",
       btc_tx.compute_wtxid,
     ),
@@ -1041,8 +1076,15 @@ fn measure_synthetic_segwit_serialization_curve(
 ) -> List(PerfCaseResult) {
   let small_specs = build_specs([20, 100])
   let large_specs = build_specs([1000])
+
+  let small_witness_specs = build_specs([20])
+  let medium_witness_specs = build_specs([100])
+  let slow_witness_specs = build_specs([1000])
+
   let small_config = small_synthetic_tx_measurement_config()
+  let medium_config = medium_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
+  let slow_config = slow_synthetic_tx_measurement_config()
 
   [
     measure_synthetic_validated_function(
@@ -1058,14 +1100,20 @@ fn measure_synthetic_segwit_serialization_curve(
       btc_tx.to_stripped_bytes,
     ),
     measure_synthetic_validated_function(
-      small_specs,
+      small_witness_specs,
       small_config,
       "to_witness_bytes",
       btc_tx.to_witness_bytes,
     ),
     measure_synthetic_validated_function(
-      large_specs,
-      large_config,
+      medium_witness_specs,
+      medium_config,
+      "to_witness_bytes",
+      btc_tx.to_witness_bytes,
+    ),
+    measure_synthetic_validated_function(
+      slow_witness_specs,
+      slow_config,
       "to_witness_bytes",
       btc_tx.to_witness_bytes,
     ),
@@ -1558,6 +1606,12 @@ fn measurement_config(operations_per_timed_call: Int) -> PerfMeasurementConfig {
   )
 }
 
+/// Uses no batching for operation shapes that are slow enough on JavaScript
+/// that batching would leave too few timed calls.
+fn slow_synthetic_tx_measurement_config() -> PerfMeasurementConfig {
+  measurement_config(1)
+}
+
 fn fast_measurement_config(
   operations_per_timed_call: Int,
 ) -> PerfMeasurementConfig {
@@ -1568,13 +1622,19 @@ fn fast_measurement_config(
   )
 }
 
-/// Uses larger batches for smaller synthetic cases to reduce timer overhead.
+/// Uses larger batches for fast synthetic cases to reduce timer overhead.
 fn small_synthetic_tx_measurement_config() -> PerfMeasurementConfig {
   measurement_config(100)
 }
 
-/// Uses smaller batches for larger synthetic cases so slow JS runs still record
-/// enough timed calls for stable throughput estimates.
+/// Uses moderate batching for middle points in operation shapes that become too
+/// slow for larger batches.
+fn medium_synthetic_tx_measurement_config() -> PerfMeasurementConfig {
+  measurement_config(10)
+}
+
+/// Uses moderate batching for large synthetic cases that still record enough
+/// timed calls on JavaScript.
 fn large_synthetic_tx_measurement_config() -> PerfMeasurementConfig {
   measurement_config(10)
 }
