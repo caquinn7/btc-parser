@@ -1654,8 +1654,8 @@ fn compact_size(n: Int) -> BitArray {
 fn measurement_config(operations_per_timed_call: Int) -> PerfMeasurementConfig {
   PerfMeasurementConfig(
     operations_per_timed_call:,
-    warmup_ms: 500,
-    duration_ms: 2000,
+    warmup_ms: 250,
+    duration_ms: 1000,
   )
 }
 
