@@ -483,8 +483,6 @@ fn measure_coinbase_marker_inspection() -> PerfSection {
     [
       measure_coinbase_marker_input_counts([20, 100], small_config),
       measure_coinbase_marker_input_counts([500, 1000], large_config),
-      measure_coinbase_marker_last_input_counts([20, 100], small_config),
-      measure_coinbase_marker_last_input_counts([500, 1000], large_config),
     ]
     |> list.flatten
 
@@ -497,22 +495,6 @@ fn measure_coinbase_marker_input_counts(
 ) -> List(PerfCaseResult) {
   input_counts
   |> list.map(coinbase_marker_case(_, "no marker", UniquePrevouts, False))
-  |> measure_coinbase_marker(config)
-}
-
-fn measure_coinbase_marker_last_input_counts(
-  input_counts: List(Int),
-  config: PerfMeasurementConfig,
-) -> List(PerfCaseResult) {
-  input_counts
-  |> list.map(fn(input_count) {
-    coinbase_marker_case(
-      input_count,
-      "last marker",
-      NullPrevoutAt(input_count - 1),
-      True,
-    )
-  })
   |> measure_coinbase_marker(config)
 }
 
@@ -1349,7 +1331,6 @@ fn find_input_size_bytes(
 type SyntheticPrevoutPattern {
   UniquePrevouts
   LastPrevoutDuplicatesFirst
-  NullPrevoutAt(input_index: Int)
 }
 
 fn build_synthetic_legacy_tx(
@@ -1467,42 +1448,17 @@ fn build_synthetic_legacy_input(
   input_count: Int,
   prevout_pattern: SyntheticPrevoutPattern,
 ) -> BitArray {
-  let prevout = synthetic_prevout(index, input_count, prevout_pattern)
-
-  <<
-    prevout:bits,
-    compact_size(0):bits,
-    0xFFFFFFFF:little-size(32),
-  >>
-}
-
-fn synthetic_prevout(
-  index: Int,
-  input_count: Int,
-  prevout_pattern: SyntheticPrevoutPattern,
-) -> BitArray {
-  case prevout_pattern {
-    NullPrevoutAt(input_index) if index == input_index -> <<
-      0:256,
-      0xFFFFFFFF:little-size(32),
-    >>
-
-    _ -> {
-      let prev_txid = synthetic_prev_txid(index, input_count, prevout_pattern)
-      <<prev_txid:bits, 0:little-size(32)>>
-    }
-  }
-}
-
-fn synthetic_prev_txid(
-  index: Int,
-  input_count: Int,
-  prevout_pattern: SyntheticPrevoutPattern,
-) -> BitArray {
   let prev_txid_seed =
     synthetic_prev_txid_seed(index, input_count, prevout_pattern)
 
-  <<prev_txid_seed:little-size(32), 0:size(224)>>
+  let prev_txid = <<prev_txid_seed:little-size(32), 0:size(224)>>
+
+  <<
+    prev_txid:bits,
+    0:little-size(32),
+    compact_size(0):bits,
+    0xFFFFFFFF:little-size(32),
+  >>
 }
 
 fn build_synthetic_legacy_outputs(remaining: Int, acc: BitArray) -> BitArray {
@@ -1619,7 +1575,6 @@ fn synthetic_prev_txid_seed(
 ) -> Int {
   case prevout_pattern {
     UniquePrevouts -> index
-    NullPrevoutAt(_) -> index
     LastPrevoutDuplicatesFirst ->
       case index == input_count - 1 {
         True -> 0
