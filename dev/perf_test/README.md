@@ -161,9 +161,9 @@ The results table has these columns:
 
 - `case`: The measured function plus the transaction shape or fixture label.
 - `bytes`: The wire-format size of the transaction input used for the row.
-- `ops/call`: The number of logical operations batched inside one timed call.
 - `warmup ms`: How long the benchmark ran before recording measurements.
 - `duration ms`: The target amount of timed measurement for the row.
+- `ops/call`: The number of logical operations batched inside one timed call.
 - `timed calls`: The number of timed calls recorded during `duration ms`.
 - `measured ms`: The total elapsed time covered by the recorded timed calls.
 - `ops/s`: Estimated logical operations completed per second.

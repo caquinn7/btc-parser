@@ -10,9 +10,9 @@ pub fn to_string(perf_result: PerfResult) -> String {
   let headings = [
     "case",
     "bytes",
-    "ops/call",
     "warmup ms",
     "duration ms",
+    "ops/call",
     "timed calls",
     "measured ms",
     "ops/s",
@@ -67,9 +67,9 @@ fn case_result_to_row(case_result: PerfCaseResult) -> List(String) {
   [
     case_result.label,
     int.to_string(case_result.input_size_bytes),
-    int.to_string(case_result.config.operations_per_timed_call),
     int.to_string(case_result.config.warmup_ms),
     int.to_string(case_result.config.duration_ms),
+    int.to_string(case_result.config.operations_per_timed_call),
     format_grouped_int(case_result.timed_call_count),
     format_metric(case_result.measured_ms),
     format_grouped_int(float.round(case_result.operations_per_second)),
