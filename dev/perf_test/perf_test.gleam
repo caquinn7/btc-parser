@@ -582,7 +582,7 @@ fn measure_consensus_validation_valid_inputs() -> PerfSection {
   let cases =
     [
       measure_validation_input_counts(
-        [1, 20, 100],
+        [20, 100],
         valid_input_count_consensus_case,
         small_synthetic_tx_measurement_config(),
       ),
@@ -601,7 +601,7 @@ fn measure_consensus_validation_valid_outputs() -> PerfSection {
   let cases =
     [
       measure_validation_output_counts(
-        [1, 20, 100],
+        [20, 100],
         small_synthetic_tx_measurement_config(),
       ),
       measure_validation_output_counts(
@@ -960,7 +960,7 @@ fn measure_synthetic_witness_payload_tx_serialization() -> PerfSection {
 fn measure_synthetic_legacy_txid_curve(
   build_specs: fn(List(Int)) -> List(SyntheticLegacyTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_specs = build_specs([1, 20, 100])
+  let small_specs = build_specs([20, 100])
   let large_specs = build_specs([500, 1000])
   let small_config = small_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
@@ -985,7 +985,7 @@ fn measure_synthetic_legacy_txid_curve(
 fn measure_synthetic_legacy_serialization_curve(
   build_specs: fn(List(Int)) -> List(SyntheticLegacyTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_specs = build_specs([1, 20, 100])
+  let small_specs = build_specs([20, 100])
   let large_specs = build_specs([500, 1000])
   let small_config = small_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
@@ -1010,7 +1010,7 @@ fn measure_synthetic_legacy_serialization_curve(
 fn measure_synthetic_segwit_txid_curve(
   build_specs: fn(List(Int)) -> List(SyntheticSegwitTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_specs = build_specs([1, 20, 100])
+  let small_specs = build_specs([20, 100])
   let large_specs = build_specs([500, 1000])
   let small_config = small_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
@@ -1047,7 +1047,7 @@ fn measure_synthetic_segwit_txid_curve(
 fn measure_synthetic_witness_wtxid_curve(
   build_specs: fn(List(Int)) -> List(SyntheticSegwitTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_specs = build_specs([1, 20, 100])
+  let small_specs = build_specs([20, 100])
   let large_specs = build_specs([500, 1000])
   let small_config = small_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
@@ -1072,7 +1072,7 @@ fn measure_synthetic_witness_wtxid_curve(
 fn measure_synthetic_segwit_serialization_curve(
   build_specs: fn(List(Int)) -> List(SyntheticSegwitTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_specs = build_specs([1, 20, 100])
+  let small_specs = build_specs([20, 100])
   let large_specs = build_specs([500, 1000])
   let small_config = small_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
@@ -1109,7 +1109,7 @@ fn measure_synthetic_segwit_serialization_curve(
 fn measure_synthetic_witness_serialization_curve(
   build_specs: fn(List(Int)) -> List(SyntheticSegwitTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_specs = build_specs([1, 20, 100])
+  let small_specs = build_specs([20, 100])
   let large_specs = build_specs([500, 1000])
   let small_config = small_synthetic_tx_measurement_config()
   let large_config = large_synthetic_tx_measurement_config()
