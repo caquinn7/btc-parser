@@ -151,14 +151,14 @@ fn measure_fixture_tx_decoding() -> PerfSection {
 fn measure_synthetic_input_tx_decoding() -> PerfSection {
   PerfSection(
     "decode / synthetic inputs",
-    measure_decode_curve(synthetic_input_count_tx_specs),
+    measure_synthetic_legacy_decode_curve(synthetic_input_count_tx_specs),
   )
 }
 
 fn measure_synthetic_output_tx_decoding() -> PerfSection {
   PerfSection(
     "decode / synthetic outputs",
-    measure_decode_curve(synthetic_output_count_tx_specs),
+    measure_synthetic_legacy_decode_curve(synthetic_output_count_tx_specs),
   )
 }
 
@@ -241,7 +241,7 @@ fn measure_decode(
   )
 }
 
-fn measure_decode_curve(
+fn measure_synthetic_legacy_decode_curve(
   build_specs: fn(List(Int)) -> List(SyntheticLegacyTxSpec),
 ) -> List(PerfCaseResult) {
   [
