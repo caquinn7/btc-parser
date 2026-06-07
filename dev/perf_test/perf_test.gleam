@@ -476,24 +476,15 @@ fn measure_tx_inspection() -> List(PerfSection) {
 }
 
 fn measure_coinbase_marker_inspection() -> PerfSection {
+  let small_config = fast_measurement_config(100)
+  let large_config = fast_measurement_config(10)
+
   let cases =
     [
-      measure_coinbase_marker_input_counts(
-        [20, 100],
-        small_synthetic_tx_measurement_config(),
-      ),
-      measure_coinbase_marker_input_counts(
-        [500, 1000],
-        large_synthetic_tx_measurement_config(),
-      ),
-      measure_coinbase_marker_last_input_counts(
-        [20, 100],
-        small_synthetic_tx_measurement_config(),
-      ),
-      measure_coinbase_marker_last_input_counts(
-        [500, 1000],
-        large_synthetic_tx_measurement_config(),
-      ),
+      measure_coinbase_marker_input_counts([20, 100], small_config),
+      measure_coinbase_marker_input_counts([500, 1000], large_config),
+      measure_coinbase_marker_last_input_counts([20, 100], small_config),
+      measure_coinbase_marker_last_input_counts([500, 1000], large_config),
     ]
     |> list.flatten
 
@@ -1656,6 +1647,16 @@ fn measurement_config(operations_per_timed_call: Int) -> PerfMeasurementConfig {
     operations_per_timed_call:,
     warmup_ms: 250,
     duration_ms: 1000,
+  )
+}
+
+fn fast_measurement_config(
+  operations_per_timed_call: Int,
+) -> PerfMeasurementConfig {
+  PerfMeasurementConfig(
+    operations_per_timed_call:,
+    warmup_ms: 100,
+    duration_ms: 500,
   )
 }
 
