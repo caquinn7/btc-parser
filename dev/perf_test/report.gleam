@@ -114,7 +114,7 @@ fn row_to_string(row: List(String), widths: List(Int)) -> String {
         "  ",
       )
 
-    _, _ -> ""
+    _, _ -> panic as "perf report row/width column mismatch"
   }
 }
 
