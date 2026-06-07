@@ -103,6 +103,7 @@ type SyntheticSegwitTxSpec {
 pub fn run() -> PerfResult {
   [
     measure_tx_decoding(),
+    measure_tx_inspection(),
     measure_consensus_validation(),
     measure_txid_computation(),
     measure_tx_serialization(),
@@ -462,6 +463,102 @@ fn oversized_scriptsig_policy_decode_case(
     == PolicyLimitExceeded(script_sig_size, max_script_size)
 
   PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
+}
+
+// ==============================================================================
+// Transaction inspection
+// ==============================================================================
+
+/// Measures read-only transaction inspection helpers over transactions that
+/// have already been decoded before timing begins.
+fn measure_tx_inspection() -> List(PerfSection) {
+  [measure_coinbase_marker_inspection()]
+}
+
+fn measure_coinbase_marker_inspection() -> PerfSection {
+  let cases =
+    [
+      measure_coinbase_marker_input_counts(
+        [20, 100],
+        small_synthetic_tx_measurement_config(),
+      ),
+      measure_coinbase_marker_input_counts(
+        [500, 1000],
+        large_synthetic_tx_measurement_config(),
+      ),
+      measure_coinbase_marker_last_input_counts(
+        [20, 100],
+        small_synthetic_tx_measurement_config(),
+      ),
+      measure_coinbase_marker_last_input_counts(
+        [500, 1000],
+        large_synthetic_tx_measurement_config(),
+      ),
+    ]
+    |> list.flatten
+
+  PerfSection("inspection / coinbase marker", cases)
+}
+
+fn measure_coinbase_marker_input_counts(
+  input_counts: List(Int),
+  config: PerfMeasurementConfig,
+) -> List(PerfCaseResult) {
+  input_counts
+  |> list.map(coinbase_marker_case(_, "no marker", UniquePrevouts, False))
+  |> measure_coinbase_marker(config)
+}
+
+fn measure_coinbase_marker_last_input_counts(
+  input_counts: List(Int),
+  config: PerfMeasurementConfig,
+) -> List(PerfCaseResult) {
+  input_counts
+  |> list.map(fn(input_count) {
+    coinbase_marker_case(
+      input_count,
+      "last marker",
+      NullPrevoutAt(input_count - 1),
+      True,
+    )
+  })
+  |> measure_coinbase_marker(config)
+}
+
+fn measure_coinbase_marker(
+  inputs: List(PerfCaseInput(Transaction(Parsed))),
+  config: PerfMeasurementConfig,
+) -> List(PerfCaseResult) {
+  run_bench_cases(
+    inputs,
+    [
+      Function(
+        "has_coinbase_marker",
+        bench.repeat(
+          config.operations_per_timed_call,
+          btc_tx.has_coinbase_marker,
+        ),
+      ),
+    ],
+    config,
+  )
+}
+
+fn coinbase_marker_case(
+  input_count: Int,
+  marker_label: String,
+  prevout_pattern: SyntheticPrevoutPattern,
+  expected: Bool,
+) -> PerfCaseInput(Transaction(Parsed)) {
+  let tx_bytes = build_synthetic_legacy_tx(input_count, 1, prevout_pattern)
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  assert btc_tx.has_coinbase_marker(parsed_tx) == expected
+
+  PerfCaseInput(
+    marker_label <> " inputs=" <> int.to_string(input_count),
+    bit_array.byte_size(tx_bytes),
+    parsed_tx,
+  )
 }
 
 // ==============================================================================
@@ -1261,6 +1358,7 @@ fn find_input_size_bytes(
 type SyntheticPrevoutPattern {
   UniquePrevouts
   LastPrevoutDuplicatesFirst
+  NullPrevoutAt(input_index: Int)
 }
 
 fn build_synthetic_legacy_tx(
@@ -1378,19 +1476,42 @@ fn build_synthetic_legacy_input(
   input_count: Int,
   prevout_pattern: SyntheticPrevoutPattern,
 ) -> BitArray {
-  let prev_txid = {
-    let prev_txid_seed =
-      synthetic_prev_txid_seed(index, input_count, prevout_pattern)
-
-    <<prev_txid_seed:little-size(32), 0:size(224)>>
-  }
+  let prevout = synthetic_prevout(index, input_count, prevout_pattern)
 
   <<
-    prev_txid:bits,
-    0:little-size(32),
+    prevout:bits,
     compact_size(0):bits,
     0xFFFFFFFF:little-size(32),
   >>
+}
+
+fn synthetic_prevout(
+  index: Int,
+  input_count: Int,
+  prevout_pattern: SyntheticPrevoutPattern,
+) -> BitArray {
+  case prevout_pattern {
+    NullPrevoutAt(input_index) if index == input_index -> <<
+      0:256,
+      0xFFFFFFFF:little-size(32),
+    >>
+
+    _ -> {
+      let prev_txid = synthetic_prev_txid(index, input_count, prevout_pattern)
+      <<prev_txid:bits, 0:little-size(32)>>
+    }
+  }
+}
+
+fn synthetic_prev_txid(
+  index: Int,
+  input_count: Int,
+  prevout_pattern: SyntheticPrevoutPattern,
+) -> BitArray {
+  let prev_txid_seed =
+    synthetic_prev_txid_seed(index, input_count, prevout_pattern)
+
+  <<prev_txid_seed:little-size(32), 0:size(224)>>
 }
 
 fn build_synthetic_legacy_outputs(remaining: Int, acc: BitArray) -> BitArray {
@@ -1507,6 +1628,7 @@ fn synthetic_prev_txid_seed(
 ) -> Int {
   case prevout_pattern {
     UniquePrevouts -> index
+    NullPrevoutAt(_) -> index
     LastPrevoutDuplicatesFirst ->
       case index == input_count - 1 {
         True -> 0
