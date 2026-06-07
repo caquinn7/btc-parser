@@ -2,10 +2,11 @@
 
 ## Project Purpose
 
-`btc_tx` is a Gleam library for parsing, inspecting, classifying, serializing,
-and context-free consensus validation Bitcoin transactions. It aims to mirror Bitcoin's
-wire format closely, expose malformed encodings as structured errors, and remain
-portable across Erlang and JavaScript targets.
+`btc_tx` is a Gleam library for working with Bitcoin transactions: parsing wire
+bytes, inspecting transaction fields, classifying output scripts, serializing
+transactions, and running context-free consensus checks. It aims to mirror
+Bitcoin's wire format closely, expose malformed encodings as structured errors,
+and remain portable across Erlang and JavaScript targets.
 
 This library does not perform full transaction validation. Do not add behavior
 that requires UTXO lookup, script execution, signature verification, block
@@ -28,6 +29,8 @@ context, mempool policy, or network/RPC access unless the project scope changes.
 - `src/internal/hash32.gleam` stores 32-byte transaction hashes in wire-order
   little-endian bytes.
 - `dev/fuzz_test/` contains the mutation-based fuzz harness and seed corpus.
+- `dev/perf_test/` contains the `gleam dev perf` benchmark harness and docs for
+  interpreting benchmark groups.
 - `docs/` documents API behavior and output script classification.
 
 ## Build And Test Commands
@@ -47,6 +50,11 @@ context, mempool policy, or network/RPC access unless the project scope changes.
 - `gleam dev --target erlang fuzz <iterations> [seed]` - fuzz parser behavior.
 - `gleam dev --target javascript --runtime node fuzz <iterations> [seed]` - fuzz
   JS behavior when a JS-specific change is involved.
+- `gleam dev --target erlang perf` - run the performance benchmark suite on
+  Erlang.
+- `gleam dev --target javascript --runtime node perf` - run the performance
+  benchmark suite on JavaScript using Node. Use `--runtime deno` or
+  `--runtime bun` when a JS runtime-specific change is involved.
 
 Run both Erlang and at least one JavaScript runtime for meaningful code changes;
 the number of target-specific tests is small, but almost all tests run on every target.
@@ -135,6 +143,11 @@ integers, CompactSize, serialization, hashing, or FFI.
   internals, or decode policy enforcement. Run with an explicit seed, or record
   the generated seed from the fuzz output, so any failure can be reproduced.
   Record the failing seed/hex if a crash or hang is found.
+- Run the perf harness after performance-sensitive changes to decode,
+  validation, transaction inspection, serialization, hashing, witness handling,
+  parser/list accumulation, `BitArray` handling, or decode policy fail-fast
+  behavior. Compare trends within the same machine, target, and runtime rather
+  than treating absolute numbers as portable.
 
 ## Performance Considerations
 
@@ -148,3 +161,6 @@ integers, CompactSize, serialization, hashing, or FFI.
   reverse and reverse once, as the parser helpers do.
 - Do not silently relax default policy limits. They protect callers parsing
   untrusted bytes even though some consensus-valid transactions may exceed them.
+- Keep the default perf suite selective. Add benchmark rows only when they cover
+  a distinct public operation, scaling dimension, fail-fast path, or transaction
+  shape not already represented.

@@ -5,15 +5,28 @@ import gleam/int
 import gleam/io
 import gleam/list
 import gleam/string
+import perf_test/perf_test
+import perf_test/report
 import simplifile
 
-const usage_msg = "usage: gleam dev [OPTIONS] fuzz <iterations> [seed]"
+const usage_msg = "usage:
+  gleam dev [OPTIONS] fuzz <iterations> [seed]
+  gleam dev [OPTIONS] perf"
 
 pub fn main() {
   case argv.load().arguments {
     ["fuzz", ..args] -> fuzz_command(args)
+    ["perf"] -> perf_command()
     _ -> io.println(usage_msg)
   }
+}
+
+fn perf_command() -> Nil {
+  io.println("Executing performance tests...\n")
+
+  perf_test.run()
+  |> report.to_string
+  |> io.println
 }
 
 fn fuzz_command(args: List(String)) -> Nil {
