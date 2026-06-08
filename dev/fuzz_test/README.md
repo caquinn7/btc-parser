@@ -11,6 +11,47 @@ This includes malformed, adversarial, and edge-case data—not just valid Bitcoi
 
 ---
 
+## Commands
+
+Run the harness on the default target from `gleam.toml`, which is Erlang:
+
+```sh
+gleam dev fuzz <iterations>
+```
+
+Run it on Erlang explicitly:
+
+```sh
+gleam dev --target erlang fuzz <iterations>
+```
+
+Run it on JavaScript using the default JavaScript runtime from `gleam.toml`,
+which is Node:
+
+```sh
+gleam dev --target javascript fuzz <iterations>
+```
+
+Run it on a specific JavaScript runtime:
+
+```sh
+gleam dev --target javascript --runtime node fuzz <iterations>
+gleam dev --target javascript --runtime deno fuzz <iterations>
+gleam dev --target javascript --runtime bun fuzz <iterations>
+```
+
+Run it with a specific seed to reproduce a previous run:
+
+```sh
+gleam dev --target erlang fuzz <iterations> <seed>
+gleam dev --target javascript --runtime node fuzz <iterations> <seed>
+```
+
+When no seed is provided, the harness generates one and prints it in the
+results. Record that seed when reporting a failure so the run can be replayed.
+
+---
+
 ## Primary Objectives
 
 ### 1. Robustness Against Arbitrary Input
