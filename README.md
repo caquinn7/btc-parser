@@ -69,6 +69,7 @@ pub fn process(hex: String) -> Result(BitArray, String) {
 
 ## Development
 
+### Unit Tests
 ```sh
 # Run tests on the Erlang target
 gleam test -t erlang
@@ -79,16 +80,12 @@ gleam test -t javascript --runtime bun
 ```
 
 ### Fuzz Testing
-See [here](https://github.com/caquinn7/btc-tx/blob/main/dev/fuzz_test/fuzz_test.md) for details.
+The fuzz harness mutates real transactions to stress parser safety against
+arbitrary bytes. See [dev/fuzz_test/README.md](dev/fuzz_test/README.md)
+for commands, seed replay, and scope.
 
-```sh
-# Run with a random seed
-gleam dev --target erlang fuzz <iterations>
-gleam dev --target javascript --runtime node fuzz <iterations>
-gleam dev --target javascript --runtime deno fuzz <iterations>
-gleam dev --target javascript --runtime bun fuzz <iterations>
-
-# Run with a specific seed (for reproducibility)
-gleam dev --target erlang fuzz <iterations> <seed>
-```
-
+### Performance Testing
+The perf harness benchmarks public transaction workflows to catch broad
+regressions within the same machine, target, and runtime. See
+[dev/perf_test/README.md](dev/perf_test/README.md) for commands, benchmark
+coverage, and result interpretation.
