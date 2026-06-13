@@ -949,7 +949,7 @@ fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
 ///
 /// ## See Also
 ///
-/// - `default_decode_policy()` for the standard parsing limits
+/// - `default_decode_policy` for the standard parsing limits
 /// - `decode_with_policy` to apply a custom policy
 pub opaque type DecodePolicy {
   DecodePolicy(
@@ -998,16 +998,13 @@ pub opaque type DecodePolicy {
   )
 }
 
-/// The default transaction parsing policy.
+/// The default transaction decoding policy.
 ///
-/// This policy provides reasonable resource limits for transaction decoding that
-/// protect against malicious inputs while accommodating many typical Bitcoin transactions.
-/// These limits are applied automatically when using `decode` or `decode_hex`.
-///
-/// The defaults are chosen to accommodate many typical Bitcoin transactions while
-/// preventing excessive memory allocation and processing time. As these are policy
-/// limits rather than consensus rules, some valid Bitcoin transactions may be
-/// rejected by this configuration.
+/// Provides reasonable resource limits for transaction decoding, applied
+/// automatically when using `decode` or `decode_hex`. These defaults protect
+/// against malicious inputs while preventing excessive memory allocation and
+/// processing time. As these are policy limits rather than consensus rules,
+/// some valid Bitcoin transactions may be rejected by this configuration.
 /// 
 /// The overall transaction size limit (`max_tx_size`) serves as the primary
 /// resource constraint. Witness-related limits are optional and may be enabled
@@ -1201,7 +1198,8 @@ pub fn decode_with_policy(
     ))
     use witnesses <- parser.then(case is_segwit {
       True ->
-        list.length(inputs)
+        inputs
+        |> list.length
         |> read_witnesses(
           policy.max_witness_items_per_input,
           policy.max_witness_size_per_input,
@@ -1922,7 +1920,6 @@ pub type ConsensusViolation {
 ///
 /// "Context-free" means these checks require only the transaction itself —
 /// no UTXO set, no block context, and no knowledge of other transactions.
-/// The transaction can be validated in isolation.
 ///
 /// This function enforces a subset of the checks performed by fully
 /// validating Bitcoin nodes: the structural and monetary rules that can
