@@ -33,12 +33,16 @@ No security guarantees are provided.
 ## Key Features
 
 - **Safe parsing**: Configurable resource limits protect against malicious inputs
-- **Format detection**: Distinguish legacy and SegWit transactions
 - **Rich error context**: Detailed parse errors with byte offsets and context stacks
-- **Consensus validation**: Validate transaction structure against Bitcoin consensus constraints
-- **Type safety**: Phantom types distinguish validated from unvalidated transactions
+- **Format detection**: Distinguish legacy and SegWit transactions
+- **Transaction inspection**: Access versions, lock times, inputs, outputs, prevouts,
+  script bytes, output values, and SegWit witness stacks
 - **Script classification**: Identify P2PKH, P2SH, P2WPKH, P2WSH, P2TR, and other
   standard output script templates (structural only; no blockchain or UTXO context required)
+- **Context-free consensus validation**: Check transaction-local consensus rules
+  such as input/output presence, MoneyRange, coinbase structure, and duplicate inputs
+- **Validation-aware API**: Separate parsed transactions from operations that
+  require consensus validation
 - **Serialization**: Access raw stripped or witness-serialized bytes, and compute
   txid and wtxid for validated transactions
 - **Cross-runtime**: Supports both Erlang and JavaScript targets
