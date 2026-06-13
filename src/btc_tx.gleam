@@ -942,7 +942,7 @@ fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
 /// Optional limits are only enforced when `Some`; `None` disables the limit.
 ///
 /// Builder functions do not validate whether custom limits are useful for
-/// parsing consensus-valid transactions. Callers that override `default_decode_policy()`
+/// parsing consensus-valid transactions. Callers that override `default_decode_policy`
 /// are responsible for choosing sensible values for their use case. Overly
 /// strict or unusual values may simply cause decoding to fail with the existing
 /// parse and policy errors.
@@ -1128,7 +1128,7 @@ pub fn decode_policy_max_witness_size_per_input(
 /// serialized in the Bitcoin network protocol format. It automatically detects
 /// whether the transaction is legacy or SegWit by inspecting the marker bytes.
 ///
-/// This function applies `default_decode_policy()` to protect against malicious inputs
+/// This function applies `default_decode_policy` to protect against malicious inputs
 /// by enforcing reasonable limits on transaction size, input/output counts, script
 /// sizes, and witness data.
 /// 
@@ -1162,10 +1162,10 @@ pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), DecodeError) {
 /// Decode a Bitcoin transaction with custom parsing limits.
 ///
 /// Like `decode`, but accepts a `DecodePolicy` to override the resource limits
-/// applied during parsing. Use `default_decode_policy()` and the `decode_policy_with_*`
+/// applied during parsing. Use `default_decode_policy` and the `decode_policy_with_*`
 /// builder functions to construct custom policies. Limits that are exceeded
 /// produce a `PolicyLimitExceeded` error. See `DecodePolicy` and
-/// `default_decode_policy()` for available options and defaults.
+/// `default_decode_policy` for available options and defaults.
 ///
 /// ## Returns
 ///
@@ -1245,7 +1245,7 @@ pub fn decode_with_policy(
 /// hexadecimal format, such as from block explorers, RPC responses, or test
 /// vectors.
 ///
-/// This function applies `default_decode_policy()` for parsing limits.
+/// This function applies `default_decode_policy` for parsing limits.
 /// For custom parsing limits, use `decode_with_policy` instead.
 ///
 /// ## Returns
