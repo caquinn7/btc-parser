@@ -1,5 +1,5 @@
-import fuzz/fuzz.{type FuzzResult, type SeedTx}
-import fuzz/report
+import fuzz/internal/fuzz.{type FuzzResult, type SeedTx}
+import fuzz/internal/report
 import gleam/crypto
 import gleam/int
 import gleam/io
@@ -93,7 +93,7 @@ pub fn run(command: FuzzCommand) -> Nil {
 }
 
 fn read_seed_txs() -> List(SeedTx) {
-  let assert Ok(file_content) = simplifile.read("dev/fuzz/seed_txs.txt")
+  let assert Ok(file_content) = simplifile.read("dev/fuzz/corpus/seed_txs.txt")
   fuzz.parse_seed_txs(file_content)
 }
 
