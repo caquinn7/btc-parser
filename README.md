@@ -85,7 +85,7 @@ gleam test -t javascript --runtime bun
 
 ### Fuzz Testing
 The fuzz harness mutates real transactions to stress parser safety against
-arbitrary bytes. See [dev/fuzz_test/README.md](dev/fuzz_test/README.md)
+arbitrary bytes. See [dev/fuzz/README.md](dev/fuzz/README.md)
 for commands, seed replay, and scope.
 
 ### Performance Testing

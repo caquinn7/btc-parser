@@ -1,5 +1,5 @@
 import argv
-import fuzz_test/fuzz_command.{InvalidNumberOfArgs, InvalidValue}
+import fuzz/fuzz_command.{InvalidNumberOfArgs, InvalidValue}
 import gleam/io
 import perf_test/perf_command
 

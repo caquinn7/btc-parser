@@ -1,4 +1,4 @@
-import fuzz_test/fuzz_test.{type FuzzResult, type IterationFailure}
+import fuzz/fuzz.{type FuzzResult, type IterationFailure}
 import gleam/int
 import gleam/list
 import gleam/string

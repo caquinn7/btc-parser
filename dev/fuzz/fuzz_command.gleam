@@ -1,5 +1,5 @@
-import fuzz_test/fuzz_test.{type FuzzResult, type SeedTx}
-import fuzz_test/report
+import fuzz/fuzz.{type FuzzResult, type SeedTx}
+import fuzz/report
 import gleam/crypto
 import gleam/int
 import gleam/io
@@ -93,18 +93,18 @@ pub fn run(command: FuzzCommand) -> Nil {
 }
 
 fn read_seed_txs() -> List(SeedTx) {
-  let assert Ok(file_content) = simplifile.read("dev/fuzz_test/seed_txs.txt")
-  fuzz_test.parse_seed_txs(file_content)
+  let assert Ok(file_content) = simplifile.read("dev/fuzz/seed_txs.txt")
+  fuzz.parse_seed_txs(file_content)
 }
 
 fn run_fuzz(seed_txs, iteration_count, rng_seed) -> #(FuzzResult, Int) {
   let start = monotonic_time_ms()
-  let fuzz_result = fuzz_test.run(seed_txs, iteration_count, rng_seed)
+  let fuzz_result = fuzz.run(seed_txs, iteration_count, rng_seed)
   let elapsed = monotonic_time_ms() - start
 
   #(fuzz_result, elapsed)
 }
 
-@external(erlang, "ffi", "monotonic_time_ms")
-@external(javascript, "./ffi.mjs", "monotonicTimeMs")
+@external(erlang, "fuzz_ffi", "monotonic_time_ms")
+@external(javascript, "./fuzz_ffi.mjs", "monotonicTimeMs")
 fn monotonic_time_ms() -> Int
