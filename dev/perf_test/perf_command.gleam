@@ -12,7 +12,7 @@ pub opaque type PerfCommand {
   WritePerfReport(path: String, format: PerfReportFormat)
 }
 
-pub opaque type PerfReportFormat {
+type PerfReportFormat {
   Table
   Csv
 }
