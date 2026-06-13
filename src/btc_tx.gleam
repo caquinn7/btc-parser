@@ -942,14 +942,14 @@ fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
 /// Optional limits are only enforced when `Some`; `None` disables the limit.
 ///
 /// Builder functions do not validate whether custom limits are useful for
-/// parsing consensus-valid transactions. Callers that override `default_decode_policy()`
+/// parsing consensus-valid transactions. Callers that override `default_decode_policy`
 /// are responsible for choosing sensible values for their use case. Overly
 /// strict or unusual values may simply cause decoding to fail with the existing
 /// parse and policy errors.
 ///
 /// ## See Also
 ///
-/// - `default_decode_policy()` for the standard parsing limits
+/// - `default_decode_policy` for the standard parsing limits
 /// - `decode_with_policy` to apply a custom policy
 pub opaque type DecodePolicy {
   DecodePolicy(
@@ -998,16 +998,13 @@ pub opaque type DecodePolicy {
   )
 }
 
-/// The default transaction parsing policy.
+/// The default transaction decoding policy.
 ///
-/// This policy provides reasonable resource limits for transaction decoding that
-/// protect against malicious inputs while accommodating many typical Bitcoin transactions.
-/// These limits are applied automatically when using `decode` or `decode_hex`.
-///
-/// The defaults are chosen to accommodate many typical Bitcoin transactions while
-/// preventing excessive memory allocation and processing time. As these are policy
-/// limits rather than consensus rules, some valid Bitcoin transactions may be
-/// rejected by this configuration.
+/// Provides reasonable resource limits for transaction decoding, applied
+/// automatically when using `decode` or `decode_hex`. These defaults protect
+/// against malicious inputs while preventing excessive memory allocation and
+/// processing time. As these are policy limits rather than consensus rules,
+/// some valid Bitcoin transactions may be rejected by this configuration.
 /// 
 /// The overall transaction size limit (`max_tx_size`) serves as the primary
 /// resource constraint. Witness-related limits are optional and may be enabled
@@ -1131,7 +1128,7 @@ pub fn decode_policy_max_witness_size_per_input(
 /// serialized in the Bitcoin network protocol format. It automatically detects
 /// whether the transaction is legacy or SegWit by inspecting the marker bytes.
 ///
-/// This function applies `default_decode_policy()` to protect against malicious inputs
+/// This function applies `default_decode_policy` to protect against malicious inputs
 /// by enforcing reasonable limits on transaction size, input/output counts, script
 /// sizes, and witness data.
 /// 
@@ -1165,10 +1162,10 @@ pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), DecodeError) {
 /// Decode a Bitcoin transaction with custom parsing limits.
 ///
 /// Like `decode`, but accepts a `DecodePolicy` to override the resource limits
-/// applied during parsing. Use `default_decode_policy()` and the `decode_policy_with_*`
+/// applied during parsing. Use `default_decode_policy` and the `decode_policy_with_*`
 /// builder functions to construct custom policies. Limits that are exceeded
 /// produce a `PolicyLimitExceeded` error. See `DecodePolicy` and
-/// `default_decode_policy()` for available options and defaults.
+/// `default_decode_policy` for available options and defaults.
 ///
 /// ## Returns
 ///
@@ -1201,7 +1198,8 @@ pub fn decode_with_policy(
     ))
     use witnesses <- parser.then(case is_segwit {
       True ->
-        list.length(inputs)
+        inputs
+        |> list.length
         |> read_witnesses(
           policy.max_witness_items_per_input,
           policy.max_witness_size_per_input,
@@ -1247,7 +1245,7 @@ pub fn decode_with_policy(
 /// hexadecimal format, such as from block explorers, RPC responses, or test
 /// vectors.
 ///
-/// This function applies `default_decode_policy()` for parsing limits.
+/// This function applies `default_decode_policy` for parsing limits.
 /// For custom parsing limits, use `decode_with_policy` instead.
 ///
 /// ## Returns
@@ -1922,7 +1920,6 @@ pub type ConsensusViolation {
 ///
 /// "Context-free" means these checks require only the transaction itself —
 /// no UTXO set, no block context, and no knowledge of other transactions.
-/// The transaction can be validated in isolation.
 ///
 /// This function enforces a subset of the checks performed by fully
 /// validating Bitcoin nodes: the structural and monetary rules that can

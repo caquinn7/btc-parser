@@ -38,8 +38,7 @@ context, mempool policy, or network/RPC access unless the project scope changes.
 - `gleam format` - format files/directories passed as arguments; defaults to the
   current directory.
 - `gleam build` - compile the default target from `gleam.toml` (`erlang` here).
-  Like `gleam test`, it accepts target/runtime options when building another
-  target.
+  Use `gleam build --target javascript` to compile the JavaScript target.
 - `gleam test -t erlang` - run the test suite on the Erlang target.
 - `gleam test -t javascript --runtime node` - run the test suite on JavaScript
   using Node.
@@ -49,12 +48,17 @@ context, mempool policy, or network/RPC access unless the project scope changes.
   using Bun.
 - `gleam dev --target erlang fuzz <iterations> [seed]` - fuzz parser behavior.
 - `gleam dev --target javascript --runtime node fuzz <iterations> [seed]` - fuzz
-  JS behavior when a JS-specific change is involved.
+  JavaScript behavior using Node. Also run with `--runtime deno` or
+  `--runtime bun` when a change touches JavaScript FFI, runtime-sensitive
+  `BitArray` or integer behavior, runtime config, file/timer/CLI behavior, or a
+  runtime-specific bug.
 - `gleam dev --target erlang perf` - run the performance benchmark suite on
   Erlang.
 - `gleam dev --target javascript --runtime node perf` - run the performance
   benchmark suite on JavaScript using Node. Use `--runtime deno` or
-  `--runtime bun` when a JS runtime-specific change is involved.
+  `--runtime bun` when a change touches JavaScript FFI, runtime-sensitive
+  `BitArray` or integer behavior, runtime config, file/timer/CLI behavior, or a
+  runtime-specific bug.
 
 Run both Erlang and at least one JavaScript runtime for meaningful code changes;
 the number of target-specific tests is small, but almost all tests run on every target.
@@ -88,28 +92,28 @@ integers, CompactSize, serialization, hashing, or FFI.
 
 ## Domain Constraints
 
-- Context-free consensus checks currently include: non-empty inputs/outputs,
-  output money range, cumulative output money range, coinbase structure,
-  coinbase scriptSig length, and duplicate input detection.
-- `max_satoshis` is `2_100_000_000_000_000`.
-- Coinbase marker is exactly null prevout: 32 zero bytes plus vout
-  `0xFFFFFFFF`.
-- Coinbase scriptSig length must be 2 to 100 bytes inclusive after consensus
-  validation.
-- Output script classification is structural. It recognizes P2PK, P2PKH, P2SH,
-  P2WPKH, P2WSH, P2TR, standard bare multisig, standard NullData, future witness
-  programs, and `NonStandard`.
-- NullData classification follows Bitcoin Core standardness shape: `OP_RETURN`,
-  push-only payload, total script length at most 83 bytes. This is relay policy,
-  not consensus validation.
-- Bare multisig classification is standard bare multisig only: 1 <= m <= n <= 3,
-  with valid compressed or uncompressed pubkey pushes.
+- Keep context-free consensus validation aligned with the documented
+  `validate_consensus` scope; do not add context-dependent checks such as UTXO
+  lookup, block subsidy, or block-height validation.
+- Keep structural inspection separate from validation: helpers may identify wire
+  shapes, markers, and script templates, but consensus meaning should flow
+  through documented validation APIs.
+- Output script classification is structural and should stay aligned with
+  `classify_output_script` docs and tests; do not turn it into script execution,
+  key validation, or consensus validation. NullData classification remains relay
+  policy, not consensus validation.
 - Unknown witness outputs should remain forward-compatible and distinct from
   `NonStandard`.
 
 ## Coding Conventions
 
-- Follow existing Gleam style and run `gleam format`.
+- Run `gleam format` and match nearby code for naming, control flow,
+  parser/result patterns, and public API documentation style.
+- Treat source doc comments, tests, and focused docs as the detailed behavior
+  source of truth; keep `AGENTS.md` focused on scope, invariants, and workflow
+  guardrails.
+- Update relevant source doc comments and focused docs as part of code changes
+  when they would otherwise become stale.
 - Prefer opaque domain types and accessor functions over exposing representation.
 - Keep public API documentation clear about byte order, validation state, and
   whether a check is structural, policy, or consensus.
