@@ -1,12 +1,11 @@
 import argv
-import fuzz_test/fuzz_test.{type FuzzResult, type IterationFailure, type SeedTx}
+import fuzz_test/fuzz_test.{type FuzzResult, type SeedTx}
+import fuzz_test/report as fuzz_report
 import gleam/crypto
 import gleam/int
 import gleam/io
-import gleam/list
-import gleam/string
 import perf_test/perf_test
-import perf_test/report
+import perf_test/report as perf_report
 import simplifile
 
 const usage_msg = "usage:
@@ -21,14 +20,6 @@ pub fn main() {
   }
 }
 
-fn perf_command() -> Nil {
-  io.println("Executing performance tests...\n")
-
-  perf_test.run()
-  |> report.to_string
-  |> io.println
-}
-
 fn fuzz_command(args: List(String)) -> Nil {
   case parse_fuzz_args(args) {
     Ok(#(iteration_count, rng_seed)) -> {
@@ -40,11 +31,19 @@ fn fuzz_command(args: List(String)) -> Nil {
       let #(fuzz_result, exec_time) =
         run_fuzz(seed_txs, iteration_count, rng_seed)
 
-      io.println(fuzz_result_to_string(fuzz_result, exec_time))
+      io.println(fuzz_report.to_string(fuzz_result, exec_time))
     }
 
     _ -> io.println(usage_msg)
   }
+}
+
+fn perf_command() -> Nil {
+  io.println("Executing performance tests...\n")
+
+  perf_test.run()
+  |> perf_report.to_string
+  |> io.println
 }
 
 fn parse_fuzz_args(args: List(String)) -> Result(#(Int, Int), Nil) {
@@ -79,43 +78,6 @@ fn run_fuzz(seed_txs, iteration_count, rng_seed) -> #(FuzzResult, Int) {
   let elapsed = monotonic_time_ms() - start
 
   #(fuzz_result, elapsed)
-}
-
-fn fuzz_result_to_string(fuzz_result: FuzzResult, elapsed: Int) -> String {
-  let header =
-    "iterations: "
-    <> int.to_string(fuzz_result.iteration_count)
-    <> "\nseed: "
-    <> int.to_string(fuzz_result.rng_seed)
-    <> "\ntrace: "
-    <> fuzz_result.trace_hash
-    <> "\ntime: "
-    <> int.to_string(elapsed)
-    <> "ms"
-    <> "\nfailures: "
-    <> int.to_string(list.length(fuzz_result.failures))
-
-  case fuzz_result.failures {
-    [] -> header
-
-    failures ->
-      header
-      <> "\n\n"
-      <> string.join(list.map(failures, iteration_failure_to_string), "\n\n")
-  }
-}
-
-fn iteration_failure_to_string(failure: IterationFailure) -> String {
-  "  #"
-  <> int.to_string(failure.iteration)
-  <> "\n    seed_tx: "
-  <> failure.mutated_tx.seed_tx.txid
-  <> "\n    mutation: "
-  <> string.inspect(failure.mutated_tx.mutation)
-  <> "\n    hex: "
-  <> failure.mutated_tx_hex
-  <> "\n    exception: "
-  <> string.inspect(failure.exception)
 }
 
 @external(erlang, "ffi", "monotonic_time_ms")
