@@ -1,7 +1,7 @@
 import argv
 import fuzz/fuzz_command.{InvalidNumberOfArgs, InvalidValue}
 import gleam/io
-import perf_test/perf_command
+import perf/perf_command
 
 const usage_msg = "usage:
   gleam dev [OPTIONS] fuzz <iterations> [seed]

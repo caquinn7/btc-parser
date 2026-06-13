@@ -3,8 +3,8 @@ import gleam/io
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import perf_test/perf_test.{type PerfResult}
-import perf_test/report
+import perf/perf.{type PerfResult}
+import perf/report
 import simplifile.{type FileError}
 
 pub opaque type PerfCommand {
@@ -75,7 +75,7 @@ fn parse_perf_report_format(format: String) -> Result(PerfReportFormat, Nil) {
 pub fn run(command: PerfCommand) -> Nil {
   io.println("Executing performance tests...\n")
 
-  let perf_result = perf_test.run()
+  let perf_result = perf.run()
 
   case command {
     PrintPerfReport ->

@@ -29,7 +29,7 @@ context, mempool policy, or network/RPC access unless the project scope changes.
 - `src/internal/hash32.gleam` stores 32-byte transaction hashes in wire-order
   little-endian bytes.
 - `dev/fuzz/` contains the mutation-based fuzz harness and seed corpus.
-- `dev/perf_test/` contains the `gleam dev perf` benchmark harness and docs for
+- `dev/perf/` contains the `gleam dev perf` benchmark harness and docs for
   interpreting benchmark groups.
 - `docs/` documents API behavior and output script classification.
 

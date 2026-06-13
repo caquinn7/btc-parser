@@ -91,5 +91,5 @@ for commands, seed replay, and scope.
 ### Performance Testing
 The perf harness benchmarks public transaction workflows to catch broad
 regressions within the same machine, target, and runtime. See
-[dev/perf_test/README.md](dev/perf_test/README.md) for commands, benchmark
+[dev/perf/README.md](dev/perf/README.md) for commands, benchmark
 coverage, and result interpretation.
