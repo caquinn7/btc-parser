@@ -5,7 +5,7 @@ import gleam/result
 import gleam/string
 import perf_test/perf_test.{type PerfResult}
 import perf_test/report
-import simplifile
+import simplifile.{type FileError}
 
 pub opaque type PerfCommand {
   PrintPerfReport
@@ -26,7 +26,7 @@ pub fn parse(args: List(String)) -> Result(PerfCommand, Nil) {
 
   case perf_args {
     PerfArgs(None, None) -> Ok(PrintPerfReport)
-    PerfArgs(Some(path), None) -> Ok(WritePerfReport(path, Table))
+    PerfArgs(Some(path), None) -> Ok(WritePerfReport(path, Csv))
     PerfArgs(Some(path), Some(format)) -> Ok(WritePerfReport(path, format))
     PerfArgs(None, Some(_)) -> Error(Nil)
   }
@@ -110,7 +110,7 @@ fn render_perf_report(
   }
 }
 
-fn write_perf_report(path: String, contents: String) {
+fn write_perf_report(path: String, contents: String) -> Result(Nil, FileError) {
   let parent_directory = filepath.directory_name(path)
 
   case string.is_empty(parent_directory) {
