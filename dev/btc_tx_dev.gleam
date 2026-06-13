@@ -4,23 +4,24 @@ import fuzz_test/report as fuzz_report
 import gleam/crypto
 import gleam/int
 import gleam/io
-import perf_test/perf_test
-import perf_test/report as perf_report
+import perf_test/perf_command
 import simplifile
 
 const usage_msg = "usage:
   gleam dev [OPTIONS] fuzz <iterations> [seed]
-  gleam dev [OPTIONS] perf"
+  gleam dev [OPTIONS] perf
+  gleam dev [OPTIONS] perf --out <path>
+  gleam dev [OPTIONS] perf --format <table|csv> --out <path>"
 
 pub fn main() {
   case argv.load().arguments {
-    ["fuzz", ..args] -> fuzz_command(args)
-    ["perf"] -> perf_command()
+    ["fuzz", ..args] -> fuzz(args)
+    ["perf", ..args] -> perf(args)
     _ -> io.println(usage_msg)
   }
 }
 
-fn fuzz_command(args: List(String)) -> Nil {
+fn fuzz(args: List(String)) -> Nil {
   case parse_fuzz_args(args) {
     Ok(#(iteration_count, rng_seed)) -> {
       io.println(
@@ -38,12 +39,11 @@ fn fuzz_command(args: List(String)) -> Nil {
   }
 }
 
-fn perf_command() -> Nil {
-  io.println("Executing performance tests...\n")
-
-  perf_test.run()
-  |> perf_report.to_string
-  |> io.println
+fn perf(args: List(String)) -> Nil {
+  case perf_command.parse(args) {
+    Ok(command) -> perf_command.run(command)
+    Error(Nil) -> io.println(usage_msg)
+  }
 }
 
 fn parse_fuzz_args(args: List(String)) -> Result(#(Int, Int), Nil) {
