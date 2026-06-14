@@ -3,8 +3,8 @@ import gleam/io
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import perf/perf.{type PerfResult}
-import perf/report
+import perf/internal/perf.{type PerfResult}
+import perf/internal/report
 import simplifile.{type FileError}
 
 pub opaque type PerfCommand {

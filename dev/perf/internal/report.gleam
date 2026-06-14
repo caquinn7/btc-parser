@@ -2,7 +2,9 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/string
-import perf/perf.{type PerfCaseResult, type PerfResult, type PerfSection}
+import perf/internal/perf.{
+  type PerfCaseResult, type PerfResult, type PerfSection,
+}
 
 pub fn to_string(perf_result: PerfResult) -> String {
   let headings = [
