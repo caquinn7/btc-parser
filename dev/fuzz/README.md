@@ -155,8 +155,8 @@ analysis.
 ## Role of the Seed Corpus
 
 The fuzzing strategy uses a **seed corpus of real Bitcoin transactions** stored
-in `dev/fuzz_test/seed_txs.txt`. Each record contains `txid|codes|raw_hex`.
-Corpus-code labels are documented in `dev/fuzz_test/seed_txs_codes.txt`.
+in `dev/fuzz/corpus/seed_txs.txt`. Each record contains `txid|codes|raw_hex`.
+Corpus-code labels are documented in `dev/fuzz/corpus/seed_txs_codes.txt`.
 
 ### Why this matters:
 - Pure random input is mostly invalid and low-signal

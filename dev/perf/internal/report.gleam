@@ -2,7 +2,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/string
-import perf_test/perf_test.{
+import perf/internal/perf.{
   type PerfCaseResult, type PerfResult, type PerfSection,
 }
 
@@ -42,6 +42,28 @@ pub fn to_string(perf_result: PerfResult) -> String {
   |> string.join("\n")
 }
 
+pub fn to_csv(perf_result: PerfResult) -> String {
+  let headings = [
+    "section",
+    "case",
+    "bytes",
+    "warmup_ms",
+    "duration_ms",
+    "ops_per_timed_call",
+    "timed_call_count",
+    "measured_ms",
+    "operations_per_second",
+    "microseconds_per_operation",
+  ]
+
+  let rows =
+    perf_result.sections
+    |> list.flat_map(section_to_csv_rows)
+
+  [string.join(headings, with: ","), ..rows]
+  |> string.join("\n")
+}
+
 fn section_to_width_rows(section: PerfSection) -> List(List(String)) {
   [[section_title(section)], ..list.map(section.cases, case_result_to_row)]
 }
@@ -63,6 +85,11 @@ fn section_title(section: PerfSection) -> String {
   "[" <> section.title <> "]"
 }
 
+fn section_to_csv_rows(section: PerfSection) -> List(String) {
+  section.cases
+  |> list.map(case_result_to_csv_row(section.title, _))
+}
+
 fn case_result_to_row(case_result: PerfCaseResult) -> List(String) {
   [
     case_result.label,
@@ -75,6 +102,30 @@ fn case_result_to_row(case_result: PerfCaseResult) -> List(String) {
     format_grouped_int(float.round(case_result.operations_per_second)),
     format_metric(case_result.microseconds_per_operation),
   ]
+}
+
+fn case_result_to_csv_row(
+  section_title: String,
+  case_result: PerfCaseResult,
+) -> String {
+  [
+    csv_string(section_title),
+    csv_string(case_result.label),
+    int.to_string(case_result.input_size_bytes),
+    int.to_string(case_result.config.warmup_ms),
+    int.to_string(case_result.config.duration_ms),
+    int.to_string(case_result.config.operations_per_timed_call),
+    int.to_string(case_result.timed_call_count),
+    float.to_string(case_result.measured_ms),
+    float.to_string(case_result.operations_per_second),
+    float.to_string(case_result.microseconds_per_operation),
+  ]
+  |> string.join(with: ",")
+}
+
+fn csv_string(value: String) -> String {
+  let quote = "\""
+  quote <> string.replace(value, each: quote, with: quote <> quote) <> quote
 }
 
 fn column_widths(rows: List(List(String))) -> List(Int) {

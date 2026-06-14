@@ -17,6 +17,25 @@ Run the suite on the default target from `gleam.toml`, which is Erlang:
 gleam dev perf
 ```
 
+When neither `--out` nor `--format` is provided, the table report is printed to
+stdout.
+
+Save a CSV report to a file. CSV is the default format when `--out` is used:
+
+```sh
+gleam dev perf --out /tmp/btc_tx_perf/perf.csv
+gleam dev perf --format csv --out /tmp/btc_tx_perf/perf.csv
+```
+
+Save the table report to a file:
+
+```sh
+gleam dev perf --format table --out /tmp/btc_tx_perf/perf.txt
+```
+
+When `--out` references a file in a directory that does not exist, the missing
+parent directories are created before writing the report.
+
 Run it on Erlang explicitly:
 
 ```sh
@@ -172,6 +191,11 @@ The results table has these columns:
 `ops/s` and `us/op` are normalized back to one logical operation, such as one
 `decode`, `validate_consensus`, `compute_txid`, or serialization call. That
 means rows with different `ops/call` values can still be compared.
+
+CSV output uses the same measurements as the table report, with one row per
+benchmark case. It includes the section name, case label, byte size, timing
+configuration, sample count, measured milliseconds, operations per second, and
+microseconds per operation.
 
 Batching is chosen by operation shape. Very fast rows use larger batches to
 reduce timer overhead, while slow witness-inclusive SegWit rows use smaller
