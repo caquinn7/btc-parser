@@ -48,9 +48,18 @@ fn parse_args(args: List(String)) -> Result(FuzzArgs, FuzzArgsError) {
 }
 
 fn validate_iterations_arg(arg: String) -> Result(Int, FuzzArgsError) {
-  arg
-  |> int.parse
-  |> result.replace_error(InvalidValue("iterations must be an integer"))
+  let err_msg = "iterations must be a positive integer"
+
+  use iterations <- result.try(
+    arg
+    |> int.parse
+    |> result.replace_error(InvalidValue(err_msg)),
+  )
+
+  case iterations <= 0 {
+    True -> Error(InvalidValue(err_msg))
+    False -> Ok(iterations)
+  }
 }
 
 fn validate_seed_arg(arg: String) -> Result(Int, FuzzArgsError) {
