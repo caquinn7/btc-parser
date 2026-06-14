@@ -38,21 +38,15 @@ fn parse_flags(args: List(String), parsed: PerfArgs) -> Result(PerfArgs, Nil) {
 
     ["--out", path, ..rest] ->
       case parsed.output_path, is_flag_value(path) {
-        None, True ->
-          parse_flags(
-            rest,
-            PerfArgs(output_path: Some(path), format: parsed.format),
-          )
+        None, True -> parse_flags(rest, PerfArgs(Some(path), parsed.format))
         _, _ -> Error(Nil)
       }
 
     ["--format", format, ..rest] ->
       case parsed.format, parse_perf_report_format(format) {
         None, Ok(format) ->
-          parse_flags(
-            rest,
-            PerfArgs(output_path: parsed.output_path, format: Some(format)),
-          )
+          parse_flags(rest, PerfArgs(parsed.output_path, Some(format)))
+
         _, _ -> Error(Nil)
       }
 

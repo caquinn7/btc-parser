@@ -35,12 +35,12 @@ fn parse_args(args: List(String)) -> Result(FuzzArgs, FuzzArgsError) {
     [iterations_str, seed_str] -> {
       use iterations <- result.try(validate_iterations_arg(iterations_str))
       use seed <- result.try(validate_seed_arg(seed_str))
-      Ok(FuzzArgs(iterations:, rng_seed: Some(seed)))
+      Ok(FuzzArgs(iterations, Some(seed)))
     }
 
     [iterations_str] -> {
       use iterations <- result.try(validate_iterations_arg(iterations_str))
-      Ok(FuzzArgs(iterations:, rng_seed: None))
+      Ok(FuzzArgs(iterations, None))
     }
 
     _ -> Error(InvalidNumberOfArgs)
