@@ -1,5 +1,6 @@
 import fuzz/internal/fuzz.{type FuzzResult, type SeedTx}
 import fuzz/internal/report
+import fuzz/internal/rng
 import gleam/crypto
 import gleam/int
 import gleam/io
@@ -69,12 +70,17 @@ fn validate_seed_arg(arg: String) -> Result(Int, FuzzArgsError) {
     |> result.replace_error(InvalidValue("seed must be an integer")),
   )
 
-  let max_rng_seed = 4_294_967_295
-  case 0 <= seed && seed <= max_rng_seed {
+  let min_rng_seed = -2_147_483_648
+  let max_rng_seed = 2_147_483_647
+
+  case min_rng_seed <= seed && seed <= max_rng_seed {
     True -> Ok(seed)
     False ->
       Error(InvalidValue(
-        "seed must be between 0 and " <> int.to_string(max_rng_seed),
+        "seed must be between "
+        <> int.to_string(min_rng_seed)
+        <> " and "
+        <> int.to_string(max_rng_seed),
       ))
   }
 }
@@ -84,19 +90,34 @@ pub fn run(command: FuzzCommand) -> Nil {
     CreateSeedAndIterate(iterations:) -> {
       io.println("Generating a random seed...\n")
 
-      let assert <<seed:32>> = crypto.strong_random_bytes(4)
+      let assert <<seed:32-signed>> = crypto.strong_random_bytes(4)
       #(iterations, seed)
     }
 
     IterateWithSeed(iterations:, rng_seed:) -> #(iterations, rng_seed)
   }
 
+  let rng = rng.new(rng_seed)
+  let rng_state = rng.state(rng)
+
   io.println(
     "Executing fuzz test with seed " <> int.to_string(rng_seed) <> "...\n",
   )
 
+  case rng_state == rng_seed {
+    True -> Nil
+    False ->
+      io.println(
+        "Seed "
+        <> int.to_string(rng_seed)
+        <> " normalized to RNG state "
+        <> int.to_string(rng_state)
+        <> ".\n",
+      )
+  }
+
   let assert [_, ..] as seed_txs = read_seed_txs()
-  let #(fuzz_result, exec_time) = run_fuzz(seed_txs, iterations, rng_seed)
+  let #(fuzz_result, exec_time) = run_fuzz(seed_txs, iterations, rng)
 
   io.println(report.to_string(fuzz_result, exec_time))
 }
@@ -106,9 +127,9 @@ fn read_seed_txs() -> List(SeedTx) {
   fuzz.parse_seed_txs(file_content)
 }
 
-fn run_fuzz(seed_txs, iteration_count, rng_seed) -> #(FuzzResult, Int) {
+fn run_fuzz(seed_txs, iteration_count, rng) -> #(FuzzResult, Int) {
   let start = monotonic_time_ms()
-  let fuzz_result = fuzz.run(seed_txs, iteration_count, rng_seed)
+  let fuzz_result = fuzz.run(seed_txs, iteration_count, rng)
   let elapsed = monotonic_time_ms() - start
 
   #(fuzz_result, elapsed)

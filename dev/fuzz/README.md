@@ -57,13 +57,20 @@ gleam dev --target erlang fuzz <iterations> <seed>
 gleam dev --target javascript --runtime node fuzz <iterations> <seed>
 ```
 
-When no seed is provided, the harness generates one and prints it in the
-results. Record that seed when reporting a failure so the run can be replayed.
+When no seed is provided, the harness generates one and prints it before the
+report. Record that seed when reporting a failure so the run can be replayed.
 
-The report includes the iteration count, RNG seed, trace hash, elapsed time,
-failure count, and details for each rescued exception. A failure record includes
-the iteration number, seed transaction txid, mutation name, mutated transaction
-hex, and exception.
+Seed arguments are signed 32-bit integers, matching the range produced when the
+harness interprets four random seed bytes as an integer. Seeds are normalized to
+a Park-Miller RNG state before fuzzing starts. The accepted CLI seed range is
+`-2_147_483_648..2_147_483_647`, while the effective RNG state range is
+`1..2_147_483_646`; this means aliases such as `0` and `1` can intentionally
+produce the same trace.
+
+The report includes the iteration count, initial RNG state, trace hash, elapsed
+time, failure count, and details for each rescued exception. A failure record
+includes the iteration number, seed transaction txid, mutation name, mutated
+transaction hex, and exception.
 
 ---
 
@@ -178,12 +185,12 @@ APIs by:
   outcomes
 - Continuing successful decodes through consensus validation, output script
   classification, txid, and wtxid computation
-- Recording any unhandled exception with the run's RNG seed, iteration, seed
-  transaction txid, mutation, and mutated hex
+- Recording any unhandled exception with the run's initial RNG state, iteration,
+  seed transaction txid, mutation, and mutated hex
 
 > In short:  
 > The exercised pipeline should not be crashable with input alone; any crash is
-> a bug that should be reproducible from the reported RNG seed, iteration, and
-> mutated hex.
+> a bug that should be reproducible from the reported initial RNG state,
+> iteration, and mutated hex.
 
 ---
