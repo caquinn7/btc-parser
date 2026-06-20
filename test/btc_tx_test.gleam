@@ -252,26 +252,21 @@ pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
     == [InTransaction, AtField(SegwitDiscriminator)]
 }
 
-pub fn decode_rejects_segwit_marker_with_zero_flag_test() {
-  // Construct: version (4 bytes) + 0x00 + 0x00 which triggers the
-  // InvalidSegwitMarkerFlag error because marker=0x00 but flag=0x00 (not 0x01).
-  // This validates that transactions attempting to use the SegWit marker
-  // with an invalid flag are properly rejected.
+pub fn decode_treats_zero_vin_and_vout_counts_as_empty_legacy_tx_test() {
+  let lock_time = 42
+  let tx_bytes = <<
+    version1:bits,
+    0x00,
+    0x00,
+    lock_time:little-size(32),
+  >>
 
-  let vin_count = 0
-  let input_padding = <<0:little-size({ 1 * min_txin_size_bytes * 8 })>>
+  let assert Ok(tx) = btc_tx.decode(tx_bytes)
 
-  let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
-      version1:bits,
-      compact_size(vin_count):bits,
-      input_padding:bits,
-    >>)
-
-  assert btc_tx.parse_error_offset(parse_err) == 4
-  assert btc_tx.parse_error_kind(parse_err) == InvalidSegWitMarkerFlag(0, 0)
-  assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, AtField(SegwitDiscriminator)]
+  assert !btc_tx.is_segwit(tx)
+  assert list.is_empty(btc_tx.get_inputs(tx))
+  assert list.is_empty(btc_tx.get_outputs(tx))
+  assert btc_tx.get_lock_time(tx) == lock_time
 }
 
 // ============================================================================
@@ -2071,6 +2066,19 @@ pub fn validate_consensus_accepts_valid_segwit_tx_test() {
     == list.length(btc_tx.get_outputs(parsed_tx))
   assert btc_tx.get_lock_time(validated_tx) == btc_tx.get_lock_time(parsed_tx)
   assert btc_tx.get_witnesses(validated_tx) == btc_tx.get_witnesses(parsed_tx)
+}
+
+pub fn validate_consensus_collects_no_inputs_and_no_outputs_test() {
+  let tx_bytes = <<
+    version1:bits,
+    0x00,
+    0x00,
+    0:little-size(32),
+  >>
+
+  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.validate_consensus(parsed_tx) == Error([NoInputs, NoOutputs])
 }
 
 pub fn validate_consensus_rejects_tx_with_no_inputs_test() {

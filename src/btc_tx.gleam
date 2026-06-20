@@ -1373,11 +1373,18 @@ fn segwit_detection_parser() -> Parser(ParseContext, Bool, DecodeError) {
   })
 }
 
-/// Construct a parser that looks ahead for the SegWit marker/flag.
+/// Construct a parser that inspects the next two bytes for a SegWit marker/flag.
 ///
-/// When run, it returns `True` if the next bytes are 0x00 0x01, `False` if they
-/// don't start with 0x00 or on EOF, without consuming them. It returns an error
-/// if the first byte is 0x00 but the flag byte is invalid.
+/// This parser never consumes input, regardless of whether it succeeds or
+/// returns an error. When run, it returns:
+///
+/// - `True` for 0x00 0x01
+/// - `False` for 0x00 0x00 (an empty legacy transaction), a nonzero first byte,
+///   or EOF
+/// - An error for 0x00 followed by an unsupported nonzero flag
+///
+/// `segwit_detection_parser` consumes the discriminator after this parser
+/// recognizes 0x00 0x01.
 fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
   // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
   parser.new(fn(reader, ctx) {
@@ -1386,6 +1393,8 @@ fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
         let assert <<marker, flag>> = bytes
         case marker, flag {
           0x00, 0x01 -> Ok(#(reader, True))
+
+          0x00, 0x00 -> Ok(#(reader, False))
 
           0x00, _ ->
             InvalidSegWitMarkerFlag(marker, flag)
@@ -1402,7 +1411,6 @@ fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
 
       Error(err) -> {
         // Panic on InvalidReadCount and silently treat UnexpectedEof as non-SegWit.
-
         let _ = reader_error_to_kind(err)
         // We can't peek, so we fall through and let the subsequent field parsers
         // produce a more contextual EOF error.
