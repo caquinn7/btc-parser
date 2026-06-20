@@ -12,9 +12,9 @@
 import btc_tx
 import exception.{type Exception}
 import fuzz/internal/rng.{type Rng}
+import fuzz/internal/trace.{type Trace}
 import gleam/bit_array
 import gleam/bool
-import gleam/crypto.{Sha256}
 import gleam/int
 import gleam/list
 import gleam/string
@@ -26,7 +26,7 @@ pub type FuzzResult {
     iteration_count: Int,
     /// RNG state captured before the first mutation is selected.
     initial_rng_state: Int,
-    /// Hex-encoded rolling XOR of SHA-256 hashes for all mutated inputs.
+    /// Hex-encoded, order-sensitive SHA-256 hash chain for all mutated inputs.
     /// This acts as a compact fingerprint for reproducible runs.
     trace_hash: String,
     /// Unhandled exceptions rescued while exercising mutated inputs.
@@ -104,9 +104,9 @@ pub type Mutation {
 /// `IterationFailure` in the returned `FuzzResult`.
 ///
 /// The RNG's starting state is recorded in the returned `FuzzResult`. The
-/// returned `trace_hash` is a rolling XOR of SHA-256 hashes of every mutated
-/// input, acting as a compact fingerprint confirming two runs exercised the
-/// same sequence of inputs.
+/// returned `trace_hash` is an order-sensitive SHA-256 hash chain over every
+/// mutated input, acting as a compact fingerprint confirming two runs exercised
+/// the same sequence of inputs.
 pub fn run(
   seed_txs: List(SeedTx),
   iteration_count: Int,
@@ -115,10 +115,10 @@ pub fn run(
   let rng_state = rng.state(rng)
 
   let #(failures, trace) =
-    run_iterations(seed_txs, iteration_count, 1, [], <<0:256>>, rng)
+    run_iterations(seed_txs, iteration_count, 1, [], trace.new(), rng)
 
   let failures = list.reverse(failures)
-  let trace_hash = bit_array.base16_encode(trace)
+  let trace_hash = trace.to_hex(trace)
 
   FuzzResult(
     iteration_count:,
@@ -152,16 +152,16 @@ fn run_iterations(
   remaining: Int,
   iteration: Int,
   acc: List(IterationFailure),
-  trace: BitArray,
+  trace: Trace,
   rng: Rng,
-) -> #(List(IterationFailure), BitArray) {
+) -> #(List(IterationFailure), Trace) {
   case remaining == 0 {
     True -> #(acc, trace)
     False -> {
       let assert Ok(#(seed_tx, rng)) = sample_one(rng, from: txs)
       let #(mutated_tx, rng) = mutate(seed_tx, rng)
 
-      let trace = xor_bytes(trace, crypto.hash(Sha256, mutated_tx.bytes))
+      let trace = trace.update(trace, mutated_tx.bytes)
 
       let iteration_result =
         exception.rescue(fn() { run_decode(mutated_tx.bytes) })
@@ -211,35 +211,6 @@ fn run_decode(mutated_tx_bytes: BitArray) -> Nil {
     }
 
     Error(_) -> Nil
-  }
-}
-
-fn xor_bytes(a: BitArray, b: BitArray) -> BitArray {
-  let len = bit_array.byte_size(a)
-  xor_bytes_loop(a, b, len, 0, <<>>)
-}
-
-fn xor_bytes_loop(
-  a: BitArray,
-  b: BitArray,
-  len: Int,
-  offset: Int,
-  acc: BitArray,
-) -> BitArray {
-  case offset >= len {
-    True -> acc
-    False -> {
-      let assert Ok(<<va:8>>) = bit_array.slice(a, offset, 1)
-      let assert Ok(<<vb:8>>) = bit_array.slice(b, offset, 1)
-
-      xor_bytes_loop(
-        a,
-        b,
-        len,
-        offset + 1,
-        bit_array.append(acc, <<int.bitwise_exclusive_or(va, vb):8>>),
-      )
-    }
   }
 }
 
@@ -727,9 +698,17 @@ fn sample_one(rng: Rng, from items: List(a)) -> Result(#(a, Rng), Nil) {
 /// Generates `len` pseudo-random bytes and returns them as a `BitArray`
 /// alongside the new RNG state.
 fn random_bytes(rng: Rng, len: Int) -> #(BitArray, Rng) {
-  int.range(0, len, #(<<>>, rng), fn(acc, _i) {
-    let #(bytes, rng) = acc
-    let #(byte_val, rng) = rng.next_bounded(rng, 256)
-    #(bit_array.append(bytes, <<byte_val:8>>), rng)
-  })
+  let #(bytes, rng) =
+    int.range(0, len, #([], rng), fn(acc, _i) {
+      let #(bytes, rng) = acc
+      let #(byte_val, rng) = rng.next_bounded(rng, 256)
+      #([<<byte_val:8>>, ..bytes], rng)
+    })
+
+  let bytes =
+    bytes
+    |> list.reverse
+    |> bit_array.concat
+
+  #(bytes, rng)
 }
