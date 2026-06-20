@@ -791,7 +791,6 @@ pub type Field {
 
   // SegWit marker/flag detection
   SegwitDiscriminator
-  SegwitMarker
 
   // Input-related fields
   VinCount
@@ -1382,27 +1381,31 @@ fn segwit_detection_parser() -> Parser(ParseContext, Bool, DecodeError) {
 fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
   // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
   parser.new(fn(reader, ctx) {
-    let field_err =
-      make_field_error(SegwitDiscriminator, reader.get_offset(reader), ctx)
-
     case reader.peek_bytes(reader, 2) {
       Ok(bytes) -> {
         let assert <<marker, flag>> = bytes
         case marker, flag {
           0x00, 0x01 -> Ok(#(reader, True))
+
           0x00, _ ->
             InvalidSegWitMarkerFlag(marker, flag)
-            |> field_err
+            |> make_field_error(
+              SegwitDiscriminator,
+              reader.get_offset(reader),
+              ctx,
+            )
             |> Error
+
           _, _ -> Ok(#(reader, False))
         }
       }
 
       Error(err) -> {
-        // Panic on InvalidReadCount (library bug). Silently treat UnexpectedEof
-        // as non-SegWit. We can't peek, so we fall through and let the
-        // subsequent field parsers produce a more contextual EOF error.
+        // Panic on InvalidReadCount and silently treat UnexpectedEof as non-SegWit.
+
         let _ = reader_error_to_kind(err)
+        // We can't peek, so we fall through and let the subsequent field parsers
+        // produce a more contextual EOF error.
         Ok(#(reader, False))
       }
     }
@@ -1411,7 +1414,7 @@ fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
 
 /// Construct a parser that consumes the 2-byte SegWit discriminator when run.
 fn segwit_discriminator_parser() -> Parser(ParseContext, Nil, DecodeError) {
-  field_parser(SegwitMarker, fn(reader) {
+  field_parser(SegwitDiscriminator, fn(reader) {
     reader
     |> reader.skip_bytes(2)
     |> result.map(pair.new(_, Nil))
