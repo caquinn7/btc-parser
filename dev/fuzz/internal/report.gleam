@@ -7,8 +7,8 @@ pub fn to_string(fuzz_result: FuzzResult, elapsed_ms: Int) -> String {
   let header =
     "iterations: "
     <> int.to_string(fuzz_result.iteration_count)
-    <> "\nseed: "
-    <> int.to_string(fuzz_result.rng_seed)
+    <> "\ninitial rng state: "
+    <> int.to_string(fuzz_result.initial_rng_state)
     <> "\ntrace: "
     <> fuzz_result.trace_hash
     <> "\ntime: "

@@ -11,6 +11,7 @@
 
 import btc_tx
 import exception.{type Exception}
+import fuzz/internal/rng.{type Rng}
 import gleam/bit_array
 import gleam/bool
 import gleam/crypto.{Sha256}
@@ -18,63 +19,100 @@ import gleam/int
 import gleam/list
 import gleam/string
 
+/// Results for one invocation of the fuzz harness.
 pub type FuzzResult {
   FuzzResult(
+    /// Number of mutation iterations requested for the run.
     iteration_count: Int,
-    rng_seed: Int,
+    /// RNG state captured before the first mutation is selected.
+    initial_rng_state: Int,
+    /// Hex-encoded rolling XOR of SHA-256 hashes for all mutated inputs.
+    /// This acts as a compact fingerprint for reproducible runs.
     trace_hash: String,
+    /// Unhandled exceptions rescued while exercising mutated inputs.
     failures: List(IterationFailure),
   )
 }
 
+/// Details for one fuzz iteration that raised an unhandled exception.
 pub type IterationFailure {
   IterationFailure(
+    /// One-based iteration number within the fuzz run.
     iteration: Int,
+    /// Seed transaction, mutation kind, and resulting bytes for this failure.
     mutated_tx: MutatedTx,
+    /// Hex-encoded mutated transaction bytes for copying into regression tests.
     mutated_tx_hex: String,
+    /// Exception rescued from the decode, validate, classify, or txid pipeline.
     exception: Exception,
   )
 }
 
+/// Transaction bytes produced by applying a mutation to one corpus seed.
 pub type MutatedTx {
-  MutatedTx(seed_tx: SeedTx, mutation: Mutation, bytes: BitArray)
+  MutatedTx(
+    /// Original corpus transaction selected for this iteration.
+    seed_tx: SeedTx,
+    /// Structural mutation applied to the original transaction bytes.
+    mutation: Mutation,
+    /// Mutated wire bytes passed into the parser pipeline.
+    bytes: BitArray,
+  )
 }
 
+/// Corpus transaction used as a baseline for structural mutation.
 pub type SeedTx {
-  SeedTx(txid: String, bytes: BitArray)
+  SeedTx(
+    /// Display-format transaction id recorded in the seed corpus, not the
+    /// little-endian txid byte order used on the wire.
+    txid: String,
+    /// Raw wire bytes decoded from the corpus entry.
+    bytes: BitArray,
+  )
 }
 
+/// Mutation strategy selected for a fuzz iteration.
 pub type Mutation {
+  /// Cut the byte stream at a random position and discard the tail.
   Truncate
+  /// Replace a small number of bytes with random byte values.
   FlipBytes
+  /// Toggle a small number of individual bits.
   FlipBits
+  /// Insert a short random byte sequence at a random position.
   InsertBytes
+  /// Remove a short contiguous byte span.
   DeleteSpan
+  /// Copy a short byte span and insert the copy elsewhere.
   DuplicateSpan
+  /// Replace a short byte span with zero bytes of the same length.
   ZeroSpan
+  /// Corrupt, remove, or replace the SegWit marker/flag bytes.
   MutateSegwitMarker
+  /// Mutate a heuristic CompactSize candidate in the byte stream.
   MutateCompactSizeCandidate
 }
 
-/// Run the fuzz harness against `seed_txs` for `iteration_count` iterations
-/// seeded with `rng_seed`.
+/// Runs the fuzz harness and returns failures plus reproducibility metadata.
+///
+/// The harness mutates `seed_txs` for `iteration_count` iterations using the
+/// provided deterministic RNG.
 ///
 /// Each iteration draws one transaction from `seed_txs` uniformly at random,
 /// applies a structural mutation, and runs the full decode → validate →
 /// classify → txid pipeline.  Any unhandled exception is recorded as an
 /// `IterationFailure` in the returned `FuzzResult`.
 ///
-/// `rng_seed` initialises a deterministic Park-Miller LCG, so any run can be
-/// reproduced exactly by supplying the same `seed_txs`, `iteration_count`, and
-/// `rng_seed`.  The returned `FuzzResult` includes a `trace_hash`—a rolling
-/// XOR of SHA-256 hashes of every mutated input—that acts as a compact
-/// fingerprint confirming two runs exercised the same sequence of inputs.
+/// The RNG's starting state is recorded in the returned `FuzzResult`. The
+/// returned `trace_hash` is a rolling XOR of SHA-256 hashes of every mutated
+/// input, acting as a compact fingerprint confirming two runs exercised the
+/// same sequence of inputs.
 pub fn run(
   seed_txs: List(SeedTx),
   iteration_count: Int,
-  rng_seed: Int,
+  rng: Rng,
 ) -> FuzzResult {
-  let rng = new_rng(rng_seed)
+  let rng_state = rng.state(rng)
 
   let #(failures, trace) =
     run_iterations(seed_txs, iteration_count, 1, [], <<0:256>>, rng)
@@ -82,9 +120,19 @@ pub fn run(
   let failures = list.reverse(failures)
   let trace_hash = bit_array.base16_encode(trace)
 
-  FuzzResult(iteration_count:, rng_seed:, trace_hash:, failures:)
+  FuzzResult(
+    iteration_count:,
+    initial_rng_state: rng_state,
+    trace_hash:,
+    failures:,
+  )
 }
 
+/// Parses seed corpus file contents into transactions for the fuzz harness.
+///
+/// Each accepted line has the pipe-delimited form `txid|codes|hex`, where
+/// `txid` is kept as a display-format identifier and `hex` is decoded into raw
+/// transaction wire bytes. Lines that do not match that shape are ignored.
 pub fn parse_seed_txs(file_content: String) -> List(SeedTx) {
   file_content
   |> string.split("\n")
@@ -229,7 +277,7 @@ fn truncate(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let len = bit_array.byte_size(bytes)
   use <- bool.guard(len <= 1, #(bytes, rng))
 
-  let #(slice_count, rng) = next_bounded(rng, len)
+  let #(slice_count, rng) = rng.next_bounded(rng, len)
   let assert Ok(sliced) = bit_array.slice(bytes, 0, slice_count)
   #(sliced, rng)
 }
@@ -244,7 +292,7 @@ fn flip_bytes(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let len = bit_array.byte_size(bytes)
   use <- bool.guard(len == 0, #(bytes, rng))
 
-  let #(extra, rng) = next_bounded(rng, 3)
+  let #(extra, rng) = rng.next_bounded(rng, 3)
   flip_n_bytes(bytes, len, extra + 1, rng)
 }
 
@@ -257,8 +305,8 @@ fn flip_n_bytes(
   case remaining == 0 {
     True -> #(bytes, rng)
     False -> {
-      let #(offset, rng) = next_bounded(rng, len)
-      let #(new_byte, rng) = next_bounded(rng, 256)
+      let #(offset, rng) = rng.next_bounded(rng, len)
+      let #(new_byte, rng) = rng.next_bounded(rng, 256)
       let bytes = replace_byte_at(bytes, offset, new_byte)
       flip_n_bytes(bytes, len, remaining - 1, rng)
     }
@@ -285,7 +333,7 @@ fn flip_bits(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let len = bit_array.byte_size(bytes)
   use <- bool.guard(len == 0, #(bytes, rng))
 
-  let #(extra, rng) = next_bounded(rng, 3)
+  let #(extra, rng) = rng.next_bounded(rng, 3)
   flip_n_bits(bytes, len, extra + 1, rng)
 }
 
@@ -298,7 +346,7 @@ fn flip_n_bits(
   case remaining {
     0 -> #(bytes, rng)
     _ -> {
-      let #(bit_idx, rng) = next_bounded(rng, len * 8)
+      let #(bit_idx, rng) = rng.next_bounded(rng, len * 8)
       let mask = int.bitwise_shift_left(1, bit_idx % 8)
       let bytes = xor_byte_at(bytes, bit_idx / 8, mask)
       flip_n_bits(bytes, len, remaining - 1, rng)
@@ -327,8 +375,8 @@ fn insert_bytes(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let len = bit_array.byte_size(bytes)
 
   // Insert at any position in [0, len], including the end.
-  let #(offset, rng) = next_bounded(rng, len + 1)
-  let #(insert_len, rng) = next_bounded(rng, 8)
+  let #(offset, rng) = rng.next_bounded(rng, len + 1)
+  let #(insert_len, rng) = rng.next_bounded(rng, 8)
   let #(inserted, rng) = random_bytes(rng, insert_len + 1)
 
   let assert Ok(before) = bit_array.slice(bytes, 0, offset)
@@ -354,8 +402,8 @@ fn delete_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let len = bit_array.byte_size(bytes)
   use <- bool.guard(len <= 1, #(bytes, rng))
 
-  let #(start, rng) = next_bounded(rng, len)
-  let #(span_len, rng) = next_bounded(rng, 8)
+  let #(start, rng) = rng.next_bounded(rng, len)
+  let #(span_len, rng) = rng.next_bounded(rng, 8)
   let span_len = int.min(span_len + 1, len - start)
 
   let assert Ok(before) = bit_array.slice(bytes, 0, start)
@@ -379,14 +427,14 @@ fn duplicate_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let len = bit_array.byte_size(bytes)
   use <- bool.guard(len == 0, #(bytes, rng))
 
-  let #(src, rng) = next_bounded(rng, len)
-  let #(span_len, rng) = next_bounded(rng, 8)
+  let #(src, rng) = rng.next_bounded(rng, len)
+  let #(span_len, rng) = rng.next_bounded(rng, 8)
   let span_len = int.min(span_len + 1, len - src)
   let assert Ok(span) = bit_array.slice(bytes, src, span_len)
 
   // Insert position is over the original length so the copy can land anywhere
   // including the end, independent of where it was copied from.
-  let #(insert_at, rng) = next_bounded(rng, len + 1)
+  let #(insert_at, rng) = rng.next_bounded(rng, len + 1)
   let assert Ok(before) = bit_array.slice(bytes, 0, insert_at)
 
   let after_len = len - insert_at
@@ -411,8 +459,8 @@ fn zero_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let len = bit_array.byte_size(bytes)
   use <- bool.guard(len == 0, #(bytes, rng))
 
-  let #(start, rng) = next_bounded(rng, len)
-  let #(span_len, rng) = next_bounded(rng, 8)
+  let #(start, rng) = rng.next_bounded(rng, len)
+  let #(span_len, rng) = rng.next_bounded(rng, 8)
   let span_len = int.min(span_len + 1, len - start)
 
   let assert Ok(before) = bit_array.slice(bytes, 0, start)
@@ -448,16 +496,16 @@ fn mutate_segwit_marker(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let len = bit_array.byte_size(bytes)
   use <- bool.guard(len < 6, #(bytes, rng))
 
-  let #(n, rng) = next_bounded(rng, 5)
+  let #(n, rng) = rng.next_bounded(rng, 5)
   case n {
     // Flip the marker byte (offset 4) to a random nonzero value.
     0 -> {
-      let #(v, rng) = next_bounded(rng, 255)
+      let #(v, rng) = rng.next_bounded(rng, 255)
       #(replace_byte_at(bytes, 4, v + 1), rng)
     }
     // Flip the flag byte (offset 5) to a value other than 0x01.
     1 -> {
-      let #(v, rng) = next_bounded(rng, 254)
+      let #(v, rng) = rng.next_bounded(rng, 254)
       #(replace_byte_at(bytes, 5, v + 2), rng)
     }
     // Remove the marker byte entirely, shifting everything after it left by one.
@@ -474,8 +522,8 @@ fn mutate_segwit_marker(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
     }
     // Overwrite both bytes with independent random values (bogus marker/flag combo).
     _ -> {
-      let #(m, rng) = next_bounded(rng, 256)
-      let #(f, rng) = next_bounded(rng, 256)
+      let #(m, rng) = rng.next_bounded(rng, 256)
+      let #(f, rng) = rng.next_bounded(rng, 256)
       let bytes = replace_byte_at(bytes, 4, m)
       #(replace_byte_at(bytes, 5, f), rng)
     }
@@ -504,7 +552,7 @@ fn mutate_compact_size_candidate(
 
     candidates -> {
       let assert Ok(#(candidate, rng)) = sample_one(rng, candidates)
-      let #(n, rng) = next_bounded(rng, 5)
+      let #(n, rng) = rng.next_bounded(rng, 5)
 
       let mutated_bytes = case n {
         0 -> rewrite_compact_size(bytes, candidate, candidate.value + 1)
@@ -663,49 +711,13 @@ fn truncate_compact_size(
   }
 }
 
-// Random Number Generation
-
-/// A deterministic pseudo-random number generator based on the Park-Miller
-/// LCG. Holds the current generator state, which is advanced by each call to
-/// `next_int`.
-type Rng {
-  Rng(state: Int)
-}
-
-/// Park-Miller LCG: state = (48_271 * state) % 2_147_483_647
-/// 
-/// Intermediate values top out at ~2^47, within JavaScript's 53-bit safe integer
-/// range, so the sequence is identical on both Erlang and JavaScript targets.
-fn new_rng(seed: Int) -> Rng {
-  let s = seed % 2_147_483_647
-  let state = case s {
-    0 -> 1
-    _ if s < 0 -> s + 2_147_483_647
-    _ -> s
-  }
-  Rng(state)
-}
-
-/// Advances the RNG by one step and returns the raw output value alongside
-/// the new RNG state.
-fn next_int(rng: Rng) -> #(Int, Rng) {
-  let state = 48_271 * rng.state % 2_147_483_647
-  #(state, Rng(state))
-}
-
-/// Returns a value in `[0, max)` and the new RNG state.
-fn next_bounded(rng: Rng, max: Int) -> #(Int, Rng) {
-  let #(n, rng) = next_int(rng)
-  #(n % max, rng)
-}
-
 /// Selects one item from `items` uniformly at random and returns it alongside
 /// the new RNG state. Returns `Error(Nil)` for empty lists.
 fn sample_one(rng: Rng, from items: List(a)) -> Result(#(a, Rng), Nil) {
   case list.length(items) {
     0 -> Error(Nil)
     len -> {
-      let #(idx, rng) = next_bounded(rng, len)
+      let #(idx, rng) = rng.next_bounded(rng, len)
       let assert Ok(item) = list.first(list.drop(items, idx))
       Ok(#(item, rng))
     }
@@ -717,7 +729,7 @@ fn sample_one(rng: Rng, from items: List(a)) -> Result(#(a, Rng), Nil) {
 fn random_bytes(rng: Rng, len: Int) -> #(BitArray, Rng) {
   int.range(0, len, #(<<>>, rng), fn(acc, _i) {
     let #(bytes, rng) = acc
-    let #(byte_val, rng) = next_bounded(rng, 256)
+    let #(byte_val, rng) = rng.next_bounded(rng, 256)
     #(bit_array.append(bytes, <<byte_val:8>>), rng)
   })
 }
