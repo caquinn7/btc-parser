@@ -72,6 +72,11 @@ time, failure count, and details for each rescued exception. A failure record
 includes the iteration number, seed transaction txid, mutation name, mutated
 transaction hex, and exception.
 
+The trace is an order-sensitive SHA-256 hash chain over the mutated inputs. Each
+iteration computes `SHA256(previous_trace || SHA256(mutated_input))`, starting
+from 32 zero bytes, so changing the order or repetition of inputs changes the
+reported trace.
+
 ---
 
 ## Primary Objectives
