@@ -23,11 +23,13 @@ type FuzzArgs {
 }
 
 pub fn parse(args: List(String)) -> Result(FuzzCommand, FuzzArgsError) {
-  use args <- result.try(parse_args(args))
-
-  Ok(case args {
-    FuzzArgs(iterations, Some(seed)) -> IterateWithSeed(iterations, seed)
-    FuzzArgs(iterations, None) -> CreateSeedAndIterate(iterations)
+  args
+  |> parse_args
+  |> result.map(fn(args) {
+    case args {
+      FuzzArgs(iterations, Some(seed)) -> IterateWithSeed(iterations, seed)
+      FuzzArgs(iterations, None) -> CreateSeedAndIterate(iterations)
+    }
   })
 }
 
@@ -49,16 +51,16 @@ fn parse_args(args: List(String)) -> Result(FuzzArgs, FuzzArgsError) {
 }
 
 fn validate_iterations_arg(arg: String) -> Result(Int, FuzzArgsError) {
-  let err_msg = "iterations must be a positive integer"
+  let err = InvalidValue("iterations must be a positive integer")
 
   use iterations <- result.try(
     arg
     |> int.parse
-    |> result.replace_error(InvalidValue(err_msg)),
+    |> result.replace_error(err),
   )
 
   case iterations <= 0 {
-    True -> Error(InvalidValue(err_msg))
+    True -> Error(err)
     False -> Ok(iterations)
   }
 }
@@ -119,7 +121,9 @@ pub fn run(command: FuzzCommand) -> Nil {
   let assert [_, ..] as seed_txs = read_seed_txs()
   let #(fuzz_result, exec_time) = run_fuzz(seed_txs, iterations, rng)
 
-  io.println(report.to_string(fuzz_result, exec_time))
+  fuzz_result
+  |> report.to_string(exec_time)
+  |> io.println
 }
 
 fn read_seed_txs() -> List(SeedTx) {

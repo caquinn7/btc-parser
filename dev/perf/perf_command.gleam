@@ -22,14 +22,16 @@ type PerfArgs {
 }
 
 pub fn parse(args: List(String)) -> Result(PerfCommand, Nil) {
-  use perf_args <- result.try(parse_flags(args, PerfArgs(None, None)))
-
-  case perf_args {
-    PerfArgs(None, None) -> Ok(PrintPerfReport)
-    PerfArgs(Some(path), None) -> Ok(WritePerfReport(path, Csv))
-    PerfArgs(Some(path), Some(format)) -> Ok(WritePerfReport(path, format))
-    PerfArgs(None, Some(_)) -> Error(Nil)
-  }
+  args
+  |> parse_flags(PerfArgs(None, None))
+  |> result.try(fn(args) {
+    case args {
+      PerfArgs(None, None) -> Ok(PrintPerfReport)
+      PerfArgs(Some(path), None) -> Ok(WritePerfReport(path, Csv))
+      PerfArgs(Some(path), Some(format)) -> Ok(WritePerfReport(path, format))
+      PerfArgs(None, Some(_)) -> Error(Nil)
+    }
+  })
 }
 
 fn parse_flags(args: List(String), parsed: PerfArgs) -> Result(PerfArgs, Nil) {
