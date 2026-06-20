@@ -1185,57 +1185,59 @@ pub fn decode_with_policy(
       |> Error,
   )
 
-  let tx_parser = {
-    use version <- parser.then(read_field(Version, reader.read_i32_le))
-    use is_segwit <- parser.then(detect_segwit())
-    use inputs <- parser.then(parser.with_context(
-      read_inputs(policy.max_vin_count, policy.max_script_size),
-      InInputs,
-    ))
-    use outputs <- parser.then(parser.with_context(
-      read_outputs(policy.max_vout_count, policy.max_script_size),
-      InOutputs,
-    ))
-    use witnesses <- parser.then(case is_segwit {
-      True ->
-        inputs
-        |> list.length
-        |> read_witnesses(
-          policy.max_witness_items_per_input,
-          policy.max_witness_size_per_input,
-        )
-        |> parser.map(Some)
-
-      False -> parser.return(None)
-    })
-    use lock_time <- parser.then(read_field(LockTime, reader.read_u32_le))
-
-    parser.try_with_reader(parser.return(Nil), fn(_, reader, ctx) {
-      let tx = case witnesses {
-        Some(witnesses) ->
-          SegWit(version:, inputs:, outputs:, lock_time:, witnesses:)
-
-        None -> Legacy(version:, inputs:, outputs:, lock_time:)
-      }
-
-      case reader.bytes_remaining(reader) {
-        0 -> Ok(tx)
-
-        byte_count ->
-          byte_count
-          |> TrailingBytes
-          |> new_parse_error(reader.get_offset(reader))
-          |> with_contexts(ctx)
-          |> ParseFailed
-          |> Error
-      }
-    })
-  }
-
   bytes
   |> reader.new
-  |> parser.run(tx_parser, _, [InTransaction])
+  |> parser.run(tx_parser(policy), _, [InTransaction])
   |> result.map(pair.second)
+}
+
+fn tx_parser(
+  policy: DecodePolicy,
+) -> Parser(ParseContext, Transaction(Parsed), DecodeError) {
+  use version <- parser.then(field_parser(Version, reader.read_i32_le))
+  use is_segwit <- parser.then(segwit_detection_parser())
+  use inputs <- parser.then(parser.with_context(
+    inputs_parser(policy.max_vin_count, policy.max_script_size),
+    InInputs,
+  ))
+  use outputs <- parser.then(parser.with_context(
+    outputs_parser(policy.max_vout_count, policy.max_script_size),
+    InOutputs,
+  ))
+  use witnesses <- parser.then(case is_segwit {
+    True ->
+      inputs
+      |> list.length
+      |> witnesses_parser(
+        policy.max_witness_items_per_input,
+        policy.max_witness_size_per_input,
+      )
+      |> parser.map(Some)
+
+    False -> parser.return(None)
+  })
+  use lock_time <- parser.then(field_parser(LockTime, reader.read_u32_le))
+
+  parser.try_with_reader(parser.return(Nil), fn(_, reader, ctx) {
+    let tx = case witnesses {
+      Some(witnesses) ->
+        SegWit(version:, inputs:, outputs:, lock_time:, witnesses:)
+
+      None -> Legacy(version:, inputs:, outputs:, lock_time:)
+    }
+
+    case reader.bytes_remaining(reader) {
+      0 -> Ok(tx)
+
+      byte_count ->
+        byte_count
+        |> TrailingBytes
+        |> new_parse_error(reader.get_offset(reader))
+        |> with_contexts(ctx)
+        |> ParseFailed
+        |> Error
+    }
+  })
 }
 
 /// Decode a Bitcoin transaction from its hexadecimal string representation.
@@ -1299,8 +1301,8 @@ fn hex_to_bytes(hex: String) -> Result(BitArray, DecodeError) {
   |> result.replace_error(HexToBytesFailed)
 }
 
-/// Lift a reader operation into a Parser, adding error mapping and context wrapping.
-fn read_field(
+/// Construct a parser for a field, adding error mapping and context wrapping.
+fn field_parser(
   field: Field,
   read_fn: fn(Reader) -> Result(#(Reader, a), reader.ReaderError),
 ) -> Parser(ParseContext, a, DecodeError) {
@@ -1315,8 +1317,8 @@ fn read_field(
   })
 }
 
-/// Lift a compact_size read into a Parser, adding error mapping and context wrapping.
-fn read_compact_size(
+/// Construct a CompactSize parser with error mapping and context wrapping.
+fn compact_size_parser(
   field: Field,
 ) -> Parser(ParseContext, Uint64, DecodeError) {
   parser.new(fn(reader, ctx) {
@@ -1333,15 +1335,15 @@ fn read_compact_size(
   })
 }
 
-/// Read a CompactSize value and convert it to `Int` with appropriate error handling.
+/// Construct a parser for a CompactSize value converted to `Int`.
 ///
-/// This wraps `read_compact_size` and handles the common pattern of converting
+/// This wraps `compact_size_parser` and handles the common pattern of converting
 /// the `Uint64` result to `Int`, mapping conversion failures to `IntegerOutOfRange` errors.
-fn read_compact_size_as_int(
+fn compact_size_int_parser(
   field: Field,
 ) -> Parser(ParseContext, Int, DecodeError) {
   field
-  |> read_compact_size
+  |> compact_size_parser
   |> parser.try_with_start_offset(fn(value_u64, start_offset, _, ctx) {
     value_u64
     |> uint64.to_int
@@ -1354,30 +1356,30 @@ fn read_compact_size_as_int(
   })
 }
 
-/// Detect whether this transaction uses SegWit format by peeking at the marker/flag bytes.
+/// Construct a parser that detects whether a transaction uses SegWit format.
 ///
 /// Returns `True` if the marker/flag bytes (0x00, 0x01) are present, `False` otherwise.
-/// Side effect: consumes the marker/flag bytes if present.
-fn detect_segwit() -> Parser(ParseContext, Bool, DecodeError) {
-  peek_segwit()
+/// When run, the parser consumes the marker/flag bytes if present.
+fn segwit_detection_parser() -> Parser(ParseContext, Bool, DecodeError) {
+  segwit_lookahead_parser()
   |> parser.then(fn(is_segwit) {
     case is_segwit {
       True ->
         is_segwit
         |> parser.return
-        |> parser.keep_left(skip_marker_bytes())
+        |> parser.keep_left(segwit_discriminator_parser())
 
       False -> parser.return(is_segwit)
     }
   })
 }
 
-/// Peek ahead at the next two bytes to check for SegWit marker/flag.
+/// Construct a parser that looks ahead for the SegWit marker/flag.
 ///
-/// Returns `True` if next bytes are 0x00 0x01 (SegWit marker/flag), `False` if they don't
-/// start with 0x00 or on EOF. Returns an error if the first byte is 0x00 but the flag
-/// byte is invalid.
-fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
+/// When run, it returns `True` if the next bytes are 0x00 0x01, `False` if they
+/// don't start with 0x00 or on EOF, without consuming them. It returns an error
+/// if the first byte is 0x00 but the flag byte is invalid.
+fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
   // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
   parser.new(fn(reader, ctx) {
     let field_err =
@@ -1397,7 +1399,7 @@ fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
       }
 
       Error(err) -> {
-        // Panic on InvalidReadCount (library bug); silently treat UnexpectedEof
+        // Panic on InvalidReadCount (library bug). Silently treat UnexpectedEof
         // as non-SegWit. We can't peek, so we fall through and let the
         // subsequent field parsers produce a more contextual EOF error.
         let _ = reader_error_to_kind(err)
@@ -1407,30 +1409,30 @@ fn peek_segwit() -> Parser(ParseContext, Bool, DecodeError) {
   })
 }
 
-/// Helper parser that consumes the 2-byte segwit discriminator
-fn skip_marker_bytes() -> Parser(ParseContext, Nil, DecodeError) {
-  read_field(SegwitMarker, fn(reader) {
+/// Construct a parser that consumes the 2-byte SegWit discriminator when run.
+fn segwit_discriminator_parser() -> Parser(ParseContext, Nil, DecodeError) {
+  field_parser(SegwitMarker, fn(reader) {
     reader
     |> reader.skip_bytes(2)
     |> result.map(pair.new(_, Nil))
   })
 }
 
-fn read_inputs(
+fn inputs_parser(
   max_vin_count_policy: Int,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, List(TxIn), DecodeError) {
   max_vin_count_policy
-  |> read_vin_count
-  |> parser.then(read_tx_ins(_, max_script_size_policy))
+  |> vin_count_parser
+  |> parser.then(txin_list_parser(_, max_script_size_policy))
 }
 
 /// Validate and convert the vin_count from Uint64 to Int, checking structural and policy limits.
-fn read_vin_count(
+fn vin_count_parser(
   max_vin_count_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
   VinCount
-  |> read_compact_size_as_int
+  |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(vin_count_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
@@ -1470,7 +1472,7 @@ fn validate_vin_count(
   }
 }
 
-fn read_tx_ins(
+fn txin_list_parser(
   vin_count: Int,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, List(TxIn), DecodeError) {
@@ -1484,10 +1486,10 @@ fn read_tx_ins(
   // ├─ TxIn #1
   // │    ├─ ...
   // └─ TxIn #(vin_count - 1)
-  parser.indexed_repeat(vin_count, read_tx_in(max_script_size_policy), AtInput)
+  parser.indexed_repeat(vin_count, txin_parser(max_script_size_policy), AtInput)
 }
 
-fn read_tx_in(
+fn txin_parser(
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, TxIn, DecodeError) {
   // │ prev_txid (32 bytes)
@@ -1496,17 +1498,17 @@ fn read_tx_in(
   // │ scriptSig bytes
   // │ sequence (4 bytes)
   parser.map3(
-    read_prev_out(),
-    read_script_sig(max_script_size_policy),
-    read_field(Sequence, reader.read_u32_le),
+    prev_out_parser(),
+    script_sig_parser(max_script_size_policy),
+    field_parser(Sequence, reader.read_u32_le),
     TxIn,
   )
 }
 
-fn read_prev_out() -> Parser(ParseContext, PrevOut, DecodeError) {
+fn prev_out_parser() -> Parser(ParseContext, PrevOut, DecodeError) {
   parser.map2(
-    read_field(PrevTxId, reader.read_bytes(_, 32)),
-    read_field(Vout, reader.read_u32_le),
+    field_parser(PrevTxId, reader.read_bytes(_, 32)),
+    field_parser(Vout, reader.read_u32_le),
     fn(prev_txid_bytes, vout) {
       case prev_txid_bytes, vout {
         <<0:256>>, 0xFFFFFFFF -> NullOutPoint
@@ -1521,21 +1523,21 @@ fn read_prev_out() -> Parser(ParseContext, PrevOut, DecodeError) {
   )
 }
 
-fn read_outputs(
+fn outputs_parser(
   max_vout_count_policy: Int,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, List(TxOut), DecodeError) {
   max_vout_count_policy
-  |> read_vout_count
-  |> parser.then(read_tx_outs(_, max_script_size_policy))
+  |> vout_count_parser
+  |> parser.then(txout_list_parser(_, max_script_size_policy))
 }
 
 /// Validate and convert the vout_count from Uint64 to Int, checking structural and policy limits.
-fn read_vout_count(
+fn vout_count_parser(
   max_vout_count_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
   VoutCount
-  |> read_compact_size_as_int
+  |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(vout_count_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
@@ -1580,7 +1582,7 @@ fn validate_vout_count(
   }
 }
 
-fn read_tx_outs(
+fn txout_list_parser(
   vout_count: Int,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, List(TxOut), DecodeError) {
@@ -1594,27 +1596,27 @@ fn read_tx_outs(
   // └─ TxOut #(vout_count - 1)
   parser.indexed_repeat(
     vout_count,
-    read_tx_out(max_script_size_policy),
+    txout_parser(max_script_size_policy),
     AtOutput,
   )
 }
 
-fn read_tx_out(
+fn txout_parser(
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, TxOut, DecodeError) {
   // | value (8 bytes)
   // | scriptPubKey_len (CompactSize)
   // | scriptPubKey bytes
   parser.map2(
-    read_satoshis(),
-    read_script_pubkey(max_script_size_policy),
+    satoshis_parser(),
+    script_pubkey_parser(max_script_size_policy),
     TxOut,
   )
 }
 
-fn read_satoshis() -> Parser(ParseContext, Int, DecodeError) {
+fn satoshis_parser() -> Parser(ParseContext, Int, DecodeError) {
   Value
-  |> read_field(reader.read_bytes(_, 8))
+  |> field_parser(reader.read_bytes(_, 8))
   |> parser.map(fn(value_bytes) {
     let assert Ok(value_i64) = int64.from_bytes_le(value_bytes)
     value_i64
@@ -1634,38 +1636,38 @@ fn read_satoshis() -> Parser(ParseContext, Int, DecodeError) {
   })
 }
 
-fn read_script_sig(
+fn script_sig_parser(
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, ScriptBytes(InputScript), DecodeError) {
   ScriptSigLength
-  |> read_script_length(max_script_size_policy)
+  |> script_length_parser(max_script_size_policy)
   |> parser.then(fn(script_len) {
-    read_field(ScriptSig, reader.read_bytes(_, script_len))
+    field_parser(ScriptSig, reader.read_bytes(_, script_len))
   })
   |> parser.map(ScriptBytes)
 }
 
-fn read_script_pubkey(
+fn script_pubkey_parser(
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, ScriptBytes(OutputScript), DecodeError) {
   ScriptPubKeyLength
-  |> read_script_length(max_script_size_policy)
+  |> script_length_parser(max_script_size_policy)
   |> parser.then(fn(script_len) {
-    read_field(ScriptPubKey, reader.read_bytes(_, script_len))
+    field_parser(ScriptPubKey, reader.read_bytes(_, script_len))
   })
   |> parser.map(ScriptBytes)
 }
 
-/// Read and validate a script length field.
+/// Construct a parser for a validated script length field.
 ///
-/// Reads a CompactSize length, converts it to Int, validates it against
-/// max_script_size_policy, and ensures sufficient bytes remain.
-fn read_script_length(
+/// When run, it parses a CompactSize length, converts it to `Int`, validates it
+/// against `max_script_size_policy`, and ensures sufficient bytes remain.
+fn script_length_parser(
   field: Field,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
   field
-  |> read_compact_size_as_int
+  |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(script_len_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
@@ -1704,19 +1706,19 @@ fn validate_script_length(
   }
 }
 
-fn read_witnesses(
+fn witnesses_parser(
   vin_count: Int,
   max_items_per_input: Option(Int),
   max_size_per_input: Option(Int),
 ) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
   parser.indexed_repeat(
     vin_count,
-    read_witness(max_items_per_input, max_size_per_input),
+    witness_parser(max_items_per_input, max_size_per_input),
     AtWitnessStack,
   )
 }
 
-fn read_witness(
+fn witness_parser(
   max_items_per_input: Option(Int),
   max_size_per_input: Option(Int),
 ) -> Parser(ParseContext, WitnessStack, DecodeError) {
@@ -1729,26 +1731,25 @@ fn read_witness(
   // │    ├─ ...
   // └─ WitnessItem #(stack_len - 1)
   max_items_per_input
-  |> read_witness_stack_length
+  |> witness_stack_length_parser
   |> parser.then(fn(stack_len) {
     case max_size_per_input {
-      Some(max_size) ->
-        read_witness_items_with_byte_tracking(stack_len, max_size)
-      None -> read_witness_items(stack_len)
+      Some(max_size) -> tracked_witness_items_parser(stack_len, max_size)
+      None -> witness_items_parser(stack_len)
     }
   })
   |> parser.map(WitnessStack)
 }
 
-/// Read and validate a witness stack length field.
+/// Construct a parser for a validated witness stack length field.
 ///
-/// Reads a CompactSize length, converts it to Int, and validates it against
-/// max_items_per_input policy.
-fn read_witness_stack_length(
+/// When run, it parses a CompactSize length, converts it to `Int`, and validates
+/// it against the `max_items_per_input` policy.
+fn witness_stack_length_parser(
   max_items_per_input_policy: Option(Int),
 ) -> Parser(ParseContext, Int, DecodeError) {
   WitnessStackLength
-  |> read_compact_size_as_int
+  |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(stack_len, start_offset, _reader, ctx) {
     case max_items_per_input_policy {
       Some(max_items) if stack_len > max_items ->
@@ -1761,21 +1762,22 @@ fn read_witness_stack_length(
   })
 }
 
-fn read_witness_items(
+fn witness_items_parser(
   count: Int,
 ) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
-  parser.indexed_repeat(count, read_witness_item(), AtWitnessItem)
+  parser.indexed_repeat(count, witness_item_parser(), AtWitnessItem)
 }
 
-/// Read witness items while tracking cumulative payload bytes and failing fast
-/// if the total exceeds max_total_bytes.
-fn read_witness_items_with_byte_tracking(
+/// Construct a witness-items parser that tracks cumulative payload bytes.
+///
+/// When run, it fails fast if the total exceeds `max_total_bytes`.
+fn tracked_witness_items_parser(
   count: Int,
   max_total_bytes: Int,
 ) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
   parser.indexed_repeat_with_limit(
     count,
-    read_witness_item_with_size(),
+    sized_witness_item_parser(),
     AtWitnessItem,
     max_total_bytes,
     fn(exceeded_val, start_offset, ctx) {
@@ -1785,13 +1787,13 @@ fn read_witness_items_with_byte_tracking(
   )
 }
 
-/// Read a witness item and return it along with its byte size.
-fn read_witness_item_with_size() -> Parser(
+/// Construct a parser that returns a witness item with its byte size.
+fn sized_witness_item_parser() -> Parser(
   ParseContext,
   #(WitnessItem, Int),
   DecodeError,
 ) {
-  read_witness_item()
+  witness_item_parser()
   |> parser.map(fn(item) {
     let WitnessItem(bytes) = item
     let byte_size = bit_array.byte_size(bytes)
@@ -1799,8 +1801,8 @@ fn read_witness_item_with_size() -> Parser(
   })
 }
 
-fn read_witness_item() -> Parser(ParseContext, WitnessItem, DecodeError) {
-  read_witness_item_size()
+fn witness_item_parser() -> Parser(ParseContext, WitnessItem, DecodeError) {
+  witness_item_size_parser()
   |> parser.then(fn(length) {
     parser.new(fn(reader, ctx) {
       reader
@@ -1817,9 +1819,9 @@ fn read_witness_item() -> Parser(ParseContext, WitnessItem, DecodeError) {
   |> parser.map(WitnessItem)
 }
 
-fn read_witness_item_size() -> Parser(ParseContext, Int, DecodeError) {
+fn witness_item_size_parser() -> Parser(ParseContext, Int, DecodeError) {
   WitnessItemLength
-  |> read_compact_size_as_int
+  |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(length, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
