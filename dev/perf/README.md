@@ -176,6 +176,19 @@ The suite uses a lean set of scaling points by default. Count-based decode
 curves use `1`, `100`, and `1000`; other count-based curves use `20`, `100`, and
 `1000`; witness payload curves use `64`, `10_000`, and `100_000` bytes.
 
+Table reports begin with metadata describing the target, runtime, operating
+system, and architecture used for the run:
+
+```text
+target:       erlang
+runtime:      Erlang/OTP 28 (ERTS 16.4)
+os:           darwin
+architecture: arm64
+```
+
+Metadata collection is best-effort. A field is reported as `unknown` when the
+runtime does not make it available.
+
 The results table has these columns:
 
 - `case`: The measured function plus the transaction shape or fixture label.
@@ -193,9 +206,16 @@ The results table has these columns:
 means rows with different `ops/call` values can still be compared.
 
 CSV output uses the same measurements as the table report, with one row per
-benchmark case. It includes the section name, case label, byte size, timing
-configuration, sample count, measured milliseconds, operations per second, and
-microseconds per operation.
+benchmark case. The leading `run_target`, `run_runtime`, `run_os`, and
+`run_architecture` columns repeat the run metadata on every row so the file
+remains a single rectangular dataset. The remaining columns contain the section
+name, case label, byte size, timing configuration, sample count, measured
+milliseconds, operations per second, and microseconds per operation.
+
+```csv
+run_target,run_runtime,run_os,run_architecture,section,case,bytes,warmup_ms,duration_ms,ops_per_timed_call,timed_call_count,measured_ms,operations_per_second,microseconds_per_operation
+"erlang","Erlang/OTP 28 (ERTS 16.4)","darwin","arm64","decode / fixtures","decode simple legacy tx",223,250,1000,100,11595,998.819,1160871.0,0.861
+```
 
 Batching is chosen by operation shape. Very fast rows use larger batches to
 reduce timer overhead, while slow witness-inclusive SegWit rows use smaller
