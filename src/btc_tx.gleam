@@ -790,7 +790,7 @@ pub type Field {
   LockTime
 
   // SegWit marker/flag detection
-  SegwitDiscriminator
+  SegwitMarkerAndFlag
 
   // Input-related fields
   VinCount
@@ -1366,7 +1366,7 @@ fn segwit_detection_parser() -> Parser(ParseContext, Bool, DecodeError) {
       True ->
         is_segwit
         |> parser.return
-        |> parser.keep_left(segwit_discriminator_parser())
+        |> parser.keep_left(segwit_marker_and_flag_parser())
 
       False -> parser.return(is_segwit)
     }
@@ -1383,8 +1383,8 @@ fn segwit_detection_parser() -> Parser(ParseContext, Bool, DecodeError) {
 ///   or EOF
 /// - An error for 0x00 followed by an unsupported nonzero flag
 ///
-/// `segwit_detection_parser` consumes the discriminator after this parser
-/// recognizes 0x00 0x01.
+/// `segwit_detection_parser` consumes the marker and flag bytes after this
+/// parser recognizes 0x00 0x01.
 fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
   // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
   parser.new(fn(reader, ctx) {
@@ -1399,7 +1399,7 @@ fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
           0x00, _ ->
             InvalidSegWitMarkerFlag(marker, flag)
             |> make_field_error(
-              SegwitDiscriminator,
+              SegwitMarkerAndFlag,
               reader.get_offset(reader),
               ctx,
             )
@@ -1420,9 +1420,9 @@ fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
   })
 }
 
-/// Construct a parser that consumes the 2-byte SegWit discriminator when run.
-fn segwit_discriminator_parser() -> Parser(ParseContext, Nil, DecodeError) {
-  field_parser(SegwitDiscriminator, fn(reader) {
+/// Construct a parser that consumes the SegWit marker and flag bytes when run.
+fn segwit_marker_and_flag_parser() -> Parser(ParseContext, Nil, DecodeError) {
+  field_parser(SegwitMarkerAndFlag, fn(reader) {
     reader
     |> reader.skip_bytes(2)
     |> result.map(pair.new(_, Nil))
@@ -2204,14 +2204,14 @@ pub fn to_witness_bytes(tx: Transaction(Validated)) -> BitArray {
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
   let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
 
-  let #(segwit_discriminator, witnesses) = case tx {
+  let #(segwit_marker_and_flag, witnesses) = case tx {
     Legacy(..) -> #(<<>>, <<>>)
     SegWit(witnesses:, ..) -> #(<<0x00, 0x01>>, serialize_witnesses(witnesses))
   }
 
   <<
     tx.version:32-little,
-    segwit_discriminator:bits,
+    segwit_marker_and_flag:bits,
     compact_size.write(vin_count):bits,
     serialize_inputs(tx.inputs):bits,
     compact_size.write(vout_count):bits,

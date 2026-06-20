@@ -4,7 +4,7 @@ import btc_tx.{
   InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
   InvalidSegWitMarkerFlag, NoInputs, NoOutputs, NonMinimalCompactSize,
   OutputValueOutOfRange, ParseFailed, PolicyLimitExceeded, ScriptPubKeyLength,
-  ScriptSigLength, SegwitDiscriminator, TotalOutputValueOutOfRange,
+  ScriptSigLength, SegwitMarkerAndFlag, TotalOutputValueOutOfRange,
   TrailingBytes, UnexpectedEof, Version, VinCount, VoutCount, WitnessItemLength,
   WitnessItemsTotalBytes, WitnessStackLength,
 }
@@ -218,7 +218,7 @@ pub fn decode_errors_on_non_byte_aligned_input_test() {
   assert btc_tx.parse_error_ctx(parse_err) == [InTransaction, AtField(Version)]
 }
 
-pub fn decode_does_not_misclassify_segwit_when_discriminator_is_missing_test() {
+pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_missing_test() {
   let assert Error(ParseFailed(parse_err)) = btc_tx.decode(version1)
 
   assert btc_tx.parse_error_offset(parse_err) == 4
@@ -227,7 +227,7 @@ pub fn decode_does_not_misclassify_segwit_when_discriminator_is_missing_test() {
     == [InTransaction, InInputs, AtField(VinCount)]
 }
 
-pub fn decode_does_not_misclassify_segwit_when_discriminator_is_truncated_test() {
+pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_truncated_test() {
   let marker = <<0:size(8)>>
 
   let assert Error(ParseFailed(parse_err)) =
@@ -249,7 +249,7 @@ pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
   assert btc_tx.parse_error_offset(parse_err) == 4
   assert btc_tx.parse_error_kind(parse_err) == InvalidSegWitMarkerFlag(0, 2)
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, AtField(SegwitDiscriminator)]
+    == [InTransaction, AtField(SegwitMarkerAndFlag)]
 }
 
 pub fn decode_treats_zero_vin_and_vout_counts_as_empty_legacy_tx_test() {
