@@ -16,7 +16,7 @@ runtime_version() ->
 os_name() ->
     try
         case os:type() of
-            {win32, _} -> <<"windows">>;
+            {win32, _} -> <<"win32">>;
             {_, Name} when is_atom(Name) -> atom_to_binary(Name, utf8);
             _ -> <<"unknown">>
         end
