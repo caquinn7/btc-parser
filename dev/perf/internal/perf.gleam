@@ -97,6 +97,10 @@ type SyntheticTxSpec {
   )
 }
 
+/// Runs all performance benchmark groups and returns their measurements.
+///
+/// The returned `PerfResult` preserves the report section grouping used by the
+/// development benchmark command.
 pub fn run() -> PerfResult {
   [
     measure_tx_decoding(),
