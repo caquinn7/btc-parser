@@ -698,9 +698,17 @@ fn sample_one(rng: Rng, from items: List(a)) -> Result(#(a, Rng), Nil) {
 /// Generates `len` pseudo-random bytes and returns them as a `BitArray`
 /// alongside the new RNG state.
 fn random_bytes(rng: Rng, len: Int) -> #(BitArray, Rng) {
-  int.range(0, len, #(<<>>, rng), fn(acc, _i) {
-    let #(bytes, rng) = acc
-    let #(byte_val, rng) = rng.next_bounded(rng, 256)
-    #(bit_array.append(bytes, <<byte_val:8>>), rng)
-  })
+  let #(bytes, rng) =
+    int.range(0, len, #([], rng), fn(acc, _i) {
+      let #(bytes, rng) = acc
+      let #(byte_val, rng) = rng.next_bounded(rng, 256)
+      #([<<byte_val:8>>, ..bytes], rng)
+    })
+
+  let bytes =
+    bytes
+    |> list.reverse
+    |> bit_array.concat
+
+  #(bytes, rng)
 }
