@@ -19,46 +19,84 @@ import gleam/int
 import gleam/list
 import gleam/string
 
+/// Results for one invocation of the fuzz harness.
 pub type FuzzResult {
   FuzzResult(
+    /// Number of mutation iterations requested for the run.
     iteration_count: Int,
+    /// RNG state captured before the first mutation is selected.
     initial_rng_state: Int,
+    /// Hex-encoded rolling XOR of SHA-256 hashes for all mutated inputs.
+    /// This acts as a compact fingerprint for reproducible runs.
     trace_hash: String,
+    /// Unhandled exceptions rescued while exercising mutated inputs.
     failures: List(IterationFailure),
   )
 }
 
+/// Details for one fuzz iteration that raised an unhandled exception.
 pub type IterationFailure {
   IterationFailure(
+    /// One-based iteration number within the fuzz run.
     iteration: Int,
+    /// Seed transaction, mutation kind, and resulting bytes for this failure.
     mutated_tx: MutatedTx,
+    /// Hex-encoded mutated transaction bytes for copying into regression tests.
     mutated_tx_hex: String,
+    /// Exception rescued from the decode, validate, classify, or txid pipeline.
     exception: Exception,
   )
 }
 
+/// Transaction bytes produced by applying a mutation to one corpus seed.
 pub type MutatedTx {
-  MutatedTx(seed_tx: SeedTx, mutation: Mutation, bytes: BitArray)
+  MutatedTx(
+    /// Original corpus transaction selected for this iteration.
+    seed_tx: SeedTx,
+    /// Structural mutation applied to the original transaction bytes.
+    mutation: Mutation,
+    /// Mutated wire bytes passed into the parser pipeline.
+    bytes: BitArray,
+  )
 }
 
+/// Corpus transaction used as a baseline for structural mutation.
 pub type SeedTx {
-  SeedTx(txid: String, bytes: BitArray)
+  SeedTx(
+    /// Display-format transaction id recorded in the seed corpus, not the
+    /// little-endian txid byte order used on the wire.
+    txid: String,
+    /// Raw wire bytes decoded from the corpus entry.
+    bytes: BitArray,
+  )
 }
 
+/// Mutation strategy selected for a fuzz iteration.
 pub type Mutation {
+  /// Cut the byte stream at a random position and discard the tail.
   Truncate
+  /// Replace a small number of bytes with random byte values.
   FlipBytes
+  /// Toggle a small number of individual bits.
   FlipBits
+  /// Insert a short random byte sequence at a random position.
   InsertBytes
+  /// Remove a short contiguous byte span.
   DeleteSpan
+  /// Copy a short byte span and insert the copy elsewhere.
   DuplicateSpan
+  /// Replace a short byte span with zero bytes of the same length.
   ZeroSpan
+  /// Corrupt, remove, or replace the SegWit marker/flag bytes.
   MutateSegwitMarker
+  /// Mutate a heuristic CompactSize candidate in the byte stream.
   MutateCompactSizeCandidate
 }
 
-/// Run the fuzz harness against `seed_txs` for `iteration_count` iterations
-/// using the provided deterministic RNG.
+/// Runs the fuzz harness and returns failures plus reproducibility metadata.
+///
+/// The harness mutates `seed_txs` for `iteration_count` iterations using the
+/// provided deterministic RNG.
 ///
 /// Each iteration draws one transaction from `seed_txs` uniformly at random,
 /// applies a structural mutation, and runs the full decode → validate →
@@ -90,6 +128,11 @@ pub fn run(
   )
 }
 
+/// Parses seed corpus file contents into transactions for the fuzz harness.
+///
+/// Each accepted line has the pipe-delimited form `txid|codes|hex`, where
+/// `txid` is kept as a display-format identifier and `hex` is decoded into raw
+/// transaction wire bytes. Lines that do not match that shape are ignored.
 pub fn parse_seed_txs(file_content: String) -> List(SeedTx) {
   file_content
   |> string.split("\n")
