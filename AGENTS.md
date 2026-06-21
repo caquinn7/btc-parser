@@ -87,6 +87,9 @@ integers, CompactSize, serialization, hashing, or FFI.
   panics/asserts should remain limited to internal invariants already proven by
   earlier checks.
 - Witness stack count must match input count for SegWit transactions.
+- Extended SegWit serialization must contain at least one witness item across
+  all input stacks. An all-empty witness record is superfluous; a zero-length
+  item still counts as present.
 - `to_stripped_bytes` excludes SegWit marker/flag and witness data. `to_witness_bytes`
   includes them only for SegWit transactions.
 

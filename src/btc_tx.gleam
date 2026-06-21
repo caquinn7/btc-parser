@@ -276,6 +276,17 @@ pub fn get_witness_items(stack: WitnessStack) -> List(WitnessItem) {
   items
 }
 
+/// Check whether a witness stack contains no items.
+///
+/// A stack containing a zero-length item is not empty. Emptiness refers to the
+/// number of items, not the number of bytes contained in those items.
+pub fn witness_stack_is_empty(stack: WitnessStack) -> Bool {
+  case get_witness_items(stack) {
+    [] -> True
+    _ -> False
+  }
+}
+
 /// A single item from a witness stack.
 ///
 /// Witness items are arbitrary byte sequences (e.g., public keys, signatures,
@@ -1735,21 +1746,17 @@ fn witnesses_parser(
     AtWitnessStack,
   )
   |> parser.try_with_start_offset(fn(witnesses, start_offset, _reader, ctx) {
-    case list.any(witnesses, witness_stack_has_items) {
-      True -> Ok(witnesses)
-      False ->
+    case list.all(witnesses, witness_stack_is_empty) {
+      True ->
         SuperfluousWitnessRecord
         |> new_parse_error(start_offset)
         |> with_contexts(ctx)
         |> ParseFailed
         |> Error
+
+      False -> Ok(witnesses)
     }
   })
-}
-
-fn witness_stack_has_items(stack: WitnessStack) -> Bool {
-  let WitnessStack(items) = stack
-  !list.is_empty(items)
 }
 
 fn witness_parser(
