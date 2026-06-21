@@ -4,9 +4,9 @@ import btc_tx.{
   InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
   InvalidSegwitMarkerFlag, NoInputs, NoOutputs, NonMinimalCompactSize,
   OutputValueOutOfRange, ParseFailed, PolicyLimitExceeded, ScriptPubKeyLength,
-  ScriptSigLength, SegwitMarkerAndFlag, TotalOutputValueOutOfRange,
-  TrailingBytes, UnexpectedEof, Version, VinCount, VoutCount, WitnessItemLength,
-  WitnessItemsTotalBytes, WitnessStackLength,
+  ScriptSigLength, SegwitMarkerAndFlag, SuperfluousWitnessRecord,
+  TotalOutputValueOutOfRange, TrailingBytes, UnexpectedEof, Version, VinCount,
+  VoutCount, WitnessItemLength, WitnessItemsTotalBytes, WitnessStackLength,
 }
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -432,17 +432,14 @@ pub fn validate_vin_count_insufficient_bytes_for_inputs_test() {
     == [InTransaction, InInputs, AtField(VinCount)]
 }
 
-pub fn decode_accepts_segwit_tx_with_zero_inputs_test() {
-  // Demonstrate that a transaction with 0 inputs can be represented in bytes
-  // and successfully decoded (though it would fail consensus validation).
-  // Note: Legacy format cannot encode 0 inputs because the 0x00 byte conflicts
-  // with SegWit marker detection, making it impossible to distinguish from SegWit.
+pub fn decode_rejects_segwit_tx_with_zero_inputs_test() {
   let marker = <<0x00>>
   let flag = <<0x01>>
   let vin_count = compact_size(0)
   let vout_count = compact_size(1)
   let output = build_output(<<0:little-size(64)>>, <<>>)
   let lock_time = <<0:little-size(32)>>
+  let expected_witness_offset = 4 + 2 + 1 + 1 + bit_array.byte_size(output)
 
   let tx_bytes = <<
     version1:bits,
@@ -451,13 +448,14 @@ pub fn decode_accepts_segwit_tx_with_zero_inputs_test() {
     vin_count:bits,
     vout_count:bits,
     output:bits,
-    // Empty witness section (0 witness stacks for 0 inputs)
     lock_time:bits,
   >>
 
-  let assert Ok(tx) = btc_tx.decode(tx_bytes)
-  assert btc_tx.is_segwit(tx)
-  assert list.is_empty(btc_tx.get_inputs(tx))
+  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.parse_error_offset(parse_err) == expected_witness_offset
+  assert btc_tx.parse_error_kind(parse_err) == SuperfluousWitnessRecord
+  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction]
 }
 
 // ============================================================================
@@ -966,7 +964,8 @@ pub fn decode_accepts_segwit_tx_with_zero_outputs_test() {
   let vin_count = compact_size(1)
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let vout_count = compact_size(0)
-  let witness_stack_len = compact_size(0)
+  // One zero-length item counts as witness data.
+  let witness_stack = <<compact_size(1):bits, compact_size(0):bits>>
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -976,8 +975,7 @@ pub fn decode_accepts_segwit_tx_with_zero_outputs_test() {
     vin_count:bits,
     input:bits,
     vout_count:bits,
-    // Witness section: 1 empty witness stack for the 1 input
-    witness_stack_len:bits,
+    witness_stack:bits,
     lock_time:bits,
   >>
 
@@ -1351,8 +1349,7 @@ pub fn decode_segwit_tx_parses_witness_data_test() {
   assert bit_array.byte_size(btc_tx.get_witness_item_bytes(item2)) > 0
 }
 
-// empty witness stacks valid b/c segWit txs can contain legacy inputs
-pub fn decode_segwit_tx_with_empty_witness_stacks_test() {
+pub fn decode_rejects_segwit_tx_with_all_empty_witness_stacks_test() {
   // Build inputs
   let input1 = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let input2 = build_input(repeat_byte(1, 32), 1, <<0x01, 0x02>>, 0xFFFFFFFF)
@@ -1363,25 +1360,50 @@ pub fn decode_segwit_tx_with_empty_witness_stacks_test() {
   // Empty witness stacks: each input gets a witness stack with 0 items
   let witness_stack1 = compact_size(0)
   let witness_stack2 = compact_size(0)
+  let expected_witness_offset =
+    4
+    + 2
+    + 1
+    + bit_array.byte_size(input1)
+    + bit_array.byte_size(input2)
+    + 1
+    + bit_array.byte_size(output)
 
   let tx_bytes =
     build_segwit_tx([input1, input2], [output], [witness_stack1, witness_stack2])
 
+  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+
+  assert btc_tx.parse_error_offset(parse_err) == expected_witness_offset
+  assert btc_tx.parse_error_kind(parse_err) == SuperfluousWitnessRecord
+  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction]
+}
+
+pub fn decode_segwit_tx_allows_empty_stack_when_another_stack_has_item_test() {
+  let input1 = build_input(<<0:size(256)>>, 0, <<>>, 0)
+  let input2 = build_input(repeat_byte(1, 32), 1, <<0x01, 0x02>>, 0xFFFFFFFF)
+  let output = build_output(<<1000:little-size(64)>>, <<0x76, 0xa9>>)
+
+  let empty_stack = compact_size(0)
+  let stack_with_empty_item = <<compact_size(1):bits, compact_size(0):bits>>
+
+  let tx_bytes =
+    build_segwit_tx([input1, input2], [output], [
+      empty_stack,
+      stack_with_empty_item,
+    ])
+
   let assert Ok(tx) = btc_tx.decode(tx_bytes)
 
-  // Verify it's identified as SegWit
-  assert btc_tx.is_segwit(tx)
-
-  // Verify witness data exists
   let assert Ok(witnesses) = btc_tx.get_witnesses(tx)
   let assert [stack1, stack2] = witnesses
 
-  // Verify both stacks are empty
   let items1 = btc_tx.get_witness_items(stack1)
   let items2 = btc_tx.get_witness_items(stack2)
 
   assert items1 == []
-  assert items2 == []
+  let assert [empty_item] = items2
+  assert btc_tx.get_witness_item_bytes(empty_item) == <<>>
 }
 
 pub fn decode_witness_stack_with_multiple_items_test() {
@@ -1821,7 +1843,7 @@ pub fn decode_rejects_legacy_tx_with_trailing_byte_test() {
 pub fn decode_rejects_segwit_tx_with_trailing_byte_test() {
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<0:little-size(64)>>, <<>>)
-  let witness_stack = compact_size(0)
+  let witness_stack = <<compact_size(1):bits, compact_size(0):bits>>
 
   let valid_tx = build_segwit_tx([input], [output], [witness_stack])
 
@@ -2079,34 +2101,6 @@ pub fn validate_consensus_collects_no_inputs_and_no_outputs_test() {
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
   assert btc_tx.validate_consensus(parsed_tx) == Error([NoInputs, NoOutputs])
-}
-
-pub fn validate_consensus_rejects_tx_with_no_inputs_test() {
-  // Build a SegWit transaction with 0 inputs (SegWit format required when vin_count=0)
-  let marker = <<0x00>>
-  let flag = <<0x01>>
-  let vin_count = compact_size(0)
-  let vout_count = compact_size(1)
-  let value = <<1000:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
-  let witness_data = <<>>
-  let lock_time = <<0:little-size(32)>>
-
-  let tx_bytes = <<
-    version1:bits,
-    marker:bits,
-    flag:bits,
-    vin_count:bits,
-    vout_count:bits,
-    value:bits,
-    script_pubkey_len:bits,
-    witness_data:bits,
-    lock_time:bits,
-  >>
-
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-
-  assert btc_tx.validate_consensus(parsed_tx) == Error([NoInputs])
 }
 
 pub fn validate_consensus_rejects_tx_with_no_outputs_test() {
