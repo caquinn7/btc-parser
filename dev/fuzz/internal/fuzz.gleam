@@ -452,18 +452,18 @@ fn zero_bytes(len: Int) -> BitArray {
   int.range(0, len, <<>>, fn(acc, _i) { bit_array.append(acc, <<0:8>>) })
 }
 
-/// Target the segwit marker/flag region at offsets 4–5 with one of five mutations:
+/// Target the SegWit marker/flag region at offsets 4–5 with one of five mutations:
 /// corrupt the marker, corrupt the flag, remove the marker byte, remove the flag byte,
 /// or overwrite both with random values.
 ///
 /// Fuzzing purpose:
-/// - Specifically stress legacy-vs-segwit dispatch logic
+/// - Specifically stress legacy-vs-SegWit dispatch logic
 /// - Useful for parser paths that branch early based on marker/flag interpretation
 /// - High value because mistakes here can throw off the interpretation of the entire remainder
 fn mutate_segwit_marker(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
-  // The segwit marker/flag occupy bytes 4–5 (immediately after the 4-byte version).
-  // We target this region regardless of whether the input is actually a segwit
-  // transaction, since corrupting it stresses the legacy-vs-segwit dispatch.
+  // The SegWit marker/flag occupy bytes 4–5 (immediately after the 4-byte version).
+  // We target this region regardless of whether the input is actually a SegWit
+  // transaction, since corrupting it stresses the legacy-vs-SegWit dispatch.
   let len = bit_array.byte_size(bytes)
   use <- bool.guard(len < 6, #(bytes, rng))
 

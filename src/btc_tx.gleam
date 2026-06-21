@@ -55,7 +55,7 @@ pub opaque type Transaction(validation_state) {
   ///
   /// SegWit transactions extend the legacy format
   /// with a separate witness data section.
-  SegWit(
+  Segwit(
     /// The transaction version number.
     version: Int,
     /// The list of transaction inputs.
@@ -90,7 +90,7 @@ pub fn get_version(tx: Transaction(v)) -> Int {
 pub fn is_segwit(tx: Transaction(v)) -> Bool {
   case tx {
     Legacy(..) -> False
-    SegWit(..) -> True
+    Segwit(..) -> True
   }
 }
 
@@ -168,7 +168,7 @@ pub fn get_lock_time(tx: Transaction(v)) -> Int {
 /// input at index N).
 pub fn get_witnesses(tx: Transaction(v)) -> Result(List(WitnessStack), Nil) {
   case tx {
-    SegWit(witnesses:, ..) -> Ok(witnesses)
+    Segwit(witnesses:, ..) -> Ok(witnesses)
     Legacy(..) -> Error(Nil)
   }
 }
@@ -692,7 +692,7 @@ pub type ParseErrorKind {
   NonMinimalCompactSize(encoded: Int, value: Int)
 
   /// An error variant indicating that an invalid SegWit marker flag was encountered.
-  InvalidSegWitMarkerFlag(marker: Int, flag: Int)
+  InvalidSegwitMarkerFlag(marker: Int, flag: Int)
 
   /// A claimed or required length exceeds structural limits.
   ///
@@ -790,8 +790,7 @@ pub type Field {
   LockTime
 
   // SegWit marker/flag detection
-  SegwitDiscriminator
-  SegwitMarker
+  SegwitMarkerAndFlag
 
   // Input-related fields
   VinCount
@@ -1221,7 +1220,7 @@ fn tx_parser(
   parser.try_with_reader(parser.return(Nil), fn(_, reader, ctx) {
     let tx = case witnesses {
       Some(witnesses) ->
-        SegWit(version:, inputs:, outputs:, lock_time:, witnesses:)
+        Segwit(version:, inputs:, outputs:, lock_time:, witnesses:)
 
       None -> Legacy(version:, inputs:, outputs:, lock_time:)
     }
@@ -1367,51 +1366,63 @@ fn segwit_detection_parser() -> Parser(ParseContext, Bool, DecodeError) {
       True ->
         is_segwit
         |> parser.return
-        |> parser.keep_left(segwit_discriminator_parser())
+        |> parser.keep_left(segwit_marker_and_flag_parser())
 
       False -> parser.return(is_segwit)
     }
   })
 }
 
-/// Construct a parser that looks ahead for the SegWit marker/flag.
+/// Construct a parser that inspects the next two bytes for a SegWit marker/flag.
 ///
-/// When run, it returns `True` if the next bytes are 0x00 0x01, `False` if they
-/// don't start with 0x00 or on EOF, without consuming them. It returns an error
-/// if the first byte is 0x00 but the flag byte is invalid.
+/// This parser never consumes input, regardless of whether it succeeds or
+/// returns an error. When run, it returns:
+///
+/// - `True` for 0x00 0x01
+/// - `False` for 0x00 0x00 (an empty legacy transaction), a nonzero first byte,
+///   or EOF
+/// - An error for 0x00 followed by an unsupported nonzero flag
+///
+/// `segwit_detection_parser` consumes the marker and flag bytes after this
+/// parser recognizes 0x00 0x01.
 fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
   // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
   parser.new(fn(reader, ctx) {
-    let field_err =
-      make_field_error(SegwitDiscriminator, reader.get_offset(reader), ctx)
-
     case reader.peek_bytes(reader, 2) {
       Ok(bytes) -> {
         let assert <<marker, flag>> = bytes
         case marker, flag {
           0x00, 0x01 -> Ok(#(reader, True))
+
+          0x00, 0x00 -> Ok(#(reader, False))
+
           0x00, _ ->
-            InvalidSegWitMarkerFlag(marker, flag)
-            |> field_err
+            InvalidSegwitMarkerFlag(marker, flag)
+            |> make_field_error(
+              SegwitMarkerAndFlag,
+              reader.get_offset(reader),
+              ctx,
+            )
             |> Error
+
           _, _ -> Ok(#(reader, False))
         }
       }
 
       Error(err) -> {
-        // Panic on InvalidReadCount (library bug). Silently treat UnexpectedEof
-        // as non-SegWit. We can't peek, so we fall through and let the
-        // subsequent field parsers produce a more contextual EOF error.
+        // Panic on InvalidReadCount and silently treat UnexpectedEof as non-SegWit.
         let _ = reader_error_to_kind(err)
+        // We can't peek, so we fall through and let the subsequent field parsers
+        // produce a more contextual EOF error.
         Ok(#(reader, False))
       }
     }
   })
 }
 
-/// Construct a parser that consumes the 2-byte SegWit discriminator when run.
-fn segwit_discriminator_parser() -> Parser(ParseContext, Nil, DecodeError) {
-  field_parser(SegwitMarker, fn(reader) {
+/// Construct a parser that consumes the SegWit marker and flag bytes when run.
+fn segwit_marker_and_flag_parser() -> Parser(ParseContext, Nil, DecodeError) {
+  field_parser(SegwitMarkerAndFlag, fn(reader) {
     reader
     |> reader.skip_bytes(2)
     |> result.map(pair.new(_, Nil))
@@ -1970,7 +1981,7 @@ fn mark_as_validated(tx: Transaction(Parsed)) -> Transaction(Validated) {
   // Change phantom type to Validated by reconstructing with identical data
   case tx {
     Legacy(v, i, o, l) -> Legacy(v, i, o, l)
-    SegWit(v, i, o, l, w) -> SegWit(v, i, o, l, w)
+    Segwit(v, i, o, l, w) -> Segwit(v, i, o, l, w)
   }
 }
 
@@ -2193,14 +2204,14 @@ pub fn to_witness_bytes(tx: Transaction(Validated)) -> BitArray {
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
   let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
 
-  let #(segwit_discriminator, witnesses) = case tx {
+  let #(segwit_marker_and_flag, witnesses) = case tx {
     Legacy(..) -> #(<<>>, <<>>)
-    SegWit(witnesses:, ..) -> #(<<0x00, 0x01>>, serialize_witnesses(witnesses))
+    Segwit(witnesses:, ..) -> #(<<0x00, 0x01>>, serialize_witnesses(witnesses))
   }
 
   <<
     tx.version:32-little,
-    segwit_discriminator:bits,
+    segwit_marker_and_flag:bits,
     compact_size.write(vin_count):bits,
     serialize_inputs(tx.inputs):bits,
     compact_size.write(vout_count):bits,

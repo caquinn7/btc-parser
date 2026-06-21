@@ -89,7 +89,7 @@ type PerfCaseInput(a) {
 
 type SyntheticTxSpec {
   Legacy(label: String, input_count: Int, output_count: Int)
-  SegWit(
+  Segwit(
     label: String,
     input_count: Int,
     output_count: Int,
@@ -340,7 +340,7 @@ fn synthetic_segwit_input_count_tx_specs(
 ) -> List(SyntheticTxSpec) {
   input_counts
   |> list.map(fn(input_count) {
-    SegWit(
+    Segwit(
       label: "segwit tx inputs=" <> int.to_string(input_count),
       input_count:,
       output_count: 1,
@@ -355,7 +355,7 @@ fn synthetic_witness_item_tx_specs(
 ) -> List(SyntheticTxSpec) {
   witness_item_counts
   |> list.map(fn(witness_items_per_input) {
-    SegWit(
+    Segwit(
       label: "segwit tx witness_items="
         <> int.to_string(witness_items_per_input),
       input_count: 1,
@@ -371,7 +371,7 @@ fn synthetic_witness_payload_tx_specs(
 ) -> List(SyntheticTxSpec) {
   witness_item_sizes
   |> list.map(fn(witness_item_size) {
-    SegWit(
+    Segwit(
       label: "segwit tx witness_bytes=" <> int.to_string(witness_item_size),
       input_count: 1,
       output_count: 1,
@@ -400,7 +400,7 @@ fn synthetic_tx_spec_to_bytes(
       build_synthetic_legacy_tx(input_count, output_count, UniquePrevouts),
     )
 
-    SegWit(
+    Segwit(
       label,
       input_count,
       output_count,
