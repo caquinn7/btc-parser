@@ -276,6 +276,17 @@ pub fn get_witness_items(stack: WitnessStack) -> List(WitnessItem) {
   items
 }
 
+/// Check whether a witness stack contains no items.
+///
+/// A stack containing a zero-length item is not empty. Emptiness refers to the
+/// number of items, not the number of bytes contained in those items.
+pub fn witness_stack_is_empty(stack: WitnessStack) -> Bool {
+  case get_witness_items(stack) {
+    [] -> True
+    _ -> False
+  }
+}
+
 /// A single item from a witness stack.
 ///
 /// Witness items are arbitrary byte sequences (e.g., public keys, signatures,
@@ -691,8 +702,15 @@ pub type ParseErrorKind {
   /// and `value` is the decoded integer value.
   NonMinimalCompactSize(encoded: Int, value: Int)
 
-  /// An error variant indicating that an invalid SegWit marker flag was encountered.
+  /// The SegWit marker byte (0x00) was present but the flag byte was not 0x01.
   InvalidSegwitMarkerFlag(marker: Int, flag: Int)
+
+  /// SegWit serialization was used, but every input witness stack was empty.
+  ///
+  /// Transactions without witness data must use legacy serialization. A witness
+  /// stack containing a zero-length item is nonempty and does not trigger this
+  /// error.
+  SuperfluousWitnessRecord
 
   /// A claimed or required length exceeds structural limits.
   ///
@@ -1722,11 +1740,23 @@ fn witnesses_parser(
   max_items_per_input: Option(Int),
   max_size_per_input: Option(Int),
 ) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
-  parser.indexed_repeat(
-    vin_count,
+  vin_count
+  |> parser.indexed_repeat(
     witness_parser(max_items_per_input, max_size_per_input),
     AtWitnessStack,
   )
+  |> parser.try_with_start_offset(fn(witnesses, start_offset, _reader, ctx) {
+    case list.all(witnesses, witness_stack_is_empty) {
+      True ->
+        SuperfluousWitnessRecord
+        |> new_parse_error(start_offset)
+        |> with_contexts(ctx)
+        |> ParseFailed
+        |> Error
+
+      False -> Ok(witnesses)
+    }
+  })
 }
 
 fn witness_parser(
