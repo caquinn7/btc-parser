@@ -55,7 +55,7 @@ pub opaque type Transaction(validation_state) {
   ///
   /// SegWit transactions extend the legacy format
   /// with a separate witness data section.
-  SegWit(
+  Segwit(
     /// The transaction version number.
     version: Int,
     /// The list of transaction inputs.
@@ -90,7 +90,7 @@ pub fn get_version(tx: Transaction(v)) -> Int {
 pub fn is_segwit(tx: Transaction(v)) -> Bool {
   case tx {
     Legacy(..) -> False
-    SegWit(..) -> True
+    Segwit(..) -> True
   }
 }
 
@@ -168,7 +168,7 @@ pub fn get_lock_time(tx: Transaction(v)) -> Int {
 /// input at index N).
 pub fn get_witnesses(tx: Transaction(v)) -> Result(List(WitnessStack), Nil) {
   case tx {
-    SegWit(witnesses:, ..) -> Ok(witnesses)
+    Segwit(witnesses:, ..) -> Ok(witnesses)
     Legacy(..) -> Error(Nil)
   }
 }
@@ -692,7 +692,7 @@ pub type ParseErrorKind {
   NonMinimalCompactSize(encoded: Int, value: Int)
 
   /// An error variant indicating that an invalid SegWit marker flag was encountered.
-  InvalidSegWitMarkerFlag(marker: Int, flag: Int)
+  InvalidSegwitMarkerFlag(marker: Int, flag: Int)
 
   /// A claimed or required length exceeds structural limits.
   ///
@@ -1220,7 +1220,7 @@ fn tx_parser(
   parser.try_with_reader(parser.return(Nil), fn(_, reader, ctx) {
     let tx = case witnesses {
       Some(witnesses) ->
-        SegWit(version:, inputs:, outputs:, lock_time:, witnesses:)
+        Segwit(version:, inputs:, outputs:, lock_time:, witnesses:)
 
       None -> Legacy(version:, inputs:, outputs:, lock_time:)
     }
@@ -1397,7 +1397,7 @@ fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
           0x00, 0x00 -> Ok(#(reader, False))
 
           0x00, _ ->
-            InvalidSegWitMarkerFlag(marker, flag)
+            InvalidSegwitMarkerFlag(marker, flag)
             |> make_field_error(
               SegwitMarkerAndFlag,
               reader.get_offset(reader),
@@ -1981,7 +1981,7 @@ fn mark_as_validated(tx: Transaction(Parsed)) -> Transaction(Validated) {
   // Change phantom type to Validated by reconstructing with identical data
   case tx {
     Legacy(v, i, o, l) -> Legacy(v, i, o, l)
-    SegWit(v, i, o, l, w) -> SegWit(v, i, o, l, w)
+    Segwit(v, i, o, l, w) -> Segwit(v, i, o, l, w)
   }
 }
 
@@ -2206,7 +2206,7 @@ pub fn to_witness_bytes(tx: Transaction(Validated)) -> BitArray {
 
   let #(segwit_marker_and_flag, witnesses) = case tx {
     Legacy(..) -> #(<<>>, <<>>)
-    SegWit(witnesses:, ..) -> #(<<0x00, 0x01>>, serialize_witnesses(witnesses))
+    Segwit(witnesses:, ..) -> #(<<0x00, 0x01>>, serialize_witnesses(witnesses))
   }
 
   <<

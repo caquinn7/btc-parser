@@ -2,7 +2,7 @@ import btc_tx.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack,
   CoinbaseWithMultipleInputs, DuplicateInput, HexToBytesFailed, InInputs,
   InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
-  InvalidSegWitMarkerFlag, NoInputs, NoOutputs, NonMinimalCompactSize,
+  InvalidSegwitMarkerFlag, NoInputs, NoOutputs, NonMinimalCompactSize,
   OutputValueOutOfRange, ParseFailed, PolicyLimitExceeded, ScriptPubKeyLength,
   ScriptSigLength, SegwitMarkerAndFlag, TotalOutputValueOutOfRange,
   TrailingBytes, UnexpectedEof, Version, VinCount, VoutCount, WitnessItemLength,
@@ -247,7 +247,7 @@ pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
     btc_tx.decode(<<version1:bits, marker:bits, flag:bits>>)
 
   assert btc_tx.parse_error_offset(parse_err) == 4
-  assert btc_tx.parse_error_kind(parse_err) == InvalidSegWitMarkerFlag(0, 2)
+  assert btc_tx.parse_error_kind(parse_err) == InvalidSegwitMarkerFlag(0, 2)
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, AtField(SegwitMarkerAndFlag)]
 }
@@ -2751,7 +2751,7 @@ pub fn compute_txid_matches_manual_dsha256_test() {
 }
 
 pub fn compute_wtxid_matches_manual_dsha256_test() {
-  // Construct a known minimal segwit transaction from scratch
+  // Construct a known minimal SegWit transaction from scratch
   let input = build_input(repeat_byte(1, 32), 0, <<>>, 0xFFFFFFFF)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
 
