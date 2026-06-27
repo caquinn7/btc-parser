@@ -900,7 +900,7 @@ pub fn parse_error_ctx(err: ParseError) -> List(ParseContext) {
   err.ctx
 }
 
-fn new_parse_error(kind: ParseErrorKind, offset: Int) -> ParseError {
+fn parse_error(kind: ParseErrorKind, offset: Int) -> ParseError {
   ParseError(offset:, kind:, ctx: [])
 }
 
@@ -914,14 +914,14 @@ fn with_contexts(err: ParseError, ctxs: List(ParseContext)) -> ParseError {
 /// with the field context already applied. The offset parameter allows you to
 /// point the error to a specific byte location, such as the start of a field,
 /// rather than the current reader position.
-fn make_field_error(
+fn field_error(
   field: Field,
   offset: Int,
   ctx: List(ParseContext),
 ) -> fn(ParseErrorKind) -> DecodeError {
   fn(kind) {
     kind
-    |> new_parse_error(offset)
+    |> parse_error(offset)
     |> with_contexts([AtField(field), ..ctx])
     |> ParseFailed
   }
@@ -1196,7 +1196,7 @@ pub fn decode_with_policy(
   use <- bool.guard(
     tx_size > policy.max_tx_size,
     PolicyLimitExceeded(tx_size, policy.max_tx_size)
-      |> new_parse_error(0)
+      |> parse_error(0)
       |> with_contexts([InTransaction])
       |> ParseFailed
       |> Error,
@@ -1221,39 +1221,19 @@ fn tx_parser(
     outputs_parser(policy.max_vout_count, policy.max_script_size),
     InOutputs,
   ))
-  use witnesses <- parser.then(case is_segwit {
-    True ->
-      inputs
-      |> list.length
-      |> witnesses_parser(
-        policy.max_witness_items_per_input,
-        policy.max_witness_size_per_input,
-      )
-      |> parser.map(Some)
-
-    False -> parser.return(None)
-  })
+  use witnesses <- parser.then(witnesses_if_segwit_parser(
+    is_segwit,
+    list.length(inputs),
+    policy,
+  ))
   use lock_time <- parser.then(field_parser(LockTime, reader.read_u32_le))
+  use _ <- parser.then(end_of_input_parser())
 
-  parser.try_with_reader(parser.return(Nil), fn(_, reader, ctx) {
-    let tx = case witnesses {
-      Some(witnesses) ->
-        Segwit(version:, inputs:, outputs:, lock_time:, witnesses:)
+  parser.return(case witnesses {
+    Some(witnesses) ->
+      Segwit(version:, inputs:, outputs:, lock_time:, witnesses:)
 
-      None -> Legacy(version:, inputs:, outputs:, lock_time:)
-    }
-
-    case reader.bytes_remaining(reader) {
-      0 -> Ok(tx)
-
-      byte_count ->
-        byte_count
-        |> TrailingBytes
-        |> new_parse_error(reader.get_offset(reader))
-        |> with_contexts(ctx)
-        |> ParseFailed
-        |> Error
-    }
+    None -> Legacy(version:, inputs:, outputs:, lock_time:)
   })
 }
 
@@ -1329,7 +1309,7 @@ fn field_parser(
     |> result.map_error(fn(err) {
       err
       |> reader_error_to_kind
-      |> make_field_error(field, reader.get_offset(reader), ctx)
+      |> field_error(field, reader.get_offset(reader), ctx)
     })
   })
 }
@@ -1347,7 +1327,7 @@ fn compact_size_parser(
         compact_size.NonMinimalCompactSize(encoded:, value:) ->
           NonMinimalCompactSize(encoded:, value:)
       }
-      |> make_field_error(field, reader.get_offset(reader), ctx)
+      |> field_error(field, reader.get_offset(reader), ctx)
     })
   })
 }
@@ -1368,7 +1348,7 @@ fn compact_size_int_parser(
       value_u64
       |> uint64.to_string
       |> IntegerOutOfRange
-      |> make_field_error(field, start_offset, ctx)
+      |> field_error(field, start_offset, ctx)
     })
   })
 }
@@ -1416,11 +1396,7 @@ fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
 
           0x00, _ ->
             InvalidSegwitMarkerFlag(marker, flag)
-            |> make_field_error(
-              SegwitMarkerAndFlag,
-              reader.get_offset(reader),
-              ctx,
-            )
+            |> field_error(SegwitMarkerAndFlag, reader.get_offset(reader), ctx)
             |> Error
 
           _, _ -> Ok(#(reader, False))
@@ -1465,7 +1441,7 @@ fn vin_count_parser(
   |> parser.try_with_start_offset(fn(vin_count_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(VinCount, start_offset, ctx)
+      |> field_error(VinCount, start_offset, ctx)
       |> Error
     }
     validate_vin_count(vin_count_int, reader, max_vin_count_policy, on_invalid)
@@ -1570,7 +1546,7 @@ fn vout_count_parser(
   |> parser.try_with_start_offset(fn(vout_count_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(VoutCount, start_offset, ctx)
+      |> field_error(VoutCount, start_offset, ctx)
       |> Error
     }
     validate_vout_count(
@@ -1660,7 +1636,7 @@ fn satoshis_parser() -> Parser(ParseContext, Int, DecodeError) {
       value_i64
       |> int64.to_string
       |> IntegerOutOfRange
-      |> make_field_error(Value, start_offset, ctx)
+      |> field_error(Value, start_offset, ctx)
     })
   })
 }
@@ -1700,7 +1676,7 @@ fn script_length_parser(
   |> parser.try_with_start_offset(fn(script_len_int, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(field, start_offset, ctx)
+      |> field_error(field, start_offset, ctx)
       |> Error
     }
     validate_script_length(
@@ -1735,6 +1711,24 @@ fn validate_script_length(
   }
 }
 
+fn witnesses_if_segwit_parser(
+  is_segwit: Bool,
+  vin_count: Int,
+  policy: DecodePolicy,
+) -> Parser(ParseContext, Option(List(WitnessStack)), DecodeError) {
+  case is_segwit {
+    True ->
+      vin_count
+      |> witnesses_parser(
+        policy.max_witness_items_per_input,
+        policy.max_witness_size_per_input,
+      )
+      |> parser.map(Some)
+
+    False -> parser.return(None)
+  }
+}
+
 fn witnesses_parser(
   vin_count: Int,
   max_items_per_input: Option(Int),
@@ -1749,7 +1743,7 @@ fn witnesses_parser(
     case list.all(witnesses, witness_stack_is_empty) {
       True ->
         SuperfluousWitnessRecord
-        |> new_parse_error(start_offset)
+        |> parse_error(start_offset)
         |> with_contexts(ctx)
         |> ParseFailed
         |> Error
@@ -1795,7 +1789,7 @@ fn witness_stack_length_parser(
     case max_items_per_input_policy {
       Some(max_items) if stack_len > max_items ->
         PolicyLimitExceeded(stack_len, max_items)
-        |> make_field_error(WitnessStackLength, start_offset, ctx)
+        |> field_error(WitnessStackLength, start_offset, ctx)
         |> Error
 
       _ -> Ok(stack_len)
@@ -1823,7 +1817,7 @@ fn tracked_witness_items_parser(
     max_total_bytes,
     fn(exceeded_val, start_offset, ctx) {
       PolicyLimitExceeded(exceeded_val, max_total_bytes)
-      |> make_field_error(WitnessItemsTotalBytes, start_offset, ctx)
+      |> field_error(WitnessItemsTotalBytes, start_offset, ctx)
     },
   )
 }
@@ -1851,7 +1845,7 @@ fn witness_item_parser() -> Parser(ParseContext, WitnessItem, DecodeError) {
       |> result.map_error(fn(err) {
         err
         |> reader_error_to_kind
-        |> new_parse_error(reader.get_offset(reader))
+        |> parse_error(reader.get_offset(reader))
         |> with_contexts(ctx)
         |> ParseFailed
       })
@@ -1866,7 +1860,7 @@ fn witness_item_size_parser() -> Parser(ParseContext, Int, DecodeError) {
   |> parser.try_with_start_offset(fn(length, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> make_field_error(WitnessItemLength, start_offset, ctx)
+      |> field_error(WitnessItemLength, start_offset, ctx)
       |> Error
     }
     validate_witness_item_size(length, reader, on_invalid)
@@ -1887,6 +1881,16 @@ fn validate_witness_item_size(
 
     False -> Ok(length)
   }
+}
+
+fn end_of_input_parser() -> Parser(ParseContext, Nil, DecodeError) {
+  parser.end_of_input(fn(bytes_remaining, reader, ctx) {
+    bytes_remaining
+    |> TrailingBytes
+    |> parse_error(reader.get_offset(reader))
+    |> with_contexts(ctx)
+    |> ParseFailed
+  })
 }
 
 // ==============================================================================

@@ -237,6 +237,18 @@ pub fn try_with_start_offset(
   })
 }
 
+/// Require the parser to have consumed all input.
+pub fn end_of_input(
+  make_error: fn(Int, Reader, List(ctx)) -> err,
+) -> Parser(ctx, Nil, err) {
+  Parser(fn(reader, contexts) {
+    case reader.bytes_remaining(reader) {
+      0 -> Ok(#(reader, Nil))
+      remaining_bytes -> Error(make_error(remaining_bytes, reader, contexts))
+    }
+  })
+}
+
 // ============================================================================
 // Context Management
 // ============================================================================
