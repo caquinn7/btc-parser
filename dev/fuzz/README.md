@@ -88,9 +88,11 @@ iteration, the fuzz harness randomly selects one real seed transaction, randomly
 selects one mutation, and applies that mutation to the selected transaction.
 
 Fuzz testing checks that:
+
 - `btc_tx.decode` handles mutated transaction bytes without unhandled exceptions
-- Successfully decoded and validated transactions can flow through output script
-  classification, txid, and wtxid APIs without unhandled exceptions
+- Successfully decoded and context-free-validated transactions can flow through
+  output script classification, txid, and wtxid APIs without unhandled
+  exceptions
 
 ---
 
@@ -100,12 +102,14 @@ Even well-designed parsers can miss rare or unusual structures.
 
 Fuzzing helps uncover inputs that trigger unexpected exceptions in areas such
 as:
+
 - Unusual script lengths
 - Unexpected witness stack shapes
 - Edge-case varint encodings
 - Boundary conditions near policy limits
 
 These are often combinations that are:
+
 - Valid but uncommon
 - Invalid in subtle ways
 - Not covered by hand-written tests
@@ -117,14 +121,15 @@ These are often combinations that are:
 Clean failure behavior is just as important as successful parsing.
 
 For each mutated input, the harness:
+
 - Calls `btc_tx.decode`
-- If decoding succeeds, calls `btc_tx.validate_consensus`
-- If consensus validation succeeds, classifies every output script
+- If decoding succeeds, calls `btc_tx.validate_context_free_consensus`
+- If context-free consensus validation succeeds, classifies every output script
 - Computes both txid and wtxid
 
-Any `Error(_)` returned by `decode` or `validate_consensus` is treated as a
-clean outcome. Any unhandled exception in that flow is reported as a fuzz
-failure with the mutated input hex needed for reproduction.
+Any `Error(_)` returned by `decode` or `validate_context_free_consensus` is
+treated as a clean outcome. Any unhandled exception in that flow is reported as
+a fuzz failure with the mutated input hex needed for reproduction.
 
 Use focused unit tests when exact failures matter, such as requiring
 `PolicyLimitExceeded`, `UnexpectedEof`, `NonMinimalCompactSize`, offsets, or
@@ -135,6 +140,7 @@ context stacks.
 ### 4. Preservation of Internal Invariants
 
 The parser enforces structural guarantees such as:
+
 - Length prefixes match actual data
 - Input/output counts are consistent
 - Witness stack sizes align with declared counts
@@ -170,12 +176,14 @@ The fuzzing strategy uses a **seed corpus of real Bitcoin transactions** stored
 in `dev/fuzz/corpus/seed_txs.txt`. Each record contains `txid|codes|raw_hex`.
 Corpus-code labels are documented in `dev/fuzz/corpus/seed_txs_codes.txt`.
 
-### Why this matters:
+### Why this matters
+
 - Pure random input is mostly invalid and low-signal
 - Real transactions provide **valid structural baselines**
 - Mutations explore **realistic edge cases**
 
-### Result:
+### Result
+
 Higher-quality fuzzing with better coverage of meaningful scenarios.
 
 ---
@@ -186,10 +194,10 @@ Fuzz testing exercises the `btc_tx` parser and related transaction inspection
 APIs by:
 
 - Feeding mutated transaction bytes into `btc_tx.decode`
-- Treating `decode` and `validate_consensus` `Error(_)` results as clean
-  outcomes
-- Continuing successful decodes through consensus validation, output script
-  classification, txid, and wtxid computation
+- Treating `decode` and `validate_context_free_consensus` `Error(_)` results as
+  clean outcomes
+- Continuing successful decodes through context-free consensus validation,
+  output script classification, txid, and wtxid computation
 - Recording any unhandled exception with the run's initial RNG state, iteration,
   seed transaction txid, mutation, and mutated hex
 

@@ -165,18 +165,20 @@ checks two further cases.
 ### UnknownWitness — future SegWit versions
 
 ```
-<version byte>  <push_len byte>  <push_len bytes>
+<version byte>  <push_length byte>  <push_length bytes>
 ```
 
 Conditions (all must hold):
+
 - `version` is in `0x51`–`0x60` (i.e., `OP_1`–`OP_16`)
 - The script is exactly three fields: version opcode, one-byte length, then data
-- `push_len` is between 2 and 40 (the valid range for a witness program)
+- `push_length` is between 2 and 40 (the valid range for a witness program)
 
 The returned `version` integer is decoded as `version_byte - 0x50` (so `OP_2`
 gives version 2, `OP_16` gives version 16).
 
 Cases already handled before reaching this fallback:
+
 - `OP_0` — matched as `P2WPKH` or `P2WSH` in pass 1
 - `OP_1` with a 32-byte program — matched as `P2TR` in pass 1
 
@@ -274,7 +276,7 @@ classify_output_script(script)
 │   └─ otherwise                         → NonStandard
 └─ (none matched) → do_classify_non_template
     │
-    ├─ [51–60] [02–28] [×push_len]       → UnknownWitness(version)
+    ├─ [51–60] [02–28] [×push_length]    → UnknownWitness(version)
     └─ (none matched) → do_is_standard_multisig
         ├─ valid m-of-n (1≤m≤n≤3)
         │   AND pubkey count matches n   → Multisig

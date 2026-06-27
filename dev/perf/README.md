@@ -5,8 +5,9 @@ intended to catch broad performance regressions in public transaction workflows,
 not to produce stable machine-independent numbers. Compare trends and relative
 changes within the same machine, target, and runtime.
 
-Input construction, hex decoding, preflight assertions, and consensus validation
-needed to prepare validated transactions happen before timing begins. Timed rows
+Input construction, hex decoding, preflight assertions, and context-free
+consensus validation needed to prepare context-free-validated transactions
+happen before timing begins. Timed rows
 measure only the operation named in the `case` column.
 
 ## Commands
@@ -98,24 +99,25 @@ large payload bytes.
 decoded transactions with many ordinary inputs. This isolates the cost of the
 public structural scan used by coinbase-related checks.
 
-## Consensus Validation
+## Context-Free Consensus Validation
 
-`validate_consensus / valid inputs` measures successful context-free consensus
-validation as input count grows. It exercises the full validator set on valid
-transactions, including duplicate-input tracking.
+`validate_context_free_consensus / valid inputs` measures successful
+context-free consensus validation as input count grows. It exercises the full
+validator set on valid transactions, including duplicate-input tracking.
 
-`validate_consensus / valid outputs` measures successful validation as output
-count grows. It is meant to catch regressions in per-output value checks and
-cumulative output value tracking.
+`validate_context_free_consensus / valid outputs` measures successful validation
+as output count grows. It is meant to catch regressions in per-output value
+checks and cumulative output value tracking.
 
-`validate_consensus / duplicate inputs` places the duplicate input late so the
-validator must inspect nearly the whole input list before failing. This is meant
-to catch regressions from near-linear duplicate detection toward quadratic
-behavior.
+`validate_context_free_consensus / duplicate inputs` places the duplicate input
+late so the validator must inspect nearly the whole input list before failing.
+This is meant to catch regressions from near-linear duplicate detection toward
+quadratic behavior.
 
-`validate_consensus / output overflow` places cumulative value overflow late in
-the output list. This is meant to catch regressions in output-sum validation and
-to compare failure-path cost with the valid output curve.
+`validate_context_free_consensus / output overflow` places cumulative value
+overflow late in the output list. This is meant to catch regressions in
+output-sum validation and to compare failure-path cost with the valid output
+curve.
 
 ## Txid Computation
 
@@ -146,7 +148,7 @@ serialization and double-SHA256 must read those bytes.
 
 ## Serialization
 
-`serialization / fixtures` measures `to_stripped_bytes` and `to_witness_bytes`
+`serialization / fixtures` measures `to_stripped_bytes` and `to_wire_bytes`
 on real validated fixtures. These rows cover common real shapes and confirm the
 legacy and SegWit serialization paths both stay healthy.
 
@@ -162,11 +164,11 @@ serialization as SegWit input count grows. The stripped rows isolate non-witness
 serialization; the witness rows include witness stacks and should scale with
 witness data.
 
-`serialization / synthetic witness items` measures `to_witness_bytes` while the
+`serialization / synthetic witness items` measures `to_wire_bytes` while the
 number of witness stack items grows. It is meant to catch list traversal and
 CompactSize item serialization regressions.
 
-`serialization / synthetic witness payload` measures `to_witness_bytes` while
+`serialization / synthetic witness payload` measures `to_wire_bytes` while
 witness payload bytes grow. This should scale with payload size because the bytes
 are emitted into the serialized transaction.
 
@@ -202,8 +204,8 @@ The results table has these columns:
 - `us/op`: Estimated microseconds per logical operation.
 
 `ops/s` and `us/op` are normalized back to one logical operation, such as one
-`decode`, `validate_consensus`, `compute_txid`, or serialization call. That
-means rows with different `ops/call` values can still be compared.
+`decode`, `validate_context_free_consensus`, `compute_txid`, or serialization
+call. That means rows with different `ops/call` values can still be compared.
 
 CSV output uses the same measurements as the table report, with one row per
 benchmark case. The leading `run_target`, `run_runtime`, `run_os`, and

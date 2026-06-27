@@ -71,9 +71,9 @@ integers, CompactSize, serialization, hashing, or FFI.
 - Preserve transaction wire order and little-endian byte order. Public hash bytes
   and prevout txids are exposed in the same little-endian order used on the wire.
 - Preserve the phantom-type validation boundary. `decode` produces
-  `Transaction(Parsed)`, `validate_consensus` is the only public upgrade path to
-  `Transaction(Validated)`, and APIs that require validated transactions should
-  keep that requirement.
+  `Transaction(Parsed)`, `validate_context_free_consensus` is the only public
+  upgrade path to `Transaction(ContextFreeValidated)`, and APIs that require
+  context-free-validated transactions should keep that requirement.
 - Parsing must consume exactly one transaction. Extra bytes must return
   `TrailingBytes`, not be ignored.
 - CompactSize integers must reject non-minimal encodings.
@@ -90,14 +90,14 @@ integers, CompactSize, serialization, hashing, or FFI.
 - Extended SegWit serialization must contain at least one witness item across
   all input stacks. An all-empty witness record is superfluous; a zero-length
   item still counts as present.
-- `to_stripped_bytes` excludes SegWit marker/flag and witness data. `to_witness_bytes`
+- `to_stripped_bytes` excludes SegWit marker/flag and witness data. `to_wire_bytes`
   includes them only for SegWit transactions.
 
 ## Domain Constraints
 
 - Keep context-free consensus validation aligned with the documented
-  `validate_consensus` scope; do not add context-dependent checks such as UTXO
-  lookup, block subsidy, or block-height validation.
+  `validate_context_free_consensus` scope; do not add context-dependent checks
+  such as UTXO lookup, block subsidy, or block-height validation.
 - Keep structural inspection separate from validation: helpers may identify wire
   shapes, markers, and script templates, but consensus meaning should flow
   through documented validation APIs.
@@ -112,6 +112,9 @@ integers, CompactSize, serialization, hashing, or FFI.
 
 - Run `gleam format` and match nearby code for naming, control flow,
   parser/result patterns, and public API documentation style.
+- Use `count` for numbers of elements, `length` for byte counts encoded in
+  wire-format length prefixes, and `size` for measured or calculated byte
+  footprints and resource limits.
 - Treat source doc comments, tests, and focused docs as the detailed behavior
   source of truth; keep `AGENTS.md` focused on scope, invariants, and workflow
   guardrails.

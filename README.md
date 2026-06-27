@@ -34,8 +34,8 @@ No security guarantees are provided.
 - **Validation-aware API**: Separate parsed transactions from operations that
   require context-free validation
 
-- **Serialization**: Serialize validated transactions in stripped or full wire
-  form, and compute their txid and wtxid
+- **Serialization**: Serialize context-free-validated transactions in stripped
+  or full wire form, and compute their txid and wtxid
 
 - **Cross-runtime**: Supports both Erlang and JavaScript targets
 
@@ -61,7 +61,7 @@ pub fn txid_from_bytes(bytes: BitArray) -> Result(BitArray, TxidError) {
   |> result.map_error(DecodeFailed)
   |> result.try(fn(tx) {
     tx
-    |> btc_tx.validate_consensus
+    |> btc_tx.validate_context_free_consensus
     |> result.map_error(ConsensusValidationFailed)
     |> result.map(btc_tx.compute_txid)
   })

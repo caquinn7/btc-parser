@@ -25,9 +25,13 @@ import internal/reader.{type Reader}
 /// consensus rules.
 pub type Parsed
 
-/// Phantom type indicating a transaction that has passed Bitcoin
-/// consensus validation.
-pub type Validated
+/// Phantom type indicating a transaction that has passed the context-free
+/// Bitcoin consensus checks performed by `validate_context_free_consensus`.
+///
+/// This does not indicate full transaction validity. Context-dependent checks
+/// such as script execution, signature verification, and UTXO lookup are not
+/// performed.
+pub type ContextFreeValidated
 
 /// A Bitcoin transaction.
 ///
@@ -104,8 +108,8 @@ pub fn is_segwit(tx: Transaction(v)) -> Bool {
 /// - Having multiple inputs (coinbase transactions must have exactly one input)
 /// - Invalid scriptSig length (must be 2-100 bytes for coinbase)
 ///
-/// For a consensus-validated check, use `is_coinbase` after calling
-/// `validate_consensus`.
+/// For a context-free-validated check, use `is_coinbase` after calling
+/// `validate_context_free_consensus`.
 ///
 /// Returns `True` if any input has a coinbase marker, `False` otherwise.
 pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
@@ -114,8 +118,10 @@ pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
 
 /// Check whether a transaction is a valid coinbase transaction.
 ///
-/// This function returns `True` only for transactions that have been validated
-/// against Bitcoin consensus rules and confirmed to be valid coinbase transactions.
+/// This function returns `True` only for transactions that have passed the
+/// context-free Bitcoin consensus checks performed by
+/// `validate_context_free_consensus` and have a valid transaction-local
+/// coinbase shape.
 ///
 /// A coinbase transaction is the first transaction in a block, which creates new
 /// bitcoins as a block reward and does not spend any previous outputs. Valid
@@ -123,14 +129,14 @@ pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
 /// - Have exactly one input with a coinbase marker (null previous outpoint)
 /// - Have a scriptSig between 2 and 100 bytes in length
 ///
-/// **Requires validation**: This function accepts only `Transaction(Validated)`,
-/// ensuring the transaction has passed all consensus checks via `validate_consensus`
-/// (upgrading it from `Transaction(Parsed)`).
+/// **Requires validation**: This function accepts only
+/// `Transaction(ContextFreeValidated)`, ensuring the transaction has passed the
+/// context-free checks performed by `validate_context_free_consensus`.
 ///
 /// For a structural check without validation, use `has_coinbase_marker`.
 ///
 /// Returns `True` if this is a valid coinbase transaction, `False` otherwise.
-pub fn is_coinbase(tx: Transaction(Validated)) -> Bool {
+pub fn is_coinbase(tx: Transaction(ContextFreeValidated)) -> Bool {
   has_coinbase_marker(tx)
 }
 
@@ -354,10 +360,11 @@ pub fn get_raw_script_bytes(script: ScriptBytes(k)) -> BitArray {
   bytes
 }
 
-/// Get the byte length of a `ScriptBytes`.
+/// Get the byte size of a `ScriptBytes`.
 ///
-/// The length is measured from the raw serialized script bytes.
-pub fn get_script_length(script: ScriptBytes(k)) -> Int {
+/// The size is measured from the raw script bytes and excludes the CompactSize
+/// length prefix used when the script is serialized in a transaction.
+pub fn get_script_size(script: ScriptBytes(k)) -> Int {
   script
   |> get_raw_script_bytes
   |> bit_array.byte_size
@@ -403,24 +410,28 @@ pub type OutputScriptType {
   /// `scriptPubKey`. Bitcoin Core allows 1–3 keys and 1–3 required signatures.
   Multisig
 
-  /// Standard null-data output as defined by Bitcoin Core's standardness rules.
+  /// Standard null-data output as defined by Bitcoin Core relay policy.
+  ///
+  /// This variant represents the standard null-data template, not every script
+  /// that begins with `OP_RETURN`.
   ///
   /// Matches scripts that begin with `OP_RETURN`, are followed only by push
   /// opcodes, and have a total size of at most 83 bytes. The size limit is a
-  /// Bitcoin Core relay policy constraint, not a consensus rule — this variant
-  /// intentionally mirrors the standard template definition rather than the
-  /// looser structural shape of "any push-only `OP_RETURN` script".
+  /// relay policy constraint, not a consensus rule.
   ///
   /// An `OP_RETURN` script that is push-only but exceeds 83 bytes, or that
   /// contains non-push opcodes after `OP_RETURN`, will classify as
   /// `NonStandard` instead.
   NullData
 
-  /// A well-formed witness program whose version (1–16) does not map to a
-  /// named script type. `version` is the decoded witness version number
-  /// (1–16 — note version 1 with a 32-byte program is `P2TR` and never
-  /// appears here). Forward-compatible; should not be treated the same as
-  /// `NonStandard`.
+  /// A well-formed witness program whose witness version is not assigned a named
+  /// output type by this library.
+  ///
+  /// `version` is the decoded witness version (1–16). Version 1 with a
+  /// 32-byte witness program is classified as `P2TR` and therefore never
+  /// appears here.
+  ///
+  /// Forward-compatible. Do not treat this the same as `NonStandard`.
   UnknownWitness(version: Int)
 
   /// Does not match any recognized standard output template.
@@ -451,22 +462,21 @@ pub type OutputScriptType {
 /// │   ├─ total ≤ 83 bytes AND push-only    → NullData
 /// │   └─ otherwise                         → NonStandard
 /// └─ (none matched)
-///     ├─ [51–60] [02–28] [×push_len]       → UnknownWitness(version)
+///     ├─ [51–60] [02–28] [×push_length]    → UnknownWitness(version)
 ///     └─ valid m-of-n (1≤m≤n≤3)
 ///         ├─ AND pubkey count matches n    → Multisig
 ///         └─ otherwise                     → NonStandard
 /// ```
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```gleam
 /// let script_pubkey = get_output_script_pubkey(output)
 /// case classify_output_script(script_pubkey) {
-///   P2PKH       -> // legacy single-sig pay-to-pubkey-hash
-///   P2WPKH      -> // native SegWit single-sig
-///   P2TR        -> // taproot
-///   NonStandard -> // no matching template
-///   _           -> // other standard type
+///   P2WPKH | P2WSH | P2TR -> handle_native_segwit(output)
+///   P2PKH | P2SH -> handle_legacy(output)
+///   UnknownWitness(v) -> handle_future_witness(v, output)
+///   _ -> handle_other(output)
 /// }
 /// ```
 pub fn classify_output_script(
@@ -513,8 +523,11 @@ fn do_classify_non_template(script_bytes: BitArray) -> OutputScriptType {
     // UnknownWitness: OP_1–OP_16 followed by a 2–40 byte witness program.
     // OP_0 (P2WPKH/P2WSH) is already handled above.
     // OP_1 with a 32-byte program is already handled above as P2TR.
-    <<version, push_len, _:bytes-size(push_len)>>
-      if version >= 0x51 && version <= 0x60 && push_len >= 2 && push_len <= 40
+    <<version, push_length, _:bytes-size(push_length)>>
+      if version >= 0x51
+      && version <= 0x60
+      && push_length >= 2
+      && push_length <= 40
     -> UnknownWitness(version: decode_small_int_opcode(version))
 
     _ ->
@@ -542,30 +555,38 @@ fn do_is_push_only(bytes: BitArray) -> Bool {
       do_is_push_only(rest)
 
     // Direct push: 1–75 bytes follow immediately
-    <<push_len, rest:bits>> if push_len >= 0x01 && push_len <= 0x4B ->
+    <<push_length, rest:bits>> if push_length >= 0x01 && push_length <= 0x4B ->
       case rest {
-        <<_:bytes-size(push_len), remainder:bits>> -> do_is_push_only(remainder)
+        <<_:bytes-size(push_length), remainder:bits>> ->
+          do_is_push_only(remainder)
+
         _ -> False
       }
 
     // OP_PUSHDATA1: next byte is length, then data
-    <<0x4C, len, rest:bits>> ->
+    <<0x4C, push_length, rest:bits>> ->
       case rest {
-        <<_:bytes-size(len), remainder:bits>> -> do_is_push_only(remainder)
+        <<_:bytes-size(push_length), remainder:bits>> ->
+          do_is_push_only(remainder)
+
         _ -> False
       }
 
     // OP_PUSHDATA2: next 2 bytes (LE) are length, then data
-    <<0x4D, len:little-size(16), rest:bits>> ->
+    <<0x4D, push_length:little-size(16), rest:bits>> ->
       case rest {
-        <<_:bytes-size(len), remainder:bits>> -> do_is_push_only(remainder)
+        <<_:bytes-size(push_length), remainder:bits>> ->
+          do_is_push_only(remainder)
+
         _ -> False
       }
 
     // OP_PUSHDATA4: next 4 bytes (LE) are length, then data
-    <<0x4E, len:little-size(32), rest:bits>> ->
+    <<0x4E, push_length:little-size(32), rest:bits>> ->
       case rest {
-        <<_:bytes-size(len), remainder:bits>> -> do_is_push_only(remainder)
+        <<_:bytes-size(push_length), remainder:bits>> ->
+          do_is_push_only(remainder)
+
         _ -> False
       }
 
@@ -715,19 +736,22 @@ pub type ParseErrorKind {
   /// error.
   SuperfluousWitnessRecord
 
-  /// A claimed or required length exceeds structural limits.
+  /// A length or count requires more bytes than remain in the input.
   ///
-  /// This error occurs when a length field or count field implies more bytes or items
-  /// than are structurally available in the input buffer. This is distinct from
-  /// `PolicyLimitExceeded`, which enforces parser-defined limits for protection.
+  /// Unlike `UnexpectedEof`, which reports a failed read, this error reports a
+  /// decoded length or count that is known in advance not to fit in the remaining
+  /// input. This is distinct from `PolicyLimitExceeded`, which enforces configured
+  /// resource limits.
   ///
   /// Examples:
-  /// - A script length field claims 1000 bytes, but only 100 bytes remain
-  /// - An item count implies at least 500 bytes needed, but only 200 remain
+  /// - A scriptSig length claims a 100-byte script, but only 99 bytes remain.
+  /// - An input count claims one input, whose smallest encoding is 41 bytes, but
+  ///   only 40 bytes remain.
   ///
-  /// `claimed` represents bytes needed, `remaining` is what's available.
-  /// `claimed` may be a conservative estimate (e.g., `remaining + 1`) rather than
-  /// the exact number of bytes to avoid integer overflow on the JavaScript target.
+  /// `claimed` is the number of bytes required and `remaining` is the number
+  /// available. `claimed` may be a conservative estimate, such as
+  /// `remaining + 1`, rather than the exact requirement to avoid integer overflow
+  /// on the JavaScript target.
   InsufficientBytes(claimed: Int, remaining: Int)
 
   /// A decoded 64-bit integer value exceeds the range representable by the runtime.
@@ -826,7 +850,7 @@ pub type Field {
   ScriptPubKeyLength
 
   // Witness-related fields
-  WitnessStackLength
+  WitnessItemCount
   WitnessItemLength
   WitnessItemsTotalBytes
 }
@@ -837,7 +861,7 @@ pub type Field {
 /// where the parser was reading when it encountered the error. This is useful
 /// for debugging and error reporting.
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```gleam
 /// case decode(malformed_bytes) {
@@ -858,21 +882,16 @@ pub fn parse_error_offset(err: ParseError) -> Int {
 /// such as `UnexpectedEof`, `NonMinimalCompactSize`, `PolicyLimitExceeded`, etc.
 /// This allows you to handle different error types differently.
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```gleam
-/// case decode(bytes) {
-///   Error(ParseFailed(err)) -> {
-///     case parse_error_kind(err) {
-///       PolicyLimitExceeded(value, max) -> 
-///         // Handle resource limit violation
-///       InsufficientBytes(claimed, remaining) -> 
-///         // Handle truncated input
-///       _ -> // Handle other errors
-///     }
-///   }
-///   _ -> // ...
-/// }
+/// fn is_truncated(error: ParseError) -> Bool {
+///  case parse_error_kind(error) {
+///    UnexpectedEof(_, _) -> True
+///    InsufficientBytes(_, _) -> True
+///    _ -> False
+///  }
+///}
 /// ```
 pub fn parse_error_kind(err: ParseError) -> ParseErrorKind {
   err.kind
@@ -885,14 +904,14 @@ pub fn parse_error_kind(err: ParseError) -> ParseErrorKind {
 /// to most specific (innermost), providing a "stack trace" through the parsing
 /// process.
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```gleam
 /// case decode(malformed_bytes) {
 ///   Error(ParseFailed(err)) -> {
 ///     let ctx = parse_error_ctx(err)
 ///     // ctx: [InTransaction, InInputs, AtInput(2), AtField(ScriptSigLength)]
-///     // Means: error in the scriptSig_len field of input #2
+///     // Means: failed at the scriptSig length prefix of input #2 (zero-based)
 ///   }
 ///   _ -> // ...
 /// }
@@ -1162,7 +1181,7 @@ pub fn decode_policy_max_witness_size_per_input(
 ///   This includes malformed data, unexpected end of input, or violations of
 ///   the policy limits.
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```gleam
 /// let tx_bytes = <<0x01, 0x00, 0x00, 0x00, ...>>
@@ -1254,7 +1273,7 @@ fn tx_parser(
 ///   invalid characters).
 /// - `Error(ParseFailed(_))`: The bytes could not be parsed as a valid transaction.
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```gleam
 /// let hex = "0100000001..."
@@ -1480,7 +1499,7 @@ fn txin_list_parser(
   // ├─ TxIn #0
   // │    ├─ prev_txid (32 bytes)
   // │    ├─ vout (4 bytes)
-  // │    ├─ scriptSig_len (CompactSize)
+  // │    ├─ scriptSig length (CompactSize)
   // │    ├─ scriptSig bytes
   // │    └─ sequence (4 bytes)
   // ├─ TxIn #1
@@ -1494,7 +1513,7 @@ fn txin_parser(
 ) -> Parser(ParseContext, TxIn, DecodeError) {
   // │ prev_txid (32 bytes)
   // │ vout (4 bytes)
-  // │ scriptSig_len (CompactSize)
+  // │ scriptSig length (CompactSize)
   // │ scriptSig bytes
   // │ sequence (4 bytes)
   parser.map3(
@@ -1589,7 +1608,7 @@ fn txout_list_parser(
   // vout_count
   // ├─ TxOut #0
   // │    ├─ value (8 bytes)
-  // │    ├─ scriptPubKey_len (CompactSize)
+  // │    ├─ scriptPubKey length (CompactSize)
   // │    └─ scriptPubKey bytes
   // ├─ TxOut #1
   // │    ├─ ...
@@ -1605,7 +1624,7 @@ fn txout_parser(
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, TxOut, DecodeError) {
   // | value (8 bytes)
-  // | scriptPubKey_len (CompactSize)
+  // | scriptPubKey length (CompactSize)
   // | scriptPubKey bytes
   parser.map2(
     satoshis_parser(),
@@ -1641,8 +1660,8 @@ fn script_sig_parser(
 ) -> Parser(ParseContext, ScriptBytes(InputScript), DecodeError) {
   ScriptSigLength
   |> script_length_parser(max_script_size_policy)
-  |> parser.then(fn(script_len) {
-    field_parser(ScriptSig, reader.read_bytes(_, script_len))
+  |> parser.then(fn(script_length) {
+    field_parser(ScriptSig, reader.read_bytes(_, script_length))
   })
   |> parser.map(ScriptBytes)
 }
@@ -1652,8 +1671,8 @@ fn script_pubkey_parser(
 ) -> Parser(ParseContext, ScriptBytes(OutputScript), DecodeError) {
   ScriptPubKeyLength
   |> script_length_parser(max_script_size_policy)
-  |> parser.then(fn(script_len) {
-    field_parser(ScriptPubKey, reader.read_bytes(_, script_len))
+  |> parser.then(fn(script_length) {
+    field_parser(ScriptPubKey, reader.read_bytes(_, script_length))
   })
   |> parser.map(ScriptBytes)
 }
@@ -1668,14 +1687,14 @@ fn script_length_parser(
 ) -> Parser(ParseContext, Int, DecodeError) {
   field
   |> compact_size_int_parser
-  |> parser.try_with_start_offset(fn(script_len_int, start_offset, reader, ctx) {
+  |> parser.try_with_start_offset(fn(script_length, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
       |> field_error(field, start_offset, ctx)
       |> Error
     }
     validate_script_length(
-      script_len_int,
+      script_length,
       reader,
       max_script_size_policy,
       on_invalid,
@@ -1684,25 +1703,25 @@ fn script_length_parser(
 }
 
 fn validate_script_length(
-  script_len_int: Int,
+  script_length: Int,
   reader: Reader,
   max_script_size_policy: Int,
   on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
 ) -> Result(Int, DecodeError) {
   let remaining = reader.bytes_remaining(reader)
 
-  case script_len_int > remaining, script_len_int > max_script_size_policy {
+  case script_length > remaining, script_length > max_script_size_policy {
     // Structural limit: length exceeds remaining bytes
     True, _ ->
-      InsufficientBytes(claimed: script_len_int, remaining:)
+      InsufficientBytes(claimed: script_length, remaining:)
       |> on_invalid
 
     // Policy limit: length exceeds configured maximum
     _, True ->
-      PolicyLimitExceeded(script_len_int, max_script_size_policy)
+      PolicyLimitExceeded(script_length, max_script_size_policy)
       |> on_invalid
 
-    _, _ -> Ok(script_len_int)
+    _, _ -> Ok(script_length)
   }
 }
 
@@ -1753,60 +1772,60 @@ fn witness_parser(
   max_size_per_input: Option(Int),
 ) -> Parser(ParseContext, WitnessStack, DecodeError) {
   // WitnessStack for one input:
-  // ├─ stack_len (CompactSize) - number of witness items
+  // ├─ item count (CompactSize)
   // ├─ WitnessItem #0
-  // │    ├─ item_len (CompactSize)
+  // │    ├─ item length (CompactSize)
   // │    └─ item bytes
   // ├─ WitnessItem #1
   // │    ├─ ...
-  // └─ WitnessItem #(stack_len - 1)
+  // └─ WitnessItem #(item_count - 1)
   max_items_per_input
-  |> witness_stack_length_parser
-  |> parser.then(fn(stack_len) {
+  |> witness_item_count_parser
+  |> parser.then(fn(item_count) {
     case max_size_per_input {
-      Some(max_size) -> tracked_witness_items_parser(stack_len, max_size)
-      None -> witness_items_parser(stack_len)
+      Some(max_size) -> tracked_witness_items_parser(item_count, max_size)
+      None -> witness_items_parser(item_count)
     }
   })
   |> parser.map(WitnessStack)
 }
 
-/// Construct a parser for a validated witness stack length field.
+/// Construct a parser for a validated witness item count field.
 ///
-/// When run, it parses a CompactSize length, converts it to `Int`, and validates
+/// When run, it parses a CompactSize count, converts it to `Int`, and validates
 /// it against the `max_items_per_input` policy.
-fn witness_stack_length_parser(
+fn witness_item_count_parser(
   max_items_per_input_policy: Option(Int),
 ) -> Parser(ParseContext, Int, DecodeError) {
-  WitnessStackLength
+  WitnessItemCount
   |> compact_size_int_parser
-  |> parser.try_with_start_offset(fn(stack_len, start_offset, _reader, ctx) {
+  |> parser.try_with_start_offset(fn(item_count, start_offset, _reader, ctx) {
     case max_items_per_input_policy {
-      Some(max_items) if stack_len > max_items ->
-        PolicyLimitExceeded(stack_len, max_items)
-        |> field_error(WitnessStackLength, start_offset, ctx)
+      Some(max_items) if item_count > max_items ->
+        PolicyLimitExceeded(item_count, max_items)
+        |> field_error(WitnessItemCount, start_offset, ctx)
         |> Error
 
-      _ -> Ok(stack_len)
+      _ -> Ok(item_count)
     }
   })
 }
 
 fn witness_items_parser(
-  count: Int,
+  item_count: Int,
 ) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
-  parser.indexed_repeat(count, witness_item_parser(), AtWitnessItem)
+  parser.indexed_repeat(item_count, witness_item_parser(), AtWitnessItem)
 }
 
 /// Construct a witness-items parser that tracks cumulative payload bytes.
 ///
 /// When run, it fails fast if the total exceeds `max_total_bytes`.
 fn tracked_witness_items_parser(
-  count: Int,
+  item_count: Int,
   max_total_bytes: Int,
 ) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
   parser.indexed_repeat_with_limit(
-    count,
+    item_count,
     sized_witness_item_parser(),
     AtWitnessItem,
     max_total_bytes,
@@ -1825,18 +1844,21 @@ fn sized_witness_item_parser() -> Parser(
 ) {
   witness_item_parser()
   |> parser.map(fn(item) {
-    let WitnessItem(bytes) = item
-    let byte_size = bit_array.byte_size(bytes)
-    #(item, byte_size)
+    let item_size =
+      item
+      |> get_witness_item_bytes
+      |> bit_array.byte_size
+
+    #(item, item_size)
   })
 }
 
 fn witness_item_parser() -> Parser(ParseContext, WitnessItem, DecodeError) {
-  witness_item_size_parser()
-  |> parser.then(fn(length) {
+  witness_item_length_parser()
+  |> parser.then(fn(item_length) {
     parser.new(fn(reader, ctx) {
       reader
-      |> reader.read_bytes(length)
+      |> reader.read_bytes(item_length)
       |> result.map_error(fn(err) {
         err
         |> reader_error_to_kind
@@ -1849,32 +1871,32 @@ fn witness_item_parser() -> Parser(ParseContext, WitnessItem, DecodeError) {
   |> parser.map(WitnessItem)
 }
 
-fn witness_item_size_parser() -> Parser(ParseContext, Int, DecodeError) {
+fn witness_item_length_parser() -> Parser(ParseContext, Int, DecodeError) {
   WitnessItemLength
   |> compact_size_int_parser
-  |> parser.try_with_start_offset(fn(length, start_offset, reader, ctx) {
+  |> parser.try_with_start_offset(fn(item_length, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
       |> field_error(WitnessItemLength, start_offset, ctx)
       |> Error
     }
-    validate_witness_item_size(length, reader, on_invalid)
+    validate_witness_item_length(item_length, reader, on_invalid)
   })
 }
 
-fn validate_witness_item_size(
-  length: Int,
+fn validate_witness_item_length(
+  item_length: Int,
   reader: Reader,
   on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
 ) -> Result(Int, DecodeError) {
   let remaining = reader.bytes_remaining(reader)
 
-  case length > remaining {
+  case item_length > remaining {
     True ->
-      InsufficientBytes(claimed: length, remaining:)
+      InsufficientBytes(claimed: item_length, remaining:)
       |> on_invalid
 
-    False -> Ok(length)
+    False -> Ok(item_length)
   }
 }
 
@@ -1889,7 +1911,7 @@ fn end_of_input_parser() -> Parser(ParseContext, Nil, DecodeError) {
 }
 
 // ==============================================================================
-// Consensus Validation
+// Context-Free Consensus Validation
 // ==============================================================================
 
 /// A violation of Bitcoin consensus rules detected during transaction validation.
@@ -1979,9 +2001,9 @@ pub type ConsensusViolation {
 ///
 /// Context-dependent checks — script execution, signature verification,
 /// and input-spend validation against the UTXO set — are not performed.
-pub fn validate_consensus(
+pub fn validate_context_free_consensus(
   tx: Transaction(Parsed),
-) -> Result(Transaction(Validated), List(ConsensusViolation)) {
+) -> Result(Transaction(ContextFreeValidated), List(ConsensusViolation)) {
   // Validators are designed to run together; some Ok branches rely on a sibling covering that case.
   let validators = [
     validate_at_least_one_input,
@@ -2001,13 +2023,15 @@ pub fn validate_consensus(
     })
 
   case errors {
-    [] -> Ok(mark_as_validated(tx))
+    [] -> Ok(mark_as_context_free_validated(tx))
     _ -> Error(errors)
   }
 }
 
-fn mark_as_validated(tx: Transaction(Parsed)) -> Transaction(Validated) {
-  // Change phantom type to Validated by reconstructing with identical data
+fn mark_as_context_free_validated(
+  tx: Transaction(Parsed),
+) -> Transaction(ContextFreeValidated) {
+  // Change the phantom type by reconstructing with identical data.
   case tx {
     Legacy(v, i, o, l) -> Legacy(v, i, o, l)
     Segwit(v, i, o, l, w) -> Segwit(v, i, o, l, w)
@@ -2084,8 +2108,8 @@ fn validate_coinbase_script_sig_length(
     [input] ->
       case input.prev_out {
         NullOutPoint -> {
-          let script_len = get_script_length(input.script_sig)
-          case 2 <= script_len && script_len <= 100 {
+          let script_size = get_script_size(input.script_sig)
+          case 2 <= script_size && script_size <= 100 {
             True -> Ok(Nil)
             False -> Error(InvalidCoinbaseScriptSigLength)
           }
@@ -2147,32 +2171,36 @@ fn validate_no_duplicate_inputs_loop(
 // Serialization
 // ==============================================================================
 
-/// Compute the transaction identifier (txid) for a validated transaction.
+/// Compute the transaction identifier (txid) for a context-free-validated
+/// transaction.
 ///
 /// Returns the 32 bytes of the txid in little-endian byte order, as they
 /// appear in Bitcoin transactions and on the wire.
 ///
-/// **Requires validation**: Accepts only `Transaction(Validated)` to ensure
-/// the transaction has passed consensus checks via `validate_consensus`.
-pub fn compute_txid(tx: Transaction(Validated)) -> BitArray {
+/// **Requires validation**: Accepts only `Transaction(ContextFreeValidated)` to
+/// ensure the transaction has passed the context-free checks performed by
+/// `validate_context_free_consensus`.
+pub fn compute_txid(tx: Transaction(ContextFreeValidated)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
     |> to_stripped_bytes
     |> dsha256
 }
 
-/// Compute the witness transaction identifier (wtxid) for a validated transaction.
+/// Compute the witness transaction identifier (wtxid) for a
+/// context-free-validated transaction.
 ///
 /// Returns the 32 bytes of the wtxid in little-endian byte order, as they
 /// appear in Bitcoin transactions and on the wire. For legacy transactions,
 /// the wtxid is identical to the txid.
 ///
-/// **Requires validation**: Accepts only `Transaction(Validated)` to ensure
-/// the transaction has passed consensus checks via `validate_consensus`.
-pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
+/// **Requires validation**: Accepts only `Transaction(ContextFreeValidated)` to
+/// ensure the transaction has passed the context-free checks performed by
+/// `validate_context_free_consensus`.
+pub fn compute_wtxid(tx: Transaction(ContextFreeValidated)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
-    |> to_witness_bytes
+    |> to_wire_bytes
     |> dsha256
 }
 
@@ -2188,8 +2216,8 @@ pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
 /// ## See Also
 ///
 /// - `compute_txid` — hashes this serialization to produce the txid
-/// - `to_witness_bytes` — the full serialization including witness data
-pub fn to_stripped_bytes(tx: Transaction(Validated)) -> BitArray {
+/// - `to_wire_bytes` — the full wire serialization including witness data
+pub fn to_stripped_bytes(tx: Transaction(ContextFreeValidated)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
@@ -2221,13 +2249,13 @@ pub fn to_stripped_bytes(tx: Transaction(Validated)) -> BitArray {
 /// ```
 ///
 /// where `base_size = bit_array.byte_size(to_stripped_bytes(tx))` and
-/// `total_size = bit_array.byte_size(to_witness_bytes(tx))`.
+/// `total_size = bit_array.byte_size(to_wire_bytes(tx))`.
 ///
 /// ## See Also
 ///
 /// - `compute_wtxid` — hashes this serialization to produce the wtxid
 /// - `to_stripped_bytes` — the no-witness serialization used for the txid
-pub fn to_witness_bytes(tx: Transaction(Validated)) -> BitArray {
+pub fn to_wire_bytes(tx: Transaction(ContextFreeValidated)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
@@ -2259,18 +2287,18 @@ fn serialize_inputs(inputs: List(TxIn)) -> BitArray {
 fn serialize_tx_in(txin: TxIn) -> BitArray {
   let prev_out_bytes = serialize_prev_out(txin.prev_out)
 
-  let script_sig_len_bytes = {
-    let assert Ok(len_u64) =
+  let script_sig_length_bytes = {
+    let assert Ok(script_sig_length) =
       txin.script_sig
-      |> get_script_length
+      |> get_script_size
       |> uint64.from_int
 
-    compact_size.write(len_u64)
+    compact_size.write(script_sig_length)
   }
 
   <<
     prev_out_bytes:bits,
-    script_sig_len_bytes:bits,
+    script_sig_length_bytes:bits,
     get_raw_script_bytes(txin.script_sig):bits,
     txin.sequence:32-little,
   >>
@@ -2292,18 +2320,18 @@ fn serialize_outputs(outputs: List(TxOut)) -> BitArray {
 fn serialize_tx_out(txout: TxOut) -> BitArray {
   let assert Ok(satoshis_bytes) = int64.int_to_bytes_le(txout.value)
 
-  let script_pubkey_len_bytes = {
-    let assert Ok(len_u64) =
+  let script_pubkey_length_bytes = {
+    let assert Ok(script_pubkey_length) =
       txout.script_pubkey
-      |> get_script_length
+      |> get_script_size
       |> uint64.from_int
 
-    compact_size.write(len_u64)
+    compact_size.write(script_pubkey_length)
   }
 
   <<
     satoshis_bytes:bits,
-    script_pubkey_len_bytes:bits,
+    script_pubkey_length_bytes:bits,
     get_raw_script_bytes(txout.script_pubkey):bits,
   >>
 }
@@ -2317,13 +2345,13 @@ fn serialize_witnesses(witnesses: List(WitnessStack)) -> BitArray {
 fn serialize_witness(witness: WitnessStack) -> BitArray {
   let witness_items = get_witness_items(witness)
 
-  let assert Ok(stack_len) =
+  let assert Ok(item_count) =
     witness_items
     |> list.length
     |> uint64.from_int
 
   <<
-    compact_size.write(stack_len):bits,
+    compact_size.write(item_count):bits,
     serialize_witness_items(witness_items):bits,
   >>
 }
@@ -2337,13 +2365,13 @@ fn serialize_witness_items(witness_items: List(WitnessItem)) -> BitArray {
 fn serialize_witness_item(witness_item: WitnessItem) -> BitArray {
   let witness_item_bytes = get_witness_item_bytes(witness_item)
 
-  let assert Ok(item_len) =
+  let assert Ok(item_length) =
     witness_item_bytes
     |> bit_array.byte_size
     |> uint64.from_int
 
   <<
-    compact_size.write(item_len):bits,
+    compact_size.write(item_length):bits,
     witness_item_bytes:bits,
   >>
 }
