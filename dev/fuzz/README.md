@@ -123,13 +123,13 @@ Clean failure behavior is just as important as successful parsing.
 For each mutated input, the harness:
 
 - Calls `btc_tx.decode`
-- If decoding succeeds, calls `btc_tx.validate_consensus`
-- If consensus validation succeeds, classifies every output script
+- If decoding succeeds, calls `btc_tx.validate_context_free_consensus`
+- If context-free consensus validation succeeds, classifies every output script
 - Computes both txid and wtxid
 
-Any `Error(_)` returned by `decode` or `validate_consensus` is treated as a
-clean outcome. Any unhandled exception in that flow is reported as a fuzz
-failure with the mutated input hex needed for reproduction.
+Any `Error(_)` returned by `decode` or `validate_context_free_consensus` is
+treated as a clean outcome. Any unhandled exception in that flow is reported as
+a fuzz failure with the mutated input hex needed for reproduction.
 
 Use focused unit tests when exact failures matter, such as requiring
 `PolicyLimitExceeded`, `UnexpectedEof`, `NonMinimalCompactSize`, offsets, or
@@ -194,10 +194,10 @@ Fuzz testing exercises the `btc_tx` parser and related transaction inspection
 APIs by:
 
 - Feeding mutated transaction bytes into `btc_tx.decode`
-- Treating `decode` and `validate_consensus` `Error(_)` results as clean
-  outcomes
-- Continuing successful decodes through consensus validation, output script
-  classification, txid, and wtxid computation
+- Treating `decode` and `validate_context_free_consensus` `Error(_)` results as
+  clean outcomes
+- Continuing successful decodes through context-free consensus validation,
+  output script classification, txid, and wtxid computation
 - Recording any unhandled exception with the run's initial RNG state, iteration,
   seed transaction txid, mutation, and mutated hex
 

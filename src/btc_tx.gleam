@@ -26,7 +26,7 @@ import internal/reader.{type Reader}
 pub type Parsed
 
 /// Phantom type indicating a transaction that has passed the context-free
-/// Bitcoin consensus checks performed by `validate_consensus`.
+/// Bitcoin consensus checks performed by `validate_context_free_consensus`.
 ///
 /// This does not indicate full transaction validity. Context-dependent checks
 /// such as script execution, signature verification, and UTXO lookup are not
@@ -109,7 +109,7 @@ pub fn is_segwit(tx: Transaction(v)) -> Bool {
 /// - Invalid scriptSig length (must be 2-100 bytes for coinbase)
 ///
 /// For a context-free-validated check, use `is_coinbase` after calling
-/// `validate_consensus`.
+/// `validate_context_free_consensus`.
 ///
 /// Returns `True` if any input has a coinbase marker, `False` otherwise.
 pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
@@ -119,8 +119,9 @@ pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
 /// Check whether a transaction is a valid coinbase transaction.
 ///
 /// This function returns `True` only for transactions that have passed the
-/// context-free Bitcoin consensus checks performed by `validate_consensus` and
-/// have a valid transaction-local coinbase shape.
+/// context-free Bitcoin consensus checks performed by
+/// `validate_context_free_consensus` and have a valid transaction-local
+/// coinbase shape.
 ///
 /// A coinbase transaction is the first transaction in a block, which creates new
 /// bitcoins as a block reward and does not spend any previous outputs. Valid
@@ -130,7 +131,7 @@ pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
 ///
 /// **Requires validation**: This function accepts only
 /// `Transaction(ContextFreeValidated)`, ensuring the transaction has passed the
-/// context-free checks performed by `validate_consensus`.
+/// context-free checks performed by `validate_context_free_consensus`.
 ///
 /// For a structural check without validation, use `has_coinbase_marker`.
 ///
@@ -1898,7 +1899,7 @@ fn end_of_input_parser() -> Parser(ParseContext, Nil, DecodeError) {
 }
 
 // ==============================================================================
-// Consensus Validation
+// Context-Free Consensus Validation
 // ==============================================================================
 
 /// A violation of Bitcoin consensus rules detected during transaction validation.
@@ -1988,7 +1989,7 @@ pub type ConsensusViolation {
 ///
 /// Context-dependent checks — script execution, signature verification,
 /// and input-spend validation against the UTXO set — are not performed.
-pub fn validate_consensus(
+pub fn validate_context_free_consensus(
   tx: Transaction(Parsed),
 ) -> Result(Transaction(ContextFreeValidated), List(ConsensusViolation)) {
   // Validators are designed to run together; some Ok branches rely on a sibling covering that case.
@@ -2166,7 +2167,7 @@ fn validate_no_duplicate_inputs_loop(
 ///
 /// **Requires validation**: Accepts only `Transaction(ContextFreeValidated)` to
 /// ensure the transaction has passed the context-free checks performed by
-/// `validate_consensus`.
+/// `validate_context_free_consensus`.
 pub fn compute_txid(tx: Transaction(ContextFreeValidated)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
@@ -2183,7 +2184,7 @@ pub fn compute_txid(tx: Transaction(ContextFreeValidated)) -> BitArray {
 ///
 /// **Requires validation**: Accepts only `Transaction(ContextFreeValidated)` to
 /// ensure the transaction has passed the context-free checks performed by
-/// `validate_consensus`.
+/// `validate_context_free_consensus`.
 pub fn compute_wtxid(tx: Transaction(ContextFreeValidated)) -> BitArray {
   let assert <<_:256-bits>> =
     tx

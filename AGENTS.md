@@ -71,8 +71,8 @@ integers, CompactSize, serialization, hashing, or FFI.
 - Preserve transaction wire order and little-endian byte order. Public hash bytes
   and prevout txids are exposed in the same little-endian order used on the wire.
 - Preserve the phantom-type validation boundary. `decode` produces
-  `Transaction(Parsed)`, `validate_consensus` is the only public upgrade path to
-  `Transaction(ContextFreeValidated)`, and APIs that require
+  `Transaction(Parsed)`, `validate_context_free_consensus` is the only public
+  upgrade path to `Transaction(ContextFreeValidated)`, and APIs that require
   context-free-validated transactions should keep that requirement.
 - Parsing must consume exactly one transaction. Extra bytes must return
   `TrailingBytes`, not be ignored.
@@ -96,8 +96,8 @@ integers, CompactSize, serialization, hashing, or FFI.
 ## Domain Constraints
 
 - Keep context-free consensus validation aligned with the documented
-  `validate_consensus` scope; do not add context-dependent checks such as UTXO
-  lookup, block subsidy, or block-height validation.
+  `validate_context_free_consensus` scope; do not add context-dependent checks
+  such as UTXO lookup, block subsidy, or block-height validation.
 - Keep structural inspection separate from validation: helpers may identify wire
   shapes, markers, and script templates, but consensus meaning should flow
   through documented validation APIs.

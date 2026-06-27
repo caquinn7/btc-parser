@@ -61,7 +61,7 @@ pub fn txid_from_bytes(bytes: BitArray) -> Result(BitArray, TxidError) {
   |> result.map_error(DecodeFailed)
   |> result.try(fn(tx) {
     tx
-    |> btc_tx.validate_consensus
+    |> btc_tx.validate_context_free_consensus
     |> result.map_error(ConsensusValidationFailed)
     |> result.map(btc_tx.compute_txid)
   })

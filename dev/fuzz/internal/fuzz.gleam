@@ -190,7 +190,7 @@ fn run_iterations(
 fn run_decode(mutated_tx_bytes: BitArray) -> Nil {
   case btc_tx.decode(mutated_tx_bytes) {
     Ok(decoded_tx) -> {
-      case btc_tx.validate_consensus(decoded_tx) {
+      case btc_tx.validate_context_free_consensus(decoded_tx) {
         Ok(validated_tx) -> {
           validated_tx
           |> btc_tx.get_outputs

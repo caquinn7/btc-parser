@@ -940,7 +940,8 @@ pub fn validate_vout_count_insufficient_bytes_for_outputs_test() {
 
 pub fn decode_accepts_legacy_tx_with_zero_outputs_test() {
   // Demonstrate that a legacy transaction with 0 outputs can be represented
-  // in bytes and successfully decoded (though it would fail consensus validation).
+  // in bytes and successfully decoded (though it would fail context-free
+  // consensus validation).
   let vout_count = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
@@ -958,7 +959,8 @@ pub fn decode_accepts_legacy_tx_with_zero_outputs_test() {
 
 pub fn decode_accepts_segwit_tx_with_zero_outputs_test() {
   // Demonstrate that a SegWit transaction with 0 outputs can be represented
-  // in bytes and successfully decoded (though it would fail consensus validation).
+  // in bytes and successfully decoded (though it would fail context-free
+  // consensus validation).
   let marker = <<0x00>>
   let flag = <<0x01>>
   let vin_count = compact_size(1)
@@ -2051,16 +2053,17 @@ pub fn classify_output_script_unknown_witness_v1_max_program_test() {
 }
 
 // ============================================================================
-// Consensus Validation
+// Context-Free Consensus Validation
 // ============================================================================
 
-pub fn validate_consensus_accepts_valid_legacy_tx_test() {
+pub fn validate_context_free_consensus_accepts_valid_legacy_tx_test() {
   // Use a real legacy transaction that has 1 input and 1 output
   let assert Ok(parsed_tx) = btc_tx.decode_hex(legacy_v1_tx)
 
   assert !btc_tx.is_segwit(parsed_tx)
 
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
+  let assert Ok(validated_tx) =
+    btc_tx.validate_context_free_consensus(parsed_tx)
 
   // Verify the context-free-validated transaction maintains the same properties
   assert !btc_tx.is_segwit(validated_tx)
@@ -2072,12 +2075,13 @@ pub fn validate_consensus_accepts_valid_legacy_tx_test() {
   assert btc_tx.get_lock_time(validated_tx) == btc_tx.get_lock_time(parsed_tx)
 }
 
-pub fn validate_consensus_accepts_valid_segwit_tx_test() {
+pub fn validate_context_free_consensus_accepts_valid_segwit_tx_test() {
   let assert Ok(parsed_tx) = btc_tx.decode_hex(segwit_v1_tx)
 
   assert btc_tx.is_segwit(parsed_tx)
 
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
+  let assert Ok(validated_tx) =
+    btc_tx.validate_context_free_consensus(parsed_tx)
 
   // Verify the context-free-validated transaction maintains the same properties
   assert btc_tx.is_segwit(validated_tx)
@@ -2090,7 +2094,7 @@ pub fn validate_consensus_accepts_valid_segwit_tx_test() {
   assert btc_tx.get_witnesses(validated_tx) == btc_tx.get_witnesses(parsed_tx)
 }
 
-pub fn validate_consensus_collects_no_inputs_and_no_outputs_test() {
+pub fn validate_context_free_consensus_collects_no_inputs_and_no_outputs_test() {
   let tx_bytes = <<
     version1:bits,
     0x00,
@@ -2100,10 +2104,11 @@ pub fn validate_consensus_collects_no_inputs_and_no_outputs_test() {
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(parsed_tx) == Error([NoInputs, NoOutputs])
+  assert btc_tx.validate_context_free_consensus(parsed_tx)
+    == Error([NoInputs, NoOutputs])
 }
 
-pub fn validate_consensus_rejects_tx_with_no_outputs_test() {
+pub fn validate_context_free_consensus_rejects_tx_with_no_outputs_test() {
   // Build a legacy transaction with 1 input and 0 outputs
   let vin_count = compact_size(1)
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
@@ -2120,10 +2125,10 @@ pub fn validate_consensus_rejects_tx_with_no_outputs_test() {
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(parsed_tx) == Error([NoOutputs])
+  assert btc_tx.validate_context_free_consensus(parsed_tx) == Error([NoOutputs])
 }
 
-pub fn validate_consensus_rejects_tx_with_negative_output_value_test() {
+pub fn validate_context_free_consensus_rejects_tx_with_negative_output_value_test() {
   let vin_count = compact_size(1)
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let vout_count = compact_size(1)
@@ -2144,11 +2149,11 @@ pub fn validate_consensus_rejects_tx_with_negative_output_value_test() {
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(parsed_tx)
+  assert btc_tx.validate_context_free_consensus(parsed_tx)
     == Error([OutputValueOutOfRange(0, -1)])
 }
 
-pub fn validate_consensus_rejects_tx_with_output_exceeding_supply_test() {
+pub fn validate_context_free_consensus_rejects_tx_with_output_exceeding_supply_test() {
   // Build a transaction with single output > max_satoshis (2_100_000_000_000_000)
   // Use 2_100_000_000_000_001 which exceeds the max supply
   let vin_count = compact_size(1)
@@ -2170,11 +2175,11 @@ pub fn validate_consensus_rejects_tx_with_output_exceeding_supply_test() {
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(parsed_tx)
+  assert btc_tx.validate_context_free_consensus(parsed_tx)
     == Error([OutputValueOutOfRange(0, 2_100_000_000_000_001)])
 }
 
-pub fn validate_consensus_rejects_tx_with_total_outputs_exceeding_supply_test() {
+pub fn validate_context_free_consensus_rejects_tx_with_total_outputs_exceeding_supply_test() {
   // Build a transaction with two outputs that individually are valid but total exceeds max_satoshis
   // Each output: 1_100_000_000_000_000, Total: 2_200_000_000_000_000 > 2_100_000_000_000_000
   let vin_count = compact_size(1)
@@ -2199,11 +2204,11 @@ pub fn validate_consensus_rejects_tx_with_total_outputs_exceeding_supply_test() 
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(parsed_tx)
+  assert btc_tx.validate_context_free_consensus(parsed_tx)
     == Error([TotalOutputValueOutOfRange(1, 2_200_000_000_000_000)])
 }
 
-pub fn validate_consensus_rejects_coinbase_with_multiple_inputs_test() {
+pub fn validate_context_free_consensus_rejects_coinbase_with_multiple_inputs_test() {
   // Build a transaction with 1 coinbase input and 1 regular input
   // Coinbase transactions must have exactly 1 input, so this should fail
   let vin_count = compact_size(2)
@@ -2232,11 +2237,11 @@ pub fn validate_consensus_rejects_coinbase_with_multiple_inputs_test() {
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(parsed_tx)
+  assert btc_tx.validate_context_free_consensus(parsed_tx)
     == Error([CoinbaseWithMultipleInputs])
 }
 
-pub fn validate_consensus_rejects_multiple_coinbase_inputs_test() {
+pub fn validate_context_free_consensus_rejects_multiple_coinbase_inputs_test() {
   // Build a transaction with 2 coinbase inputs
   // This should be rejected as coinbase transactions must have exactly 1 input
   let vin_count = compact_size(2)
@@ -2263,11 +2268,11 @@ pub fn validate_consensus_rejects_multiple_coinbase_inputs_test() {
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(parsed_tx)
+  assert btc_tx.validate_context_free_consensus(parsed_tx)
     == Error([CoinbaseWithMultipleInputs])
 }
 
-pub fn validate_consensus_rejects_coinbase_with_scriptsig_too_short_test() {
+pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_short_test() {
   // Build a coinbase transaction with scriptSig of 1 byte (minimum is 2 bytes)
   let vin_count = compact_size(1)
   // Coinbase input with 1-byte scriptSig (too short)
@@ -2289,11 +2294,11 @@ pub fn validate_consensus_rejects_coinbase_with_scriptsig_too_short_test() {
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(parsed_tx)
+  assert btc_tx.validate_context_free_consensus(parsed_tx)
     == Error([InvalidCoinbaseScriptSigLength])
 }
 
-pub fn validate_consensus_rejects_coinbase_with_scriptsig_too_long_test() {
+pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_long_test() {
   let vin_count = compact_size(1)
 
   // Coinbase input with 101-byte (808-bit) scriptSig
@@ -2317,11 +2322,11 @@ pub fn validate_consensus_rejects_coinbase_with_scriptsig_too_long_test() {
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
-  assert btc_tx.validate_consensus(parsed_tx)
+  assert btc_tx.validate_context_free_consensus(parsed_tx)
     == Error([InvalidCoinbaseScriptSigLength])
 }
 
-pub fn validate_consensus_accepts_coinbase_with_scriptsig_min_length_test() {
+pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_min_length_test() {
   let vin_count = compact_size(1)
 
   // Coinbase input with 2-byte scriptSig
@@ -2344,10 +2349,10 @@ pub fn validate_consensus_accepts_coinbase_with_scriptsig_min_length_test() {
   >>
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(_) = btc_tx.validate_consensus(parsed_tx)
+  let assert Ok(_) = btc_tx.validate_context_free_consensus(parsed_tx)
 }
 
-pub fn validate_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
+pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
   let vin_count = compact_size(1)
 
   // Coinbase input with 100-byte scriptSig
@@ -2370,10 +2375,10 @@ pub fn validate_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
   >>
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(_) = btc_tx.validate_consensus(parsed_tx)
+  let assert Ok(_) = btc_tx.validate_context_free_consensus(parsed_tx)
 }
 
-pub fn validate_consensus_returns_multiple_errors_test() {
+pub fn validate_context_free_consensus_returns_multiple_errors_test() {
   // Build a transaction that violates multiple consensus rules:
   // 1. Coinbase with multiple inputs (should trigger CoinbaseWithMultipleInputs)
   // 2. Negative output value (should trigger OutputValueOutOfRange)
@@ -2403,7 +2408,7 @@ pub fn validate_consensus_returns_multiple_errors_test() {
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
 
   // Validate consensus rules - should fail with multiple errors
-  let assert Error(errors) = btc_tx.validate_consensus(parsed_tx)
+  let assert Error(errors) = btc_tx.validate_context_free_consensus(parsed_tx)
 
   // Should contain both CoinbaseWithMultipleInputs and OutputValueOutOfRange
   assert list.contains(errors, CoinbaseWithMultipleInputs)
@@ -2411,7 +2416,7 @@ pub fn validate_consensus_returns_multiple_errors_test() {
   assert list.length(errors) == 2
 }
 
-pub fn validate_consensus_rejects_tx_with_duplicate_inputs_test() {
+pub fn validate_context_free_consensus_rejects_tx_with_duplicate_inputs_test() {
   // Two inputs referencing the same previous output (txid + vout)
   let vin_count = compact_size(2)
   let shared_txid = repeat_byte(0xAB, 32)
@@ -2437,11 +2442,11 @@ pub fn validate_consensus_rejects_tx_with_duplicate_inputs_test() {
   let assert [in0, ..] = btc_tx.get_inputs(parsed_tx)
   let dup_prev_out = btc_tx.get_input_prev_out(in0)
 
-  assert btc_tx.validate_consensus(parsed_tx)
+  assert btc_tx.validate_context_free_consensus(parsed_tx)
     == Error([DuplicateInput(dup_prev_out, 0, 1)])
 }
 
-pub fn validate_consensus_rejects_duplicate_input_at_non_adjacent_indices_test() {
+pub fn validate_context_free_consensus_rejects_duplicate_input_at_non_adjacent_indices_test() {
   // Inputs at index 0 and 2 share the same previous output; input 1 is distinct
   let vin_count = compact_size(3)
   let shared_txid = repeat_byte(0xAB, 32)
@@ -2470,11 +2475,11 @@ pub fn validate_consensus_rejects_duplicate_input_at_non_adjacent_indices_test()
   let assert [in0, ..] = btc_tx.get_inputs(parsed_tx)
   let dup_prev_out = btc_tx.get_input_prev_out(in0)
 
-  assert btc_tx.validate_consensus(parsed_tx)
+  assert btc_tx.validate_context_free_consensus(parsed_tx)
     == Error([DuplicateInput(dup_prev_out, 0, 2)])
 }
 
-pub fn validate_consensus_accepts_inputs_with_same_txid_but_different_vout_test() {
+pub fn validate_context_free_consensus_accepts_inputs_with_same_txid_but_different_vout_test() {
   // Same txid but different output indices are distinct prev_outs — not a duplicate
   let vin_count = compact_size(2)
   let txid = repeat_byte(0xAB, 32)
@@ -2497,10 +2502,10 @@ pub fn validate_consensus_accepts_inputs_with_same_txid_but_different_vout_test(
   >>
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(_) = btc_tx.validate_consensus(parsed_tx)
+  let assert Ok(_) = btc_tx.validate_context_free_consensus(parsed_tx)
 }
 
-pub fn validate_consensus_duplicate_input_reported_alongside_other_errors_test() {
+pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_errors_test() {
   // Duplicate inputs combined with a negative output value: both errors reported
   let vin_count = compact_size(2)
   let shared_txid = repeat_byte(0xAB, 32)
@@ -2527,14 +2532,14 @@ pub fn validate_consensus_duplicate_input_reported_alongside_other_errors_test()
   let assert [in0, ..] = btc_tx.get_inputs(parsed_tx)
   let dup_prev_out = btc_tx.get_input_prev_out(in0)
 
-  let assert Error(errors) = btc_tx.validate_consensus(parsed_tx)
+  let assert Error(errors) = btc_tx.validate_context_free_consensus(parsed_tx)
   assert list.contains(errors, OutputValueOutOfRange(0, -1))
   assert list.contains(errors, DuplicateInput(dup_prev_out, 0, 1))
   assert list.length(errors) == 2
 }
 
 // ============================================================================
-// decode -> validate_consensus -> to_wire_bytes
+// decode -> validate_context_free_consensus -> to_wire_bytes
 // ============================================================================
 
 pub fn round_trip_legacy_tx_wire_bytes_match_original_hex_test() {
@@ -2543,7 +2548,8 @@ pub fn round_trip_legacy_tx_wire_bytes_match_original_hex_test() {
   let assert Ok(original_bytes) = bit_array.base16_decode(legacy_v1_tx)
 
   let assert Ok(parsed_tx) = btc_tx.decode(original_bytes)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
+  let assert Ok(validated_tx) =
+    btc_tx.validate_context_free_consensus(parsed_tx)
 
   assert btc_tx.to_stripped_bytes(validated_tx) == original_bytes
   assert btc_tx.to_wire_bytes(validated_tx) == original_bytes
@@ -2553,7 +2559,8 @@ pub fn round_trip_segwit_tx_wire_bytes_match_original_hex_test() {
   let assert Ok(original_bytes) = bit_array.base16_decode(segwit_v1_tx)
 
   let assert Ok(parsed_tx) = btc_tx.decode(original_bytes)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
+  let assert Ok(validated_tx) =
+    btc_tx.validate_context_free_consensus(parsed_tx)
 
   assert btc_tx.to_wire_bytes(validated_tx) == original_bytes
 }
@@ -2652,7 +2659,8 @@ pub fn is_coinbase_regular_transaction_returns_false_test() {
   >>
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
+  let assert Ok(validated_tx) =
+    btc_tx.validate_context_free_consensus(parsed_tx)
   assert !btc_tx.is_coinbase(validated_tx)
 }
 
@@ -2675,7 +2683,8 @@ pub fn is_coinbase_coinbase_transaction_test() {
   >>
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
+  let assert Ok(validated_tx) =
+    btc_tx.validate_context_free_consensus(parsed_tx)
   assert btc_tx.is_coinbase(validated_tx)
 }
 
@@ -2709,7 +2718,7 @@ fn compare_compute_txid_against_known_vector(
   known_txid: String,
 ) -> Nil {
   let assert Ok(tx) = btc_tx.decode_hex(tx_hex)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+  let assert Ok(validated_tx) = btc_tx.validate_context_free_consensus(tx)
 
   let wire_txid = btc_tx.compute_txid(validated_tx)
   assert get_display_hex(wire_txid) == known_txid
@@ -2738,7 +2747,7 @@ pub fn compute_txid_matches_manual_dsha256_test() {
     |> crypto.hash(Sha256, _)
 
   let assert Ok(tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+  let assert Ok(validated_tx) = btc_tx.validate_context_free_consensus(tx)
   let txid = btc_tx.compute_txid(validated_tx)
 
   assert txid == expected_txid
@@ -2767,7 +2776,7 @@ pub fn compute_wtxid_matches_manual_dsha256_test() {
     |> crypto.hash(Sha256, _)
 
   let assert Ok(tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+  let assert Ok(validated_tx) = btc_tx.validate_context_free_consensus(tx)
   let wtxid = btc_tx.compute_wtxid(validated_tx)
 
   assert wtxid == expected_wtxid
@@ -2788,7 +2797,7 @@ fn compare_compute_wtxid_against_known_vector(
   known_txid: String,
 ) -> Nil {
   let assert Ok(tx) = btc_tx.decode_hex(tx_hex)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+  let assert Ok(validated_tx) = btc_tx.validate_context_free_consensus(tx)
 
   let wire_txid = btc_tx.compute_wtxid(validated_tx)
   assert get_display_hex(wire_txid) == known_txid
@@ -2803,7 +2812,7 @@ fn get_display_hex(bytes: BitArray) -> String {
 
 pub fn compute_txid_differs_from_wtxid_for_segwit_test() {
   let assert Ok(tx) = btc_tx.decode_hex(segwit_v1_tx)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+  let assert Ok(validated_tx) = btc_tx.validate_context_free_consensus(tx)
 
   let txid = btc_tx.compute_txid(validated_tx)
   let wtxid = btc_tx.compute_wtxid(validated_tx)
@@ -2813,7 +2822,7 @@ pub fn compute_txid_differs_from_wtxid_for_segwit_test() {
 
 pub fn compute_txid_equals_compute_wtxid_for_legacy_tx_test() {
   let assert Ok(tx) = btc_tx.decode_hex(legacy_v1_tx)
-  let assert Ok(validated_tx) = btc_tx.validate_consensus(tx)
+  let assert Ok(validated_tx) = btc_tx.validate_context_free_consensus(tx)
 
   let txid = btc_tx.compute_txid(validated_tx)
   let wtxid = btc_tx.compute_wtxid(validated_tx)
