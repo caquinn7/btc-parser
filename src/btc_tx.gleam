@@ -426,11 +426,11 @@ pub type OutputScriptType {
 
   /// A well-formed witness program whose witness version is not assigned a named
   /// output type by this library.
-  /// 
+  ///
   /// `version` is the decoded witness version (1–16). Version 1 with a
   /// 32-byte witness program is classified as `P2TR` and therefore never
   /// appears here.
-  /// 
+  ///
   /// Forward-compatible. Do not treat this the same as `NonStandard`.
   UnknownWitness(version: Int)
 
