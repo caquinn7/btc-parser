@@ -403,24 +403,28 @@ pub type OutputScriptType {
   /// `scriptPubKey`. Bitcoin Core allows 1–3 keys and 1–3 required signatures.
   Multisig
 
-  /// Standard null-data output as defined by Bitcoin Core's standardness rules.
+  /// Standard null-data output as defined by Bitcoin Core relay policy.
+  ///
+  /// This variant represents the standard null-data template, not every script
+  /// that begins with `OP_RETURN`.
   ///
   /// Matches scripts that begin with `OP_RETURN`, are followed only by push
   /// opcodes, and have a total size of at most 83 bytes. The size limit is a
-  /// Bitcoin Core relay policy constraint, not a consensus rule — this variant
-  /// intentionally mirrors the standard template definition rather than the
-  /// looser structural shape of "any push-only `OP_RETURN` script".
+  /// relay policy constraint, not a consensus rule.
   ///
   /// An `OP_RETURN` script that is push-only but exceeds 83 bytes, or that
   /// contains non-push opcodes after `OP_RETURN`, will classify as
   /// `NonStandard` instead.
   NullData
 
-  /// A well-formed witness program whose version (1–16) does not map to a
-  /// named script type. `version` is the decoded witness version number
-  /// (1–16 — note version 1 with a 32-byte program is `P2TR` and never
-  /// appears here). Forward-compatible; should not be treated the same as
-  /// `NonStandard`.
+  /// A well-formed witness program whose witness version is not assigned a named
+  /// output type by this library.
+  /// 
+  /// `version` is the decoded witness version (1–16). Version 1 with a
+  /// 32-byte witness program is classified as `P2TR` and therefore never
+  /// appears here.
+  /// 
+  /// Forward-compatible. Do not treat this the same as `NonStandard`.
   UnknownWitness(version: Int)
 
   /// Does not match any recognized standard output template.
