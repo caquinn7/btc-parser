@@ -354,6 +354,9 @@ pub fn get_raw_script_bytes(script: ScriptBytes(k)) -> BitArray {
   bytes
 }
 
+/// Get the byte length of a `ScriptBytes`.
+///
+/// The length is measured from the raw serialized script bytes.
 pub fn get_script_length(script: ScriptBytes(k)) -> Int {
   script
   |> get_raw_script_bytes
@@ -751,8 +754,6 @@ pub type ParseErrorKind {
 /// Contextual information about where in the transaction structure a parsing error occurred.
 pub type ParseContext {
   /// The error occurred while parsing the top-level transaction structure.
-  ///
-  /// This is typically added once at the outermost decode layer.
   InTransaction
 
   /// The error occurred while parsing the transaction’s input vector
@@ -1142,8 +1143,7 @@ pub fn decode_policy_max_witness_size_per_input(
 /// Decode a Bitcoin transaction from its binary representation.
 ///
 /// This is the standard entry point for parsing Bitcoin transaction data
-/// serialized in the Bitcoin network protocol format. It automatically detects
-/// whether the transaction is legacy or SegWit by inspecting the marker bytes.
+/// serialized in the Bitcoin network protocol format.
 ///
 /// This function applies `default_decode_policy` to protect against malicious inputs
 /// by enforcing reasonable limits on transaction size, input/output counts, script
@@ -1374,12 +1374,7 @@ fn segwit_detection_parser() -> Parser(ParseContext, Bool, DecodeError) {
 /// Construct a parser that inspects the next two bytes for a SegWit marker/flag.
 ///
 /// This parser never consumes input, regardless of whether it succeeds or
-/// returns an error. When run, it returns:
-///
-/// - `True` for 0x00 0x01
-/// - `False` for 0x00 0x00 (an empty legacy transaction), a nonzero first byte,
-///   or EOF
-/// - An error for 0x00 followed by an unsupported nonzero flag
+/// returns an error.
 ///
 /// `segwit_detection_parser` consumes the marker and flag bytes after this
 /// parser recognizes 0x00 0x01.

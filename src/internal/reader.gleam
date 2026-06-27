@@ -39,7 +39,7 @@ pub fn get_offset(reader: Reader) -> Int {
   reader.offset
 }
 
-/// Represents errors that can occur during reader operations.
+/// An error that occurred during a `Reader` operation.
 pub type ReaderError {
   /// The number of bytes requested to read is invalid.
   ///

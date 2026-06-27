@@ -18,7 +18,7 @@ pub opaque type Int64 {
   Int64(bytes_le: BitArray)
 }
 
-/// Error that can occur when constructing an `Int64` from a `BitArray`.
+/// An error that occurred while constructing an `Int64` from a `BitArray`.
 pub type FromBytesError {
   /// The provided byte sequence does not contain exactly 8 bytes.
   InvalidByteCount(Int)
@@ -81,7 +81,7 @@ fn do_to_int(bytes_le: BitArray) -> Result(Int, Nil) {
   |> Ok
 }
 
-/// Error that can occur when constructing an `Int64` from an `Int`.
+///An error that occurred while constructing an `Int64` from an `Int`.
 pub type FromIntError {
   /// The value is outside JavaScript's safe integer range.
   UnsafeInteger
