@@ -3,8 +3,9 @@
 //// The suite measures repeated operations that callers are expected to pay for:
 //// decoding, context-free consensus validation, transaction id computation, and
 //// serialization. Input construction, hex decoding, preflight assertions, and
-//// consensus validation needed to prepare `Transaction(Validated)` values are
-//// intentionally performed before timing begins.
+//// consensus validation needed to prepare
+//// `Transaction(ContextFreeValidated)` values are intentionally performed
+//// before timing begins.
 ////
 //// Benchmark cases run one or more logical operations per timed call. Fast
 //// cases use larger batches to reduce timer overhead; slower cases can use
@@ -13,7 +14,7 @@
 //// `decode` or one `compute_txid` call.
 
 import btc_tx.{
-  type Parsed, type Transaction, type Validated, DuplicateInput,
+  type ContextFreeValidated, type Parsed, type Transaction, DuplicateInput,
   InsufficientBytes, ParseFailed, PolicyLimitExceeded,
   TotalOutputValueOutOfRange, UnexpectedEof,
 }
@@ -1158,7 +1159,7 @@ fn measure_synthetic_validated_function(
   specs: List(SyntheticTxSpec),
   config: PerfMeasurementConfig,
   function_label: String,
-  measured_function: fn(Transaction(Validated)) -> BitArray,
+  measured_function: fn(Transaction(ContextFreeValidated)) -> BitArray,
 ) -> List(PerfCaseResult) {
   specs
   |> list.map(synthetic_validated_case)
@@ -1166,7 +1167,7 @@ fn measure_synthetic_validated_function(
 }
 
 fn measure_txid_functions(
-  inputs: List(PerfCaseInput(Transaction(Validated))),
+  inputs: List(PerfCaseInput(Transaction(ContextFreeValidated))),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   [
@@ -1187,7 +1188,7 @@ fn measure_txid_functions(
 }
 
 fn measure_serialization_functions(
-  inputs: List(PerfCaseInput(Transaction(Validated))),
+  inputs: List(PerfCaseInput(Transaction(ContextFreeValidated))),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   [
@@ -1208,10 +1209,10 @@ fn measure_serialization_functions(
 }
 
 fn measure_validated_tx_function(
-  inputs: List(PerfCaseInput(Transaction(Validated))),
+  inputs: List(PerfCaseInput(Transaction(ContextFreeValidated))),
   config: PerfMeasurementConfig,
   function_label: String,
-  measured_function: fn(Transaction(Validated)) -> BitArray,
+  measured_function: fn(Transaction(ContextFreeValidated)) -> BitArray,
 ) -> List(PerfCaseResult) {
   run_bench_cases(
     inputs,
@@ -1227,7 +1228,7 @@ fn measure_validated_tx_function(
 
 fn synthetic_validated_case(
   synthetic_spec: SyntheticTxSpec,
-) -> PerfCaseInput(Transaction(Validated)) {
+) -> PerfCaseInput(Transaction(ContextFreeValidated)) {
   let #(label, tx_bytes) = synthetic_tx_spec_to_bytes(synthetic_spec)
 
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
@@ -1236,7 +1237,9 @@ fn synthetic_validated_case(
   PerfCaseInput(label, bit_array.byte_size(tx_bytes), validated_tx)
 }
 
-fn fixture_validated_tx_cases() -> List(PerfCaseInput(Transaction(Validated))) {
+fn fixture_validated_tx_cases() -> List(
+  PerfCaseInput(Transaction(ContextFreeValidated)),
+) {
   let fixture_validated_tx_case = fn(input_label, tx_hex) {
     let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
     let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)

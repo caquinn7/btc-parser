@@ -25,9 +25,13 @@ import internal/reader.{type Reader}
 /// consensus rules.
 pub type Parsed
 
-/// Phantom type indicating a transaction that has passed Bitcoin
-/// consensus validation.
-pub type Validated
+/// Phantom type indicating a transaction that has passed the context-free
+/// Bitcoin consensus checks performed by `validate_consensus`.
+///
+/// This does not indicate full transaction validity. Context-dependent checks
+/// such as script execution, signature verification, and UTXO lookup are not
+/// performed.
+pub type ContextFreeValidated
 
 /// A Bitcoin transaction.
 ///
@@ -104,7 +108,7 @@ pub fn is_segwit(tx: Transaction(v)) -> Bool {
 /// - Having multiple inputs (coinbase transactions must have exactly one input)
 /// - Invalid scriptSig length (must be 2-100 bytes for coinbase)
 ///
-/// For a consensus-validated check, use `is_coinbase` after calling
+/// For a context-free-validated check, use `is_coinbase` after calling
 /// `validate_consensus`.
 ///
 /// Returns `True` if any input has a coinbase marker, `False` otherwise.
@@ -114,8 +118,9 @@ pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
 
 /// Check whether a transaction is a valid coinbase transaction.
 ///
-/// This function returns `True` only for transactions that have been validated
-/// against Bitcoin consensus rules and confirmed to be valid coinbase transactions.
+/// This function returns `True` only for transactions that have passed the
+/// context-free Bitcoin consensus checks performed by `validate_consensus` and
+/// have a valid transaction-local coinbase shape.
 ///
 /// A coinbase transaction is the first transaction in a block, which creates new
 /// bitcoins as a block reward and does not spend any previous outputs. Valid
@@ -123,14 +128,14 @@ pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
 /// - Have exactly one input with a coinbase marker (null previous outpoint)
 /// - Have a scriptSig between 2 and 100 bytes in length
 ///
-/// **Requires validation**: This function accepts only `Transaction(Validated)`,
-/// ensuring the transaction has passed all consensus checks via `validate_consensus`
-/// (upgrading it from `Transaction(Parsed)`).
+/// **Requires validation**: This function accepts only
+/// `Transaction(ContextFreeValidated)`, ensuring the transaction has passed the
+/// context-free checks performed by `validate_consensus`.
 ///
 /// For a structural check without validation, use `has_coinbase_marker`.
 ///
 /// Returns `True` if this is a valid coinbase transaction, `False` otherwise.
-pub fn is_coinbase(tx: Transaction(Validated)) -> Bool {
+pub fn is_coinbase(tx: Transaction(ContextFreeValidated)) -> Bool {
   has_coinbase_marker(tx)
 }
 
@@ -1985,7 +1990,7 @@ pub type ConsensusViolation {
 /// and input-spend validation against the UTXO set — are not performed.
 pub fn validate_consensus(
   tx: Transaction(Parsed),
-) -> Result(Transaction(Validated), List(ConsensusViolation)) {
+) -> Result(Transaction(ContextFreeValidated), List(ConsensusViolation)) {
   // Validators are designed to run together; some Ok branches rely on a sibling covering that case.
   let validators = [
     validate_at_least_one_input,
@@ -2005,13 +2010,15 @@ pub fn validate_consensus(
     })
 
   case errors {
-    [] -> Ok(mark_as_validated(tx))
+    [] -> Ok(mark_as_context_free_validated(tx))
     _ -> Error(errors)
   }
 }
 
-fn mark_as_validated(tx: Transaction(Parsed)) -> Transaction(Validated) {
-  // Change phantom type to Validated by reconstructing with identical data
+fn mark_as_context_free_validated(
+  tx: Transaction(Parsed),
+) -> Transaction(ContextFreeValidated) {
+  // Change the phantom type by reconstructing with identical data.
   case tx {
     Legacy(v, i, o, l) -> Legacy(v, i, o, l)
     Segwit(v, i, o, l, w) -> Segwit(v, i, o, l, w)
@@ -2151,29 +2158,33 @@ fn validate_no_duplicate_inputs_loop(
 // Serialization
 // ==============================================================================
 
-/// Compute the transaction identifier (txid) for a validated transaction.
+/// Compute the transaction identifier (txid) for a context-free-validated
+/// transaction.
 ///
 /// Returns the 32 bytes of the txid in little-endian byte order, as they
 /// appear in Bitcoin transactions and on the wire.
 ///
-/// **Requires validation**: Accepts only `Transaction(Validated)` to ensure
-/// the transaction has passed consensus checks via `validate_consensus`.
-pub fn compute_txid(tx: Transaction(Validated)) -> BitArray {
+/// **Requires validation**: Accepts only `Transaction(ContextFreeValidated)` to
+/// ensure the transaction has passed the context-free checks performed by
+/// `validate_consensus`.
+pub fn compute_txid(tx: Transaction(ContextFreeValidated)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
     |> to_stripped_bytes
     |> dsha256
 }
 
-/// Compute the witness transaction identifier (wtxid) for a validated transaction.
+/// Compute the witness transaction identifier (wtxid) for a
+/// context-free-validated transaction.
 ///
 /// Returns the 32 bytes of the wtxid in little-endian byte order, as they
 /// appear in Bitcoin transactions and on the wire. For legacy transactions,
 /// the wtxid is identical to the txid.
 ///
-/// **Requires validation**: Accepts only `Transaction(Validated)` to ensure
-/// the transaction has passed consensus checks via `validate_consensus`.
-pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
+/// **Requires validation**: Accepts only `Transaction(ContextFreeValidated)` to
+/// ensure the transaction has passed the context-free checks performed by
+/// `validate_consensus`.
+pub fn compute_wtxid(tx: Transaction(ContextFreeValidated)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
     |> to_wire_bytes
@@ -2193,7 +2204,7 @@ pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
 ///
 /// - `compute_txid` — hashes this serialization to produce the txid
 /// - `to_wire_bytes` — the full wire serialization including witness data
-pub fn to_stripped_bytes(tx: Transaction(Validated)) -> BitArray {
+pub fn to_stripped_bytes(tx: Transaction(ContextFreeValidated)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
@@ -2231,7 +2242,7 @@ pub fn to_stripped_bytes(tx: Transaction(Validated)) -> BitArray {
 ///
 /// - `compute_wtxid` — hashes this serialization to produce the wtxid
 /// - `to_stripped_bytes` — the no-witness serialization used for the txid
-pub fn to_wire_bytes(tx: Transaction(Validated)) -> BitArray {
+pub fn to_wire_bytes(tx: Transaction(ContextFreeValidated)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))

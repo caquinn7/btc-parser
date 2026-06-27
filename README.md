@@ -34,8 +34,8 @@ No security guarantees are provided.
 - **Validation-aware API**: Separate parsed transactions from operations that
   require context-free validation
 
-- **Serialization**: Serialize validated transactions in stripped or full wire
-  form, and compute their txid and wtxid
+- **Serialization**: Serialize context-free-validated transactions in stripped
+  or full wire form, and compute their txid and wtxid
 
 - **Cross-runtime**: Supports both Erlang and JavaScript targets
 

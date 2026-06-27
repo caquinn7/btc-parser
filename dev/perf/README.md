@@ -6,7 +6,8 @@ not to produce stable machine-independent numbers. Compare trends and relative
 changes within the same machine, target, and runtime.
 
 Input construction, hex decoding, preflight assertions, and consensus validation
-needed to prepare validated transactions happen before timing begins. Timed rows
+needed to prepare context-free-validated transactions happen before timing
+begins. Timed rows
 measure only the operation named in the `case` column.
 
 ## Commands

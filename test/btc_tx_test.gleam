@@ -2062,7 +2062,7 @@ pub fn validate_consensus_accepts_valid_legacy_tx_test() {
 
   let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
 
-  // Verify the validated transaction maintains the same properties
+  // Verify the context-free-validated transaction maintains the same properties
   assert !btc_tx.is_segwit(validated_tx)
   assert btc_tx.get_version(validated_tx) == btc_tx.get_version(parsed_tx)
   assert list.length(btc_tx.get_inputs(validated_tx))
@@ -2079,7 +2079,7 @@ pub fn validate_consensus_accepts_valid_segwit_tx_test() {
 
   let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
 
-  // Verify the validated transaction maintains the same properties
+  // Verify the context-free-validated transaction maintains the same properties
   assert btc_tx.is_segwit(validated_tx)
   assert btc_tx.get_version(validated_tx) == btc_tx.get_version(parsed_tx)
   assert list.length(btc_tx.get_inputs(validated_tx))
