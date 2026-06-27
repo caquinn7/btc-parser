@@ -1575,7 +1575,7 @@ pub fn decode_witness_invalid_compact_size_in_item_count_test() {
 
   assert btc_tx.parse_error_kind(parse_err) == NonMinimalCompactSize(3, 1)
 
-  // Verify the error context indicates we're in witness stack count parsing
+  // Verify the error context indicates we're in witness item count parsing
   assert btc_tx.parse_error_ctx(parse_err)
     == [InTransaction, AtWitnessStack(0), AtField(WitnessItemCount)]
 }
