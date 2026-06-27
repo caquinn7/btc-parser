@@ -2172,7 +2172,7 @@ pub fn compute_txid(tx: Transaction(Validated)) -> BitArray {
 pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
-    |> to_witness_bytes
+    |> to_wire_bytes
     |> dsha256
 }
 
@@ -2188,7 +2188,7 @@ pub fn compute_wtxid(tx: Transaction(Validated)) -> BitArray {
 /// ## See Also
 ///
 /// - `compute_txid` — hashes this serialization to produce the txid
-/// - `to_witness_bytes` — the full serialization including witness data
+/// - `to_wire_bytes` — the full wire serialization including witness data
 pub fn to_stripped_bytes(tx: Transaction(Validated)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
@@ -2221,13 +2221,13 @@ pub fn to_stripped_bytes(tx: Transaction(Validated)) -> BitArray {
 /// ```
 ///
 /// where `base_size = bit_array.byte_size(to_stripped_bytes(tx))` and
-/// `total_size = bit_array.byte_size(to_witness_bytes(tx))`.
+/// `total_size = bit_array.byte_size(to_wire_bytes(tx))`.
 ///
 /// ## See Also
 ///
 /// - `compute_wtxid` — hashes this serialization to produce the wtxid
 /// - `to_stripped_bytes` — the no-witness serialization used for the txid
-pub fn to_witness_bytes(tx: Transaction(Validated)) -> BitArray {
+pub fn to_wire_bytes(tx: Transaction(Validated)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))

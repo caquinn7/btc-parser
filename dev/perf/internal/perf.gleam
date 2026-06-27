@@ -870,7 +870,7 @@ fn measure_synthetic_witness_payload_txid_computation() -> PerfSection {
   PerfSection("txid computation / synthetic witness payload", cases)
 }
 
-/// Measures `to_stripped_bytes` and `to_witness_bytes` on already-validated
+/// Measures `to_stripped_bytes` and `to_wire_bytes` on already-validated
 /// transactions. The benchmark set includes legacy and SegWit transactions
 /// because witness serialization changes the code path and payload shape.
 fn measure_tx_serialization() -> List(PerfSection) {
@@ -939,14 +939,14 @@ fn measure_synthetic_witness_payload_tx_serialization() -> PerfSection {
       measure_synthetic_validated_function(
         small_specs,
         small_config,
-        "to_witness_bytes",
-        btc_tx.to_witness_bytes,
+        "to_wire_bytes",
+        btc_tx.to_wire_bytes,
       ),
       measure_synthetic_validated_function(
         large_specs,
         large_config,
-        "to_witness_bytes",
-        btc_tx.to_witness_bytes,
+        "to_wire_bytes",
+        btc_tx.to_wire_bytes,
       ),
     ]
     |> list.flatten
@@ -1110,20 +1110,20 @@ fn measure_synthetic_segwit_serialization_curve(
     measure_synthetic_validated_function(
       small_witness_specs,
       small_config,
-      "to_witness_bytes",
-      btc_tx.to_witness_bytes,
+      "to_wire_bytes",
+      btc_tx.to_wire_bytes,
     ),
     measure_synthetic_validated_function(
       medium_witness_specs,
       medium_config,
-      "to_witness_bytes",
-      btc_tx.to_witness_bytes,
+      "to_wire_bytes",
+      btc_tx.to_wire_bytes,
     ),
     measure_synthetic_validated_function(
       slow_witness_specs,
       slow_config,
-      "to_witness_bytes",
-      btc_tx.to_witness_bytes,
+      "to_wire_bytes",
+      btc_tx.to_wire_bytes,
     ),
   ]
   |> list.flatten
@@ -1141,14 +1141,14 @@ fn measure_synthetic_witness_serialization_curve(
     measure_synthetic_validated_function(
       small_specs,
       small_config,
-      "to_witness_bytes",
-      btc_tx.to_witness_bytes,
+      "to_wire_bytes",
+      btc_tx.to_wire_bytes,
     ),
     measure_synthetic_validated_function(
       large_specs,
       large_config,
-      "to_witness_bytes",
-      btc_tx.to_witness_bytes,
+      "to_wire_bytes",
+      btc_tx.to_wire_bytes,
     ),
   ]
   |> list.flatten
@@ -1200,8 +1200,8 @@ fn measure_serialization_functions(
     measure_validated_tx_function(
       inputs,
       config,
-      "to_witness_bytes",
-      btc_tx.to_witness_bytes,
+      "to_wire_bytes",
+      btc_tx.to_wire_bytes,
     ),
   ]
   |> list.flatten

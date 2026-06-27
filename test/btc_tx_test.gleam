@@ -2534,11 +2534,11 @@ pub fn validate_consensus_duplicate_input_reported_alongside_other_errors_test()
 }
 
 // ============================================================================
-// decode -> validate_consensus -> to_witness_bytes
+// decode -> validate_consensus -> to_wire_bytes
 // ============================================================================
 
-pub fn round_trip_legacy_tx_witness_bytes_match_original_hex_test() {
-  // The bytes produced by to_witness_bytes must exactly match the original
+pub fn round_trip_legacy_tx_wire_bytes_match_original_hex_test() {
+  // The bytes produced by to_wire_bytes must exactly match the original
   // hex encoding — no byte dropped or added.
   let assert Ok(original_bytes) = bit_array.base16_decode(legacy_v1_tx)
 
@@ -2546,16 +2546,16 @@ pub fn round_trip_legacy_tx_witness_bytes_match_original_hex_test() {
   let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
 
   assert btc_tx.to_stripped_bytes(validated_tx) == original_bytes
-  assert btc_tx.to_witness_bytes(validated_tx) == original_bytes
+  assert btc_tx.to_wire_bytes(validated_tx) == original_bytes
 }
 
-pub fn round_trip_segwit_tx_witness_bytes_match_original_hex_test() {
+pub fn round_trip_segwit_tx_wire_bytes_match_original_hex_test() {
   let assert Ok(original_bytes) = bit_array.base16_decode(segwit_v1_tx)
 
   let assert Ok(parsed_tx) = btc_tx.decode(original_bytes)
   let assert Ok(validated_tx) = btc_tx.validate_consensus(parsed_tx)
 
-  assert btc_tx.to_witness_bytes(validated_tx) == original_bytes
+  assert btc_tx.to_wire_bytes(validated_tx) == original_bytes
 }
 
 // ============================================================================

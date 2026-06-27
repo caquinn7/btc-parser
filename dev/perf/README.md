@@ -146,7 +146,7 @@ serialization and double-SHA256 must read those bytes.
 
 ## Serialization
 
-`serialization / fixtures` measures `to_stripped_bytes` and `to_witness_bytes`
+`serialization / fixtures` measures `to_stripped_bytes` and `to_wire_bytes`
 on real validated fixtures. These rows cover common real shapes and confirm the
 legacy and SegWit serialization paths both stay healthy.
 
@@ -162,11 +162,11 @@ serialization as SegWit input count grows. The stripped rows isolate non-witness
 serialization; the witness rows include witness stacks and should scale with
 witness data.
 
-`serialization / synthetic witness items` measures `to_witness_bytes` while the
+`serialization / synthetic witness items` measures `to_wire_bytes` while the
 number of witness stack items grows. It is meant to catch list traversal and
 CompactSize item serialization regressions.
 
-`serialization / synthetic witness payload` measures `to_witness_bytes` while
+`serialization / synthetic witness payload` measures `to_wire_bytes` while
 witness payload bytes grow. This should scale with payload size because the bytes
 are emitted into the serialized transaction.
 
