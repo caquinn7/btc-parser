@@ -467,16 +467,15 @@ pub type OutputScriptType {
 ///         └─ otherwise                     → NonStandard
 /// ```
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```gleam
 /// let script_pubkey = get_output_script_pubkey(output)
 /// case classify_output_script(script_pubkey) {
-///   P2PKH       -> // legacy single-sig pay-to-pubkey-hash
-///   P2WPKH      -> // native SegWit single-sig
-///   P2TR        -> // taproot
-///   NonStandard -> // no matching template
-///   _           -> // other standard type
+///   P2WPKH | P2WSH | P2TR -> handle_native_segwit(output)
+///   P2PKH | P2SH -> handle_legacy(output)
+///   UnknownWitness(v) -> handle_future_witness(v, output)
+///   _ -> handle_other(output)
 /// }
 /// ```
 pub fn classify_output_script(
@@ -725,19 +724,22 @@ pub type ParseErrorKind {
   /// error.
   SuperfluousWitnessRecord
 
-  /// A claimed or required length exceeds structural limits.
+  /// A length or count requires more bytes than remain in the input.
   ///
-  /// This error occurs when a length field or count field implies more bytes or items
-  /// than are structurally available in the input buffer. This is distinct from
-  /// `PolicyLimitExceeded`, which enforces parser-defined limits for protection.
+  /// Unlike `UnexpectedEof`, which reports a failed read, this error reports a
+  /// decoded length or count that is known in advance not to fit in the remaining
+  /// input. This is distinct from `PolicyLimitExceeded`, which enforces configured
+  /// resource limits.
   ///
   /// Examples:
-  /// - A script length field claims 1000 bytes, but only 100 bytes remain
-  /// - An item count implies at least 500 bytes needed, but only 200 remain
+  /// - A scriptSig length claims a 100-byte script, but only 99 bytes remain.
+  /// - An input count claims one input, whose smallest encoding is 41 bytes, but
+  ///   only 40 bytes remain.
   ///
-  /// `claimed` represents bytes needed, `remaining` is what's available.
-  /// `claimed` may be a conservative estimate (e.g., `remaining + 1`) rather than
-  /// the exact number of bytes to avoid integer overflow on the JavaScript target.
+  /// `claimed` is the number of bytes required and `remaining` is the number
+  /// available. `claimed` may be a conservative estimate, such as
+  /// `remaining + 1`, rather than the exact requirement to avoid integer overflow
+  /// on the JavaScript target.
   InsufficientBytes(claimed: Int, remaining: Int)
 
   /// A decoded 64-bit integer value exceeds the range representable by the runtime.
@@ -847,7 +849,7 @@ pub type Field {
 /// where the parser was reading when it encountered the error. This is useful
 /// for debugging and error reporting.
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```gleam
 /// case decode(malformed_bytes) {
@@ -868,21 +870,16 @@ pub fn parse_error_offset(err: ParseError) -> Int {
 /// such as `UnexpectedEof`, `NonMinimalCompactSize`, `PolicyLimitExceeded`, etc.
 /// This allows you to handle different error types differently.
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```gleam
-/// case decode(bytes) {
-///   Error(ParseFailed(err)) -> {
-///     case parse_error_kind(err) {
-///       PolicyLimitExceeded(value, max) -> 
-///         // Handle resource limit violation
-///       InsufficientBytes(claimed, remaining) -> 
-///         // Handle truncated input
-///       _ -> // Handle other errors
-///     }
-///   }
-///   _ -> // ...
-/// }
+/// fn is_truncated(error: ParseError) -> Bool {
+///  case parse_error_kind(error) {
+///    UnexpectedEof(_, _) -> True
+///    InsufficientBytes(_, _) -> True
+///    _ -> False
+///  }
+///}
 /// ```
 pub fn parse_error_kind(err: ParseError) -> ParseErrorKind {
   err.kind
@@ -895,14 +892,14 @@ pub fn parse_error_kind(err: ParseError) -> ParseErrorKind {
 /// to most specific (innermost), providing a "stack trace" through the parsing
 /// process.
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```gleam
 /// case decode(malformed_bytes) {
 ///   Error(ParseFailed(err)) -> {
 ///     let ctx = parse_error_ctx(err)
 ///     // ctx: [InTransaction, InInputs, AtInput(2), AtField(ScriptSigLength)]
-///     // Means: error in the scriptSig_len field of input #2
+///     // Means: error when reading the scriptSig_len field of the input at index 2
 ///   }
 ///   _ -> // ...
 /// }
@@ -1172,7 +1169,7 @@ pub fn decode_policy_max_witness_size_per_input(
 ///   This includes malformed data, unexpected end of input, or violations of
 ///   the policy limits.
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```gleam
 /// let tx_bytes = <<0x01, 0x00, 0x00, 0x00, ...>>
@@ -1264,7 +1261,7 @@ fn tx_parser(
 ///   invalid characters).
 /// - `Error(ParseFailed(_))`: The bytes could not be parsed as a valid transaction.
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```gleam
 /// let hex = "0100000001..."
@@ -1835,9 +1832,12 @@ fn sized_witness_item_parser() -> Parser(
 ) {
   witness_item_parser()
   |> parser.map(fn(item) {
-    let WitnessItem(bytes) = item
-    let byte_size = bit_array.byte_size(bytes)
-    #(item, byte_size)
+    let item_size =
+      item
+      |> get_witness_item_bytes
+      |> bit_array.byte_size
+
+    #(item, item_size)
   })
 }
 
