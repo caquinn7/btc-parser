@@ -360,10 +360,11 @@ pub fn get_raw_script_bytes(script: ScriptBytes(k)) -> BitArray {
   bytes
 }
 
-/// Get the byte length of a `ScriptBytes`.
+/// Get the byte size of a `ScriptBytes`.
 ///
-/// The length is measured from the raw serialized script bytes.
-pub fn get_script_length(script: ScriptBytes(k)) -> Int {
+/// The size is measured from the raw script bytes and excludes the CompactSize
+/// length prefix used when the script is serialized in a transaction.
+pub fn get_script_size(script: ScriptBytes(k)) -> Int {
   script
   |> get_raw_script_bytes
   |> bit_array.byte_size
@@ -461,7 +462,7 @@ pub type OutputScriptType {
 /// │   ├─ total ≤ 83 bytes AND push-only    → NullData
 /// │   └─ otherwise                         → NonStandard
 /// └─ (none matched)
-///     ├─ [51–60] [02–28] [×push_len]       → UnknownWitness(version)
+///     ├─ [51–60] [02–28] [×push_length]    → UnknownWitness(version)
 ///     └─ valid m-of-n (1≤m≤n≤3)
 ///         ├─ AND pubkey count matches n    → Multisig
 ///         └─ otherwise                     → NonStandard
@@ -522,8 +523,11 @@ fn do_classify_non_template(script_bytes: BitArray) -> OutputScriptType {
     // UnknownWitness: OP_1–OP_16 followed by a 2–40 byte witness program.
     // OP_0 (P2WPKH/P2WSH) is already handled above.
     // OP_1 with a 32-byte program is already handled above as P2TR.
-    <<version, push_len, _:bytes-size(push_len)>>
-      if version >= 0x51 && version <= 0x60 && push_len >= 2 && push_len <= 40
+    <<version, push_length, _:bytes-size(push_length)>>
+      if version >= 0x51
+      && version <= 0x60
+      && push_length >= 2
+      && push_length <= 40
     -> UnknownWitness(version: decode_small_int_opcode(version))
 
     _ ->
@@ -551,30 +555,38 @@ fn do_is_push_only(bytes: BitArray) -> Bool {
       do_is_push_only(rest)
 
     // Direct push: 1–75 bytes follow immediately
-    <<push_len, rest:bits>> if push_len >= 0x01 && push_len <= 0x4B ->
+    <<push_length, rest:bits>> if push_length >= 0x01 && push_length <= 0x4B ->
       case rest {
-        <<_:bytes-size(push_len), remainder:bits>> -> do_is_push_only(remainder)
+        <<_:bytes-size(push_length), remainder:bits>> ->
+          do_is_push_only(remainder)
+
         _ -> False
       }
 
     // OP_PUSHDATA1: next byte is length, then data
-    <<0x4C, len, rest:bits>> ->
+    <<0x4C, push_length, rest:bits>> ->
       case rest {
-        <<_:bytes-size(len), remainder:bits>> -> do_is_push_only(remainder)
+        <<_:bytes-size(push_length), remainder:bits>> ->
+          do_is_push_only(remainder)
+
         _ -> False
       }
 
     // OP_PUSHDATA2: next 2 bytes (LE) are length, then data
-    <<0x4D, len:little-size(16), rest:bits>> ->
+    <<0x4D, push_length:little-size(16), rest:bits>> ->
       case rest {
-        <<_:bytes-size(len), remainder:bits>> -> do_is_push_only(remainder)
+        <<_:bytes-size(push_length), remainder:bits>> ->
+          do_is_push_only(remainder)
+
         _ -> False
       }
 
     // OP_PUSHDATA4: next 4 bytes (LE) are length, then data
-    <<0x4E, len:little-size(32), rest:bits>> ->
+    <<0x4E, push_length:little-size(32), rest:bits>> ->
       case rest {
-        <<_:bytes-size(len), remainder:bits>> -> do_is_push_only(remainder)
+        <<_:bytes-size(push_length), remainder:bits>> ->
+          do_is_push_only(remainder)
+
         _ -> False
       }
 
@@ -838,7 +850,7 @@ pub type Field {
   ScriptPubKeyLength
 
   // Witness-related fields
-  WitnessStackLength
+  WitnessItemCount
   WitnessItemLength
   WitnessItemsTotalBytes
 }
@@ -899,7 +911,7 @@ pub fn parse_error_kind(err: ParseError) -> ParseErrorKind {
 ///   Error(ParseFailed(err)) -> {
 ///     let ctx = parse_error_ctx(err)
 ///     // ctx: [InTransaction, InInputs, AtInput(2), AtField(ScriptSigLength)]
-///     // Means: error when reading the scriptSig_len field of the input at index 2
+///     // Means: failed at the scriptSig length prefix of input #2 (zero-based)
 ///   }
 ///   _ -> // ...
 /// }
@@ -1487,7 +1499,7 @@ fn txin_list_parser(
   // ├─ TxIn #0
   // │    ├─ prev_txid (32 bytes)
   // │    ├─ vout (4 bytes)
-  // │    ├─ scriptSig_len (CompactSize)
+  // │    ├─ scriptSig length (CompactSize)
   // │    ├─ scriptSig bytes
   // │    └─ sequence (4 bytes)
   // ├─ TxIn #1
@@ -1501,7 +1513,7 @@ fn txin_parser(
 ) -> Parser(ParseContext, TxIn, DecodeError) {
   // │ prev_txid (32 bytes)
   // │ vout (4 bytes)
-  // │ scriptSig_len (CompactSize)
+  // │ scriptSig length (CompactSize)
   // │ scriptSig bytes
   // │ sequence (4 bytes)
   parser.map3(
@@ -1596,7 +1608,7 @@ fn txout_list_parser(
   // vout_count
   // ├─ TxOut #0
   // │    ├─ value (8 bytes)
-  // │    ├─ scriptPubKey_len (CompactSize)
+  // │    ├─ scriptPubKey length (CompactSize)
   // │    └─ scriptPubKey bytes
   // ├─ TxOut #1
   // │    ├─ ...
@@ -1612,7 +1624,7 @@ fn txout_parser(
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, TxOut, DecodeError) {
   // | value (8 bytes)
-  // | scriptPubKey_len (CompactSize)
+  // | scriptPubKey length (CompactSize)
   // | scriptPubKey bytes
   parser.map2(
     satoshis_parser(),
@@ -1648,8 +1660,8 @@ fn script_sig_parser(
 ) -> Parser(ParseContext, ScriptBytes(InputScript), DecodeError) {
   ScriptSigLength
   |> script_length_parser(max_script_size_policy)
-  |> parser.then(fn(script_len) {
-    field_parser(ScriptSig, reader.read_bytes(_, script_len))
+  |> parser.then(fn(script_length) {
+    field_parser(ScriptSig, reader.read_bytes(_, script_length))
   })
   |> parser.map(ScriptBytes)
 }
@@ -1659,8 +1671,8 @@ fn script_pubkey_parser(
 ) -> Parser(ParseContext, ScriptBytes(OutputScript), DecodeError) {
   ScriptPubKeyLength
   |> script_length_parser(max_script_size_policy)
-  |> parser.then(fn(script_len) {
-    field_parser(ScriptPubKey, reader.read_bytes(_, script_len))
+  |> parser.then(fn(script_length) {
+    field_parser(ScriptPubKey, reader.read_bytes(_, script_length))
   })
   |> parser.map(ScriptBytes)
 }
@@ -1675,14 +1687,14 @@ fn script_length_parser(
 ) -> Parser(ParseContext, Int, DecodeError) {
   field
   |> compact_size_int_parser
-  |> parser.try_with_start_offset(fn(script_len_int, start_offset, reader, ctx) {
+  |> parser.try_with_start_offset(fn(script_length, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
       |> field_error(field, start_offset, ctx)
       |> Error
     }
     validate_script_length(
-      script_len_int,
+      script_length,
       reader,
       max_script_size_policy,
       on_invalid,
@@ -1691,25 +1703,25 @@ fn script_length_parser(
 }
 
 fn validate_script_length(
-  script_len_int: Int,
+  script_length: Int,
   reader: Reader,
   max_script_size_policy: Int,
   on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
 ) -> Result(Int, DecodeError) {
   let remaining = reader.bytes_remaining(reader)
 
-  case script_len_int > remaining, script_len_int > max_script_size_policy {
+  case script_length > remaining, script_length > max_script_size_policy {
     // Structural limit: length exceeds remaining bytes
     True, _ ->
-      InsufficientBytes(claimed: script_len_int, remaining:)
+      InsufficientBytes(claimed: script_length, remaining:)
       |> on_invalid
 
     // Policy limit: length exceeds configured maximum
     _, True ->
-      PolicyLimitExceeded(script_len_int, max_script_size_policy)
+      PolicyLimitExceeded(script_length, max_script_size_policy)
       |> on_invalid
 
-    _, _ -> Ok(script_len_int)
+    _, _ -> Ok(script_length)
   }
 }
 
@@ -1760,60 +1772,60 @@ fn witness_parser(
   max_size_per_input: Option(Int),
 ) -> Parser(ParseContext, WitnessStack, DecodeError) {
   // WitnessStack for one input:
-  // ├─ stack_len (CompactSize) - number of witness items
+  // ├─ item count (CompactSize)
   // ├─ WitnessItem #0
-  // │    ├─ item_len (CompactSize)
+  // │    ├─ item length (CompactSize)
   // │    └─ item bytes
   // ├─ WitnessItem #1
   // │    ├─ ...
-  // └─ WitnessItem #(stack_len - 1)
+  // └─ WitnessItem #(item_count - 1)
   max_items_per_input
-  |> witness_stack_length_parser
-  |> parser.then(fn(stack_len) {
+  |> witness_item_count_parser
+  |> parser.then(fn(item_count) {
     case max_size_per_input {
-      Some(max_size) -> tracked_witness_items_parser(stack_len, max_size)
-      None -> witness_items_parser(stack_len)
+      Some(max_size) -> tracked_witness_items_parser(item_count, max_size)
+      None -> witness_items_parser(item_count)
     }
   })
   |> parser.map(WitnessStack)
 }
 
-/// Construct a parser for a validated witness stack length field.
+/// Construct a parser for a validated witness item count field.
 ///
-/// When run, it parses a CompactSize length, converts it to `Int`, and validates
+/// When run, it parses a CompactSize count, converts it to `Int`, and validates
 /// it against the `max_items_per_input` policy.
-fn witness_stack_length_parser(
+fn witness_item_count_parser(
   max_items_per_input_policy: Option(Int),
 ) -> Parser(ParseContext, Int, DecodeError) {
-  WitnessStackLength
+  WitnessItemCount
   |> compact_size_int_parser
-  |> parser.try_with_start_offset(fn(stack_len, start_offset, _reader, ctx) {
+  |> parser.try_with_start_offset(fn(item_count, start_offset, _reader, ctx) {
     case max_items_per_input_policy {
-      Some(max_items) if stack_len > max_items ->
-        PolicyLimitExceeded(stack_len, max_items)
-        |> field_error(WitnessStackLength, start_offset, ctx)
+      Some(max_items) if item_count > max_items ->
+        PolicyLimitExceeded(item_count, max_items)
+        |> field_error(WitnessItemCount, start_offset, ctx)
         |> Error
 
-      _ -> Ok(stack_len)
+      _ -> Ok(item_count)
     }
   })
 }
 
 fn witness_items_parser(
-  count: Int,
+  item_count: Int,
 ) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
-  parser.indexed_repeat(count, witness_item_parser(), AtWitnessItem)
+  parser.indexed_repeat(item_count, witness_item_parser(), AtWitnessItem)
 }
 
 /// Construct a witness-items parser that tracks cumulative payload bytes.
 ///
 /// When run, it fails fast if the total exceeds `max_total_bytes`.
 fn tracked_witness_items_parser(
-  count: Int,
+  item_count: Int,
   max_total_bytes: Int,
 ) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
   parser.indexed_repeat_with_limit(
-    count,
+    item_count,
     sized_witness_item_parser(),
     AtWitnessItem,
     max_total_bytes,
@@ -1842,11 +1854,11 @@ fn sized_witness_item_parser() -> Parser(
 }
 
 fn witness_item_parser() -> Parser(ParseContext, WitnessItem, DecodeError) {
-  witness_item_size_parser()
-  |> parser.then(fn(length) {
+  witness_item_length_parser()
+  |> parser.then(fn(item_length) {
     parser.new(fn(reader, ctx) {
       reader
-      |> reader.read_bytes(length)
+      |> reader.read_bytes(item_length)
       |> result.map_error(fn(err) {
         err
         |> reader_error_to_kind
@@ -1859,32 +1871,32 @@ fn witness_item_parser() -> Parser(ParseContext, WitnessItem, DecodeError) {
   |> parser.map(WitnessItem)
 }
 
-fn witness_item_size_parser() -> Parser(ParseContext, Int, DecodeError) {
+fn witness_item_length_parser() -> Parser(ParseContext, Int, DecodeError) {
   WitnessItemLength
   |> compact_size_int_parser
-  |> parser.try_with_start_offset(fn(length, start_offset, reader, ctx) {
+  |> parser.try_with_start_offset(fn(item_length, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
       |> field_error(WitnessItemLength, start_offset, ctx)
       |> Error
     }
-    validate_witness_item_size(length, reader, on_invalid)
+    validate_witness_item_length(item_length, reader, on_invalid)
   })
 }
 
-fn validate_witness_item_size(
-  length: Int,
+fn validate_witness_item_length(
+  item_length: Int,
   reader: Reader,
   on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
 ) -> Result(Int, DecodeError) {
   let remaining = reader.bytes_remaining(reader)
 
-  case length > remaining {
+  case item_length > remaining {
     True ->
-      InsufficientBytes(claimed: length, remaining:)
+      InsufficientBytes(claimed: item_length, remaining:)
       |> on_invalid
 
-    False -> Ok(length)
+    False -> Ok(item_length)
   }
 }
 
@@ -2096,8 +2108,8 @@ fn validate_coinbase_script_sig_length(
     [input] ->
       case input.prev_out {
         NullOutPoint -> {
-          let script_len = get_script_length(input.script_sig)
-          case 2 <= script_len && script_len <= 100 {
+          let script_size = get_script_size(input.script_sig)
+          case 2 <= script_size && script_size <= 100 {
             True -> Ok(Nil)
             False -> Error(InvalidCoinbaseScriptSigLength)
           }
@@ -2275,18 +2287,18 @@ fn serialize_inputs(inputs: List(TxIn)) -> BitArray {
 fn serialize_tx_in(txin: TxIn) -> BitArray {
   let prev_out_bytes = serialize_prev_out(txin.prev_out)
 
-  let script_sig_len_bytes = {
-    let assert Ok(len_u64) =
+  let script_sig_length_bytes = {
+    let assert Ok(script_sig_length) =
       txin.script_sig
-      |> get_script_length
+      |> get_script_size
       |> uint64.from_int
 
-    compact_size.write(len_u64)
+    compact_size.write(script_sig_length)
   }
 
   <<
     prev_out_bytes:bits,
-    script_sig_len_bytes:bits,
+    script_sig_length_bytes:bits,
     get_raw_script_bytes(txin.script_sig):bits,
     txin.sequence:32-little,
   >>
@@ -2308,18 +2320,18 @@ fn serialize_outputs(outputs: List(TxOut)) -> BitArray {
 fn serialize_tx_out(txout: TxOut) -> BitArray {
   let assert Ok(satoshis_bytes) = int64.int_to_bytes_le(txout.value)
 
-  let script_pubkey_len_bytes = {
-    let assert Ok(len_u64) =
+  let script_pubkey_length_bytes = {
+    let assert Ok(script_pubkey_length) =
       txout.script_pubkey
-      |> get_script_length
+      |> get_script_size
       |> uint64.from_int
 
-    compact_size.write(len_u64)
+    compact_size.write(script_pubkey_length)
   }
 
   <<
     satoshis_bytes:bits,
-    script_pubkey_len_bytes:bits,
+    script_pubkey_length_bytes:bits,
     get_raw_script_bytes(txout.script_pubkey):bits,
   >>
 }
@@ -2333,13 +2345,13 @@ fn serialize_witnesses(witnesses: List(WitnessStack)) -> BitArray {
 fn serialize_witness(witness: WitnessStack) -> BitArray {
   let witness_items = get_witness_items(witness)
 
-  let assert Ok(stack_len) =
+  let assert Ok(item_count) =
     witness_items
     |> list.length
     |> uint64.from_int
 
   <<
-    compact_size.write(stack_len):bits,
+    compact_size.write(item_count):bits,
     serialize_witness_items(witness_items):bits,
   >>
 }
@@ -2353,13 +2365,13 @@ fn serialize_witness_items(witness_items: List(WitnessItem)) -> BitArray {
 fn serialize_witness_item(witness_item: WitnessItem) -> BitArray {
   let witness_item_bytes = get_witness_item_bytes(witness_item)
 
-  let assert Ok(item_len) =
+  let assert Ok(item_length) =
     witness_item_bytes
     |> bit_array.byte_size
     |> uint64.from_int
 
   <<
-    compact_size.write(item_len):bits,
+    compact_size.write(item_length):bits,
     witness_item_bytes:bits,
   >>
 }

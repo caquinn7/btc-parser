@@ -6,7 +6,7 @@ import btc_tx.{
   OutputValueOutOfRange, ParseFailed, PolicyLimitExceeded, ScriptPubKeyLength,
   ScriptSigLength, SegwitMarkerAndFlag, SuperfluousWitnessRecord,
   TotalOutputValueOutOfRange, TrailingBytes, UnexpectedEof, Version, VinCount,
-  VoutCount, WitnessItemLength, WitnessItemsTotalBytes, WitnessStackLength,
+  VoutCount, WitnessItemCount, WitnessItemLength, WitnessItemsTotalBytes,
 }
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -505,6 +505,10 @@ pub fn decode_parses_single_input_test() {
     |> btc_tx.get_raw_script_bytes
 
   assert actual_script_sig_bytes == script_sig_bytes
+  assert first_input
+    |> btc_tx.get_input_script_sig
+    |> btc_tx.get_script_size
+    == bit_array.byte_size(script_sig_bytes)
 }
 
 pub fn decode_parses_coinbase_marker_input_test() {
@@ -656,7 +660,8 @@ pub fn decode_parses_multiple_inputs_test() {
 // ============================================================================
 
 pub fn decode_rejects_scriptsig_exceeding_max_size_test() {
-  // Build a transaction with scriptSig_len = 10,001 (exceeds MAX_SCRIPT_SIZE of 10,000)
+  // Build a transaction with scriptSig length 10,001,
+  // exceeding the 10,000-byte limit.
 
   let vin_count = compact_size(1)
 
@@ -684,13 +689,15 @@ pub fn decode_rejects_scriptsig_exceeding_max_size_test() {
 }
 
 pub fn decode_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
-  // Build a transaction where scriptSig_len claims 100 bytes but only 10 bytes remain
+  // Build a transaction where the scriptSig length claims 100 bytes
+  // but only 10 remain.
+
   let vin_count = compact_size(1)
 
   let prev_txid = <<0:size(256)>>
   let vout = <<0:little-size(32)>>
 
-  let script_sig_len = compact_size(100)
+  let script_sig_length = compact_size(100)
 
   // Only provide 10 bytes of actual data (not enough for the claimed 100)
   let partial_script_sig = <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10>>
@@ -698,7 +705,7 @@ pub fn decode_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
   let input_bytes = <<
     prev_txid:bits,
     vout:bits,
-    script_sig_len:bits,
+    script_sig_length:bits,
     partial_script_sig:bits,
   >>
 
@@ -730,11 +737,11 @@ pub fn decode_returns_error_with_current_input_index_test() {
   // Second input: claims 100 bytes for scriptSig but we only provide 4 more bytes
   let input2_prev_txid = <<0:size(256)>>
   let input2_vout = <<0:little-size(32)>>
-  let input2_script_sig_len = compact_size(100)
+  let input2_script_sig_length = compact_size(100)
   let input2_partial = <<
     input2_prev_txid:bits,
     input2_vout:bits,
-    input2_script_sig_len:bits,
+    input2_script_sig_length:bits,
   >>
   // Only provide 4 more bytes (for sequence) instead of 100 + 4
   let remaining_bytes = <<0:little-size(32)>>
@@ -1149,11 +1156,11 @@ pub fn decode_handles_output_value_min_i64_for_target_test() {
   // Minimum i64: sign bit set, all other bits clear
   let value_min_i64 = <<0, 0, 0, 0, 0, 0, 0, 0x80>>
 
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
 
   let output_bytes = <<
     value_min_i64:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
   >>
   let lock_time = <<0:little-size(32)>>
 
@@ -1223,7 +1230,8 @@ pub fn decode_accepts_outputs_total_value_exactly_at_max_money_test() {
 // ============================================================================
 
 pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {
-  // Build a transaction with scriptPubKey_len = 10,001 (exceeds MAX_SCRIPT_SIZE of 10,000)
+  // Build an output with scriptPubKey length 10,001,
+  // exceeding the 10,000-byte limit.
 
   let vout_count = compact_size(1)
 
@@ -1286,18 +1294,20 @@ pub fn decode_parses_scriptpubkey_at_max_size_test() {
 }
 
 pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
-  // Build a transaction where scriptPubKey_len claims 100 bytes but only 10 bytes remain
+  // Build an output where the scriptPubKey length claims 100 bytes
+  // but only 10 remain.
+
   let vout_count = compact_size(1)
 
   let value = <<0:little-size(64)>>
-  let script_pubkey_len = compact_size(100)
+  let script_pubkey_length = compact_size(100)
 
   // Only provide 10 bytes of actual data (not enough for the claimed 100)
   let partial_script_pubkey = <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10>>
 
   let output_bytes = <<
     value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     partial_script_pubkey:bits,
   >>
 
@@ -1533,12 +1543,12 @@ pub fn decode_witness_item_length_exceeds_remaining_bytes_test() {
     ]
 }
 
-pub fn decode_witness_invalid_compact_size_in_stack_length_test() {
+pub fn decode_witness_invalid_compact_size_in_item_count_test() {
   // Build input and output normally
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
 
-  // Manually construct transaction with invalid CompactSize in witness stack length
+  // Manually construct transaction with invalid CompactSize witness item count
   // CompactSize 0xFD requires 2 bytes following, but provide only 1 (truncated)
   let marker = <<0x00>>
   let flag = <<0x01>>
@@ -1567,7 +1577,7 @@ pub fn decode_witness_invalid_compact_size_in_stack_length_test() {
 
   // Verify the error context indicates we're in witness stack count parsing
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, AtWitnessStack(0), AtField(WitnessStackLength)]
+    == [InTransaction, AtWitnessStack(0), AtField(WitnessItemCount)]
 }
 
 pub fn decode_witness_invalid_compact_size_in_item_length_test() {
@@ -1677,13 +1687,13 @@ pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
 
   assert btc_tx.parse_error_offset(parse_err) == 58
 
-  // Verify the error kind indicates length exceeded max_items_per_input
+  // Verify the error kind indicates the count exceeded max_items_per_input
   assert btc_tx.parse_error_kind(parse_err)
     == PolicyLimitExceeded(max_items_per_input + 1, max_items_per_input)
 
-  // Verify the error context indicates witness stack length validation
+  // Verify the error context indicates witness item count validation
   assert btc_tx.parse_error_ctx(parse_err)
-    == [InTransaction, AtWitnessStack(0), AtField(WitnessStackLength)]
+    == [InTransaction, AtWitnessStack(0), AtField(WitnessItemCount)]
 }
 
 // ============================================================================
@@ -1810,8 +1820,8 @@ pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
 
   // Calculate expected offset to start of third witness item's length field:
   // version (4) + marker (1) + flag (1) + vin_count (1) + input (41) +
-  // vout_count (1) + output (9) + witness_stack_len (1) +
-  // item1_len (1) + item1_bytes (20) + item2_len (1) + item2_bytes (15)
+  // vout_count (1) + output (9) + witness item count (1) +
+  // item1 length (1) + item1 bytes (20) + item2 length (1) + item2 bytes (15)
   let expected_offset = 4 + 1 + 1 + 1 + 41 + 1 + 9 + 1 + 1 + 20 + 1 + 15
 
   assert btc_tx.parse_error_offset(parse_err) == expected_offset
@@ -1985,17 +1995,19 @@ pub fn classify_output_script_empty_test() {
 }
 
 pub fn classify_output_script_nulldata_at_max_size_test() {
-  // OP_RETURN (1) + OP_PUSHDATA1 (1) + len byte (1) + 80 bytes = 83 bytes total → NullData
+  // OP_RETURN (1) + OP_PUSHDATA1 (1) + length byte (1) + 80 bytes = 83 bytes total → NullData
   let data = repeat_byte(0xAB, 80)
   let script_bytes = <<0x6A, 0x4C, 80, data:bits>>
+
   assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
     == btc_tx.NullData
 }
 
 pub fn classify_output_script_nulldata_over_max_size_test() {
-  // OP_RETURN (1) + OP_PUSHDATA1 (1) + len byte (1) + 81 bytes = 84 bytes total → NonStandard
+  // OP_RETURN (1) + OP_PUSHDATA1 (1) + length byte (1) + 81 bytes = 84 bytes total → NonStandard
   let data = repeat_byte(0xAB, 81)
   let script_bytes = <<0x6A, 0x4C, 81, data:bits>>
+
   assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
     == btc_tx.NonStandard
 }
@@ -2134,7 +2146,7 @@ pub fn validate_context_free_consensus_rejects_tx_with_negative_output_value_tes
   let vout_count = compact_size(1)
   // -1 as signed int64
   let negative_value = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2143,7 +2155,7 @@ pub fn validate_context_free_consensus_rejects_tx_with_negative_output_value_tes
     input:bits,
     vout_count:bits,
     negative_value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2160,7 +2172,7 @@ pub fn validate_context_free_consensus_rejects_tx_with_output_exceeding_supply_t
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let vout_count = compact_size(1)
   let excessive_value = <<2_100_000_000_000_001:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2169,7 +2181,7 @@ pub fn validate_context_free_consensus_rejects_tx_with_output_exceeding_supply_t
     input:bits,
     vout_count:bits,
     excessive_value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2187,7 +2199,7 @@ pub fn validate_context_free_consensus_rejects_tx_with_total_outputs_exceeding_s
   let vout_count = compact_size(2)
   let value1 = <<1_100_000_000_000_000:little-size(64)>>
   let value2 = <<1_100_000_000_000_000:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2196,9 +2208,9 @@ pub fn validate_context_free_consensus_rejects_tx_with_total_outputs_exceeding_s
     input:bits,
     vout_count:bits,
     value1:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     value2:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2221,7 +2233,7 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_multiple_inputs_tes
 
   let vout_count = compact_size(1)
   let value = <<1000:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2231,7 +2243,7 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_multiple_inputs_tes
     regular_input:bits,
     vout_count:bits,
     value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2252,7 +2264,7 @@ pub fn validate_context_free_consensus_rejects_multiple_coinbase_inputs_test() {
 
   let vout_count = compact_size(1)
   let value = <<1000:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2262,7 +2274,7 @@ pub fn validate_context_free_consensus_rejects_multiple_coinbase_inputs_test() {
     coinbase_input2:bits,
     vout_count:bits,
     value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2279,7 +2291,7 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_short
   let coinbase_input = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0x01>>, 0)
   let vout_count = compact_size(1)
   let value = <<1000:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2288,7 +2300,7 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_short
     coinbase_input:bits,
     vout_count:bits,
     value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2307,7 +2319,7 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_long_
 
   let vout_count = compact_size(1)
   let value = <<1000:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2316,7 +2328,7 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_long_
     coinbase_input:bits,
     vout_count:bits,
     value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2335,7 +2347,7 @@ pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_min_lengt
 
   let vout_count = compact_size(1)
   let value = <<1000:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2344,7 +2356,7 @@ pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_min_lengt
     coinbase_input:bits,
     vout_count:bits,
     value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2361,7 +2373,7 @@ pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_max_lengt
 
   let vout_count = compact_size(1)
   let value = <<1000:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2370,7 +2382,7 @@ pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_max_lengt
     coinbase_input:bits,
     vout_count:bits,
     value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2391,7 +2403,7 @@ pub fn validate_context_free_consensus_returns_multiple_errors_test() {
   let vout_count = compact_size(1)
   // Negative value: 0xFFFFFFFFFFFFFFFF = -1 as signed int64
   let negative_value = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2401,7 +2413,7 @@ pub fn validate_context_free_consensus_returns_multiple_errors_test() {
     regular_input:bits,
     vout_count:bits,
     negative_value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2424,7 +2436,7 @@ pub fn validate_context_free_consensus_rejects_tx_with_duplicate_inputs_test() {
   let input1 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
   let vout_count = compact_size(1)
   let value = <<1000:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2434,7 +2446,7 @@ pub fn validate_context_free_consensus_rejects_tx_with_duplicate_inputs_test() {
     input1:bits,
     vout_count:bits,
     value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2456,7 +2468,7 @@ pub fn validate_context_free_consensus_rejects_duplicate_input_at_non_adjacent_i
   let input2 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
   let vout_count = compact_size(1)
   let value = <<1000:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2467,7 +2479,7 @@ pub fn validate_context_free_consensus_rejects_duplicate_input_at_non_adjacent_i
     input2:bits,
     vout_count:bits,
     value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2487,7 +2499,7 @@ pub fn validate_context_free_consensus_accepts_inputs_with_same_txid_but_differe
   let input1 = build_input(txid, 1, <<>>, 0xFFFFFFFF)
   let vout_count = compact_size(1)
   let value = <<1000:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2497,7 +2509,7 @@ pub fn validate_context_free_consensus_accepts_inputs_with_same_txid_but_differe
     input1:bits,
     vout_count:bits,
     value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2514,7 +2526,7 @@ pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_
   let vout_count = compact_size(1)
   // -1 as signed int64
   let negative_value = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -2524,7 +2536,7 @@ pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_
     input1:bits,
     vout_count:bits,
     negative_value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
     lock_time:bits,
   >>
 
@@ -2760,10 +2772,10 @@ pub fn compute_wtxid_matches_manual_dsha256_test() {
 
   // Single-item witness stack with one byte of data
   let witness_item = <<0x42>>
-  let witness_item_len = bit_array.byte_size(witness_item)
+  let witness_item_length = bit_array.byte_size(witness_item)
   let witness_stack = <<
     compact_size(1):bits,
-    compact_size(witness_item_len):bits,
+    compact_size(witness_item_length):bits,
     witness_item:bits,
   >>
 
@@ -2842,13 +2854,13 @@ fn build_input(
   sequence: Int,
 ) -> BitArray {
   let vout_bytes = <<vout:little-size(32)>>
-  let script_len = compact_size(bit_array.byte_size(script_sig))
+  let script_length = compact_size(bit_array.byte_size(script_sig))
   let seq_bytes = <<sequence:little-size(32)>>
 
   <<
     prev_txid:bits,
     vout_bytes:bits,
-    script_len:bits,
+    script_length:bits,
     script_sig:bits,
     seq_bytes:bits,
   >>
@@ -2880,14 +2892,14 @@ fn decode_single_input_prev_out(prev_txid: BitArray, vout: Int) {
 
 /// Build an output with specific values
 fn build_output(value: BitArray, script_pubkey: BitArray) -> BitArray {
-  let script_len =
+  let script_length =
     script_pubkey
     |> bit_array.byte_size
     |> compact_size
 
   <<
     value:bits,
-    script_len:bits,
+    script_length:bits,
     script_pubkey:bits,
   >>
 }
@@ -2896,12 +2908,12 @@ fn build_output(value: BitArray, script_pubkey: BitArray) -> BitArray {
 fn build_minimal_output() -> BitArray {
   let vout_count = compact_size(1)
   let value = <<0:little-size(64)>>
-  let script_pubkey_len = compact_size(0)
+  let script_pubkey_length = compact_size(0)
 
   <<
     vout_count:bits,
     value:bits,
-    script_pubkey_len:bits,
+    script_pubkey_length:bits,
   >>
 }
 

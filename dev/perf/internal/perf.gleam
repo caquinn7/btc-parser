@@ -456,8 +456,8 @@ fn late_truncated_witness_payload_decode_case(
 }
 
 fn drop_last_byte(bytes: BitArray) -> BitArray {
-  let len = bit_array.byte_size(bytes)
-  let assert Ok(truncated) = bit_array.slice(bytes, 0, len - 1)
+  let length = bit_array.byte_size(bytes)
+  let assert Ok(truncated) = bit_array.slice(bytes, 0, length - 1)
   truncated
 }
 

@@ -112,6 +112,9 @@ integers, CompactSize, serialization, hashing, or FFI.
 
 - Run `gleam format` and match nearby code for naming, control flow,
   parser/result patterns, and public API documentation style.
+- Use `count` for numbers of elements, `length` for byte counts encoded in
+  wire-format length prefixes, and `size` for measured or calculated byte
+  footprints and resource limits.
 - Treat source doc comments, tests, and focused docs as the detailed behavior
   source of truth; keep `AGENTS.md` focused on scope, invariants, and workflow
   guardrails.

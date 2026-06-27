@@ -245,10 +245,10 @@ fn mutate(seed_tx: SeedTx, rng: Rng) -> #(MutatedTx, Rng) {
 /// - Verify the parser fails cleanly on incomplete transactions
 /// - Good for boundary checks and "unexpected EOF" style paths
 fn truncate(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
-  let len = bit_array.byte_size(bytes)
-  use <- bool.guard(len <= 1, #(bytes, rng))
+  let length = bit_array.byte_size(bytes)
+  use <- bool.guard(length <= 1, #(bytes, rng))
 
-  let #(slice_count, rng) = rng.next_bounded(rng, len)
+  let #(slice_count, rng) = rng.next_bounded(rng, length)
   let assert Ok(sliced) = bit_array.slice(bytes, 0, slice_count)
   #(sliced, rng)
 }
@@ -260,34 +260,34 @@ fn truncate(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
 /// - Likely to hit many distinct parser paths per iteration
 /// - Complementary to `FlipBits`: operates at byte granularity, producing more disruptive changes
 fn flip_bytes(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
-  let len = bit_array.byte_size(bytes)
-  use <- bool.guard(len == 0, #(bytes, rng))
+  let length = bit_array.byte_size(bytes)
+  use <- bool.guard(length == 0, #(bytes, rng))
 
   let #(extra, rng) = rng.next_bounded(rng, 3)
-  flip_n_bytes(bytes, len, extra + 1, rng)
+  flip_n_bytes(bytes, length, extra + 1, rng)
 }
 
 fn flip_n_bytes(
   bytes: BitArray,
-  len: Int,
+  length: Int,
   remaining: Int,
   rng: Rng,
 ) -> #(BitArray, Rng) {
   case remaining == 0 {
     True -> #(bytes, rng)
     False -> {
-      let #(offset, rng) = rng.next_bounded(rng, len)
+      let #(offset, rng) = rng.next_bounded(rng, length)
       let #(new_byte, rng) = rng.next_bounded(rng, 256)
       let bytes = replace_byte_at(bytes, offset, new_byte)
-      flip_n_bytes(bytes, len, remaining - 1, rng)
+      flip_n_bytes(bytes, length, remaining - 1, rng)
     }
   }
 }
 
 fn replace_byte_at(bytes: BitArray, offset: Int, value: Int) -> BitArray {
-  let after_len = bit_array.byte_size(bytes) - offset - 1
+  let after_length = bit_array.byte_size(bytes) - offset - 1
   let assert Ok(before) = bit_array.slice(bytes, 0, offset)
-  let assert Ok(after) = bit_array.slice(bytes, offset + 1, after_len)
+  let assert Ok(after) = bit_array.slice(bytes, offset + 1, after_length)
 
   before
   |> bit_array.append(<<value:8>>)
@@ -301,35 +301,35 @@ fn replace_byte_at(bytes: BitArray, offset: Int, value: Int) -> BitArray {
 /// - Good for off-by-one style length changes, flag changes, and subtle numeric perturbations
 /// - Often gets deeper parser coverage than heavier mutations
 fn flip_bits(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
-  let len = bit_array.byte_size(bytes)
-  use <- bool.guard(len == 0, #(bytes, rng))
+  let length = bit_array.byte_size(bytes)
+  use <- bool.guard(length == 0, #(bytes, rng))
 
   let #(extra, rng) = rng.next_bounded(rng, 3)
-  flip_n_bits(bytes, len, extra + 1, rng)
+  flip_n_bits(bytes, length, extra + 1, rng)
 }
 
 fn flip_n_bits(
   bytes: BitArray,
-  len: Int,
+  length: Int,
   remaining: Int,
   rng: Rng,
 ) -> #(BitArray, Rng) {
   case remaining {
     0 -> #(bytes, rng)
     _ -> {
-      let #(bit_idx, rng) = rng.next_bounded(rng, len * 8)
+      let #(bit_idx, rng) = rng.next_bounded(rng, length * 8)
       let mask = int.bitwise_shift_left(1, bit_idx % 8)
       let bytes = xor_byte_at(bytes, bit_idx / 8, mask)
-      flip_n_bits(bytes, len, remaining - 1, rng)
+      flip_n_bits(bytes, length, remaining - 1, rng)
     }
   }
 }
 
 fn xor_byte_at(bytes: BitArray, offset: Int, mask: Int) -> BitArray {
-  let after_len = bit_array.byte_size(bytes) - offset - 1
+  let after_length = bit_array.byte_size(bytes) - offset - 1
   let assert Ok(<<byte:8>>) = bit_array.slice(bytes, offset, 1)
   let assert Ok(before) = bit_array.slice(bytes, 0, offset)
-  let assert Ok(after) = bit_array.slice(bytes, offset + 1, after_len)
+  let assert Ok(after) = bit_array.slice(bytes, offset + 1, after_length)
 
   before
   |> bit_array.append(<<int.bitwise_exclusive_or(byte, mask):8>>)
@@ -343,17 +343,17 @@ fn xor_byte_at(bytes: BitArray, offset: Int, mask: Int) -> BitArray {
 /// - Useful for stressing parsers that rely on precise field boundaries
 /// - Can create leftover trailing bytes, bogus lengths, or witness/script misalignment
 fn insert_bytes(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
-  let len = bit_array.byte_size(bytes)
+  let length = bit_array.byte_size(bytes)
 
-  // Insert at any position in [0, len], including the end.
-  let #(offset, rng) = rng.next_bounded(rng, len + 1)
-  let #(insert_len, rng) = rng.next_bounded(rng, 8)
-  let #(inserted, rng) = random_bytes(rng, insert_len + 1)
+  // Insert at any position in [0, length], including the end.
+  let #(offset, rng) = rng.next_bounded(rng, length + 1)
+  let #(insert_length, rng) = rng.next_bounded(rng, 8)
+  let #(inserted, rng) = random_bytes(rng, insert_length + 1)
 
   let assert Ok(before) = bit_array.slice(bytes, 0, offset)
 
-  let after_len = len - offset
-  let assert Ok(after) = bit_array.slice(bytes, offset, after_len)
+  let after_length = length - offset
+  let assert Ok(after) = bit_array.slice(bytes, offset, after_length)
 
   let result =
     before
@@ -370,18 +370,18 @@ fn insert_bytes(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
 /// - Good for breaking field completeness while keeping the rest of the tx present
 /// - Useful for malformed scripts, missing witness bytes, or chopped varints
 fn delete_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
-  let len = bit_array.byte_size(bytes)
-  use <- bool.guard(len <= 1, #(bytes, rng))
+  let length = bit_array.byte_size(bytes)
+  use <- bool.guard(length <= 1, #(bytes, rng))
 
-  let #(start, rng) = rng.next_bounded(rng, len)
-  let #(span_len, rng) = rng.next_bounded(rng, 8)
-  let span_len = int.min(span_len + 1, len - start)
+  let #(start, rng) = rng.next_bounded(rng, length)
+  let #(span_length, rng) = rng.next_bounded(rng, 8)
+  let span_length = int.min(span_length + 1, length - start)
 
   let assert Ok(before) = bit_array.slice(bytes, 0, start)
 
-  let after_start = start + span_len
-  let after_len = len - after_start
-  let assert Ok(after) = bit_array.slice(bytes, after_start, after_len)
+  let after_start = start + span_length
+  let after_length = length - after_start
+  let assert Ok(after) = bit_array.slice(bytes, after_start, after_length)
 
   #(bit_array.append(before, after), rng)
 }
@@ -395,21 +395,21 @@ fn delete_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
 /// - Useful for triggering count/length mismatches between declared and actual input/output counts
 /// - Can produce inflated witness stacks, repeated script fragments, or duplicated field regions
 fn duplicate_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
-  let len = bit_array.byte_size(bytes)
-  use <- bool.guard(len == 0, #(bytes, rng))
+  let length = bit_array.byte_size(bytes)
+  use <- bool.guard(length == 0, #(bytes, rng))
 
-  let #(src, rng) = rng.next_bounded(rng, len)
-  let #(span_len, rng) = rng.next_bounded(rng, 8)
-  let span_len = int.min(span_len + 1, len - src)
-  let assert Ok(span) = bit_array.slice(bytes, src, span_len)
+  let #(src, rng) = rng.next_bounded(rng, length)
+  let #(span_length, rng) = rng.next_bounded(rng, 8)
+  let span_length = int.min(span_length + 1, length - src)
+  let assert Ok(span) = bit_array.slice(bytes, src, span_length)
 
   // Insert position is over the original length so the copy can land anywhere
   // including the end, independent of where it was copied from.
-  let #(insert_at, rng) = rng.next_bounded(rng, len + 1)
+  let #(insert_at, rng) = rng.next_bounded(rng, length + 1)
   let assert Ok(before) = bit_array.slice(bytes, 0, insert_at)
 
-  let after_len = len - insert_at
-  let assert Ok(after) = bit_array.slice(bytes, insert_at, after_len)
+  let after_length = length - insert_at
+  let assert Ok(after) = bit_array.slice(bytes, insert_at, after_length)
 
   let result =
     before
@@ -427,29 +427,29 @@ fn duplicate_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
 /// - Good for txids, values, sequence numbers, scripts, and witness payloads
 /// - Can expose zero-value edge cases: zero amounts, zeroed txids (as in coinbase inputs), or empty scripts
 fn zero_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
-  let len = bit_array.byte_size(bytes)
-  use <- bool.guard(len == 0, #(bytes, rng))
+  let length = bit_array.byte_size(bytes)
+  use <- bool.guard(length == 0, #(bytes, rng))
 
-  let #(start, rng) = rng.next_bounded(rng, len)
-  let #(span_len, rng) = rng.next_bounded(rng, 8)
-  let span_len = int.min(span_len + 1, len - start)
+  let #(start, rng) = rng.next_bounded(rng, length)
+  let #(span_length, rng) = rng.next_bounded(rng, 8)
+  let span_length = int.min(span_length + 1, length - start)
 
   let assert Ok(before) = bit_array.slice(bytes, 0, start)
 
-  let after_start = start + span_len
-  let after_len = len - after_start
-  let assert Ok(after) = bit_array.slice(bytes, after_start, after_len)
+  let after_start = start + span_length
+  let after_length = length - after_start
+  let assert Ok(after) = bit_array.slice(bytes, after_start, after_length)
 
   let result =
     before
-    |> bit_array.append(zero_bytes(span_len))
+    |> bit_array.append(zero_bytes(span_length))
     |> bit_array.append(after)
 
   #(result, rng)
 }
 
-fn zero_bytes(len: Int) -> BitArray {
-  int.range(0, len, <<>>, fn(acc, _i) { bit_array.append(acc, <<0:8>>) })
+fn zero_bytes(length: Int) -> BitArray {
+  int.range(0, length, <<>>, fn(acc, _i) { bit_array.append(acc, <<0:8>>) })
 }
 
 /// Target the SegWit marker/flag region at offsets 4–5 with one of five mutations:
@@ -464,8 +464,8 @@ fn mutate_segwit_marker(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   // The SegWit marker/flag occupy bytes 4–5 (immediately after the 4-byte version).
   // We target this region regardless of whether the input is actually a SegWit
   // transaction, since corrupting it stresses the legacy-vs-SegWit dispatch.
-  let len = bit_array.byte_size(bytes)
-  use <- bool.guard(len < 6, #(bytes, rng))
+  let length = bit_array.byte_size(bytes)
+  use <- bool.guard(length < 6, #(bytes, rng))
 
   let #(n, rng) = rng.next_bounded(rng, 5)
   case n {
@@ -482,13 +482,13 @@ fn mutate_segwit_marker(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
     // Remove the marker byte entirely, shifting everything after it left by one.
     2 -> {
       let assert Ok(before) = bit_array.slice(bytes, 0, 4)
-      let assert Ok(after) = bit_array.slice(bytes, 5, len - 5)
+      let assert Ok(after) = bit_array.slice(bytes, 5, length - 5)
       #(bit_array.append(before, after), rng)
     }
     // Remove the flag byte entirely.
     3 -> {
       let assert Ok(before) = bit_array.slice(bytes, 0, 5)
-      let assert Ok(after) = bit_array.slice(bytes, 6, len - 6)
+      let assert Ok(after) = bit_array.slice(bytes, 6, length - 6)
       #(bit_array.append(before, after), rng)
     }
     // Overwrite both bytes with independent random values (bogus marker/flag combo).
@@ -539,21 +539,21 @@ fn mutate_compact_size_candidate(
 }
 
 fn find_compact_size_candidates(bytes: BitArray) -> List(CompactSizeCandidate) {
-  let len = bit_array.byte_size(bytes)
+  let length = bit_array.byte_size(bytes)
 
   // Accumulate in reverse for O(1) prepends, then restore order at the end.
   bytes
-  |> find_compact_size_candidates_loop(len, 0, [])
+  |> find_compact_size_candidates_loop(length, 0, [])
   |> list.reverse
 }
 
 fn find_compact_size_candidates_loop(
   bytes: BitArray,
-  len: Int,
+  length: Int,
   offset: Int,
   acc: List(CompactSizeCandidate),
 ) -> List(CompactSizeCandidate) {
-  case offset >= len {
+  case offset >= length {
     True -> acc
     False -> {
       let assert Ok(<<prefix:8>>) = bit_array.slice(bytes, offset, 1)
@@ -564,7 +564,7 @@ fn find_compact_size_candidates_loop(
           let candidate =
             CompactSizeCandidate(start: offset, width: 1, value: p)
 
-          find_compact_size_candidates_loop(bytes, len, offset + 1, [
+          find_compact_size_candidates_loop(bytes, length, offset + 1, [
             candidate,
             ..acc
           ])
@@ -573,12 +573,12 @@ fn find_compact_size_candidates_loop(
         // 0xFD: 3-byte encoding — prefix + 2 LE bytes.
         // Only emit a candidate if 2 bytes actually follow; otherwise fall
         // through to the skip case below.
-        0xFD if offset + 3 <= len -> {
+        0xFD if offset + 3 <= length -> {
           let assert Ok(<<lo:8, hi:8>>) = bit_array.slice(bytes, offset + 1, 2)
           let value = lo + hi * 256
           let candidate = CompactSizeCandidate(start: offset, width: 3, value:)
           // Advance past all 3 bytes so they aren't double-counted.
-          find_compact_size_candidates_loop(bytes, len, offset + 3, [
+          find_compact_size_candidates_loop(bytes, length, offset + 3, [
             candidate,
             ..acc
           ])
@@ -586,13 +586,13 @@ fn find_compact_size_candidates_loop(
 
         // 0xFE: 5-byte encoding — prefix + 4 LE bytes.
         // Same guard: only emit if 4 bytes follow.
-        0xFE if offset + 5 <= len -> {
+        0xFE if offset + 5 <= length -> {
           let assert Ok(<<b0:8, b1:8, b2:8, b3:8>>) =
             bit_array.slice(bytes, offset + 1, 4)
 
           let value = b0 + b1 * 256 + b2 * 65_536 + b3 * 16_777_216
           let candidate = CompactSizeCandidate(start: offset, width: 5, value:)
-          find_compact_size_candidates_loop(bytes, len, offset + 5, [
+          find_compact_size_candidates_loop(bytes, length, offset + 5, [
             candidate,
             ..acc
           ])
@@ -601,7 +601,7 @@ fn find_compact_size_candidates_loop(
         // 0xFF (9-byte encoding) is skipped entirely: the value range exceeds
         // JavaScript's 53-bit safe integer limit. Incomplete 0xFD/0xFE
         // (not enough trailing bytes) also land here and are skipped.
-        _ -> find_compact_size_candidates_loop(bytes, len, offset + 1, acc)
+        _ -> find_compact_size_candidates_loop(bytes, length, offset + 1, acc)
       }
     }
   }
@@ -613,11 +613,11 @@ fn rewrite_compact_size(
   new_value: Int,
 ) -> BitArray {
   let after_start = candidate.start + candidate.width
-  let after_len = bit_array.byte_size(bytes) - after_start
+  let after_length = bit_array.byte_size(bytes) - after_start
   let encoded = encode_compact_size(new_value)
 
   let assert Ok(before) = bit_array.slice(bytes, 0, candidate.start)
-  let assert Ok(after) = bit_array.slice(bytes, after_start, after_len)
+  let assert Ok(after) = bit_array.slice(bytes, after_start, after_length)
   before
   |> bit_array.append(encoded)
   |> bit_array.append(after)
@@ -645,10 +645,10 @@ fn rewrite_with_nonminimal_encoding(
   }
 
   let after_start = candidate.start + candidate.width
-  let after_len = bit_array.byte_size(bytes) - after_start
+  let after_length = bit_array.byte_size(bytes) - after_start
 
   let assert Ok(before) = bit_array.slice(bytes, 0, candidate.start)
-  let assert Ok(after) = bit_array.slice(bytes, after_start, after_len)
+  let assert Ok(after) = bit_array.slice(bytes, after_start, after_length)
 
   before
   |> bit_array.append(promoted)
@@ -660,10 +660,10 @@ fn truncate_compact_size(
   candidate: CompactSizeCandidate,
 ) -> BitArray {
   let after_start = candidate.start + candidate.width
-  let after_len = bit_array.byte_size(bytes) - after_start
+  let after_length = bit_array.byte_size(bytes) - after_start
 
   let assert Ok(prefix) = bit_array.slice(bytes, 0, candidate.start)
-  let assert Ok(suffix) = bit_array.slice(bytes, after_start, after_len)
+  let assert Ok(suffix) = bit_array.slice(bytes, after_start, after_length)
 
   case candidate.width > 1 {
     True -> {
@@ -687,19 +687,19 @@ fn truncate_compact_size(
 fn sample_one(rng: Rng, from items: List(a)) -> Result(#(a, Rng), Nil) {
   case list.length(items) {
     0 -> Error(Nil)
-    len -> {
-      let #(idx, rng) = rng.next_bounded(rng, len)
+    length -> {
+      let #(idx, rng) = rng.next_bounded(rng, length)
       let assert Ok(item) = list.first(list.drop(items, idx))
       Ok(#(item, rng))
     }
   }
 }
 
-/// Generates `len` pseudo-random bytes and returns them as a `BitArray`
+/// Generates `length` pseudo-random bytes and returns them as a `BitArray`
 /// alongside the new RNG state.
-fn random_bytes(rng: Rng, len: Int) -> #(BitArray, Rng) {
+fn random_bytes(rng: Rng, length: Int) -> #(BitArray, Rng) {
   let #(bytes, rng) =
-    int.range(0, len, #([], rng), fn(acc, _i) {
+    int.range(0, length, #([], rng), fn(acc, _i) {
       let #(bytes, rng) = acc
       let #(byte_val, rng) = rng.next_bounded(rng, 256)
       #([<<byte_val:8>>, ..bytes], rng)
