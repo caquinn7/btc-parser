@@ -8,7 +8,7 @@ pub opaque type Hash32 {
   Hash32(bytes_le: BitArray)
 }
 
-/// Errors that can occur when constructing a `Hash32`.
+/// An error that occured while constructing a `Hash32`.
 pub type Hash32Error {
   /// The provided byte sequence does not contain exactly 32 bytes.
   InvalidByteCount(Int)

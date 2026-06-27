@@ -18,7 +18,7 @@ pub opaque type Uint64 {
   Uint64(bytes_le: BitArray)
 }
 
-/// Error that can occur when constructing a `Uint64` from a `BitArray`.
+/// An error that occurred while constructing an `Uint64` from a `BitArray`.
 pub type FromBytesError {
   /// The provided byte sequence does not contain exactly 8 bytes.
   InvalidByteCount(Int)
@@ -50,7 +50,7 @@ pub fn from_bytes_le(bytes: BitArray) -> Result(Uint64, FromBytesError) {
   }
 }
 
-/// Error that can occur when constructing a `Uint64` from an `Int`.
+/// An error that occurred while constructing a `Uint64` from an `Int`.
 pub type FromIntError {
   /// The value is negative and cannot be represented as an unsigned integer.
   NegativeValue
