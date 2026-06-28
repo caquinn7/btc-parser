@@ -87,7 +87,9 @@ fn validate_seed_arg(arg: String) -> Result(Int, FuzzArgsError) {
   }
 }
 
-pub fn run(command: FuzzCommand) -> Nil {
+/// Runs the fuzz harness, returning an error when any iteration discovers an
+/// unhandled exception.
+pub fn run(command: FuzzCommand) -> Result(Nil, Nil) {
   let #(iterations, rng_seed) = case command {
     CreateSeedAndIterate(iterations:) -> {
       io.println("Generating a random seed...\n")
@@ -124,6 +126,11 @@ pub fn run(command: FuzzCommand) -> Nil {
   fuzz_result
   |> report.to_string(exec_time)
   |> io.println
+
+  case fuzz_result.failures {
+    [] -> Ok(Nil)
+    [_, ..] -> Error(Nil)
+  }
 }
 
 fn read_seed_txs() -> List(SeedTx) {

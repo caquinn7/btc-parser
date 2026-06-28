@@ -19,9 +19,20 @@ pub fn main() {
 
 fn fuzz(args: List(String)) -> Nil {
   case fuzz_command.parse(args) {
-    Ok(command) -> fuzz_command.run(command)
-    Error(InvalidNumberOfArgs) -> io.println(usage_msg)
-    Error(InvalidValue(msg)) -> io.println(msg)
+    Ok(command) -> {
+      case fuzz_command.run(command) {
+        Ok(Nil) -> Nil
+        Error(Nil) -> exit_failure()
+      }
+    }
+    Error(InvalidNumberOfArgs) -> {
+      io.println(usage_msg)
+      exit_failure()
+    }
+    Error(InvalidValue(msg)) -> {
+      io.println(msg)
+      exit_failure()
+    }
   }
 }
 
@@ -31,3 +42,7 @@ fn perf(args: List(String)) -> Nil {
     Error(Nil) -> io.println(usage_msg)
   }
 }
+
+@external(erlang, "btc_tx_dev_ffi", "exit_failure")
+@external(javascript, "./btc_tx_dev_ffi.mjs", "exitFailure")
+fn exit_failure() -> Nil
