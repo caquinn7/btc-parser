@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Generate seed
         id: generate
-        run: echo "seed=$(od -An -N4 -tu4 < /dev/urandom | tr -d ' \n')" >> "$GITHUB_OUTPUT"
+        run: echo "seed=$(od -An -N4 -td4 < /dev/urandom | tr -d ' \n')" >> "$GITHUB_OUTPUT"
 
   fuzz:
     runs-on: ubuntu-latest
@@ -39,10 +39,12 @@ jobs:
         with:
           js_runtime: ${{ matrix.js_runtime }}
 
-      - name: Run fuzz tests
+      - name: Download dependencies
+        run: gleam deps download
+
+      - name: Run fuzz test
         timeout-minutes: 5
         run: |
-          gleam deps download
           if [ "${{ matrix.target }}" = "javascript" ]; then
             gleam dev --target javascript --runtime ${{ matrix.js_runtime }} fuzz 100000 ${{ needs.seed.outputs.seed }}
           else
