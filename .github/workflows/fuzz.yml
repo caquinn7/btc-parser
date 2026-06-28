@@ -42,7 +42,7 @@ jobs:
       - name: Download dependencies
         run: gleam deps download
 
-      - name: Run fuzz tests
+      - name: Run fuzz test
         timeout-minutes: 5
         run: |
           if [ "${{ matrix.target }}" = "javascript" ]; then
