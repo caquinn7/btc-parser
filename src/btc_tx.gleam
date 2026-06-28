@@ -40,35 +40,26 @@ pub type ContextFreeValidated
 /// (pre-SegWit) or SegWit, which affects whether witness data is present
 /// in the serialized structure.
 pub opaque type Transaction(validation_state) {
-  /// A legacy (non-SegWit) transaction.
-  ///
-  /// Legacy transactions serialize all fields in a single flat structure
-  /// with no witness data.
   Legacy(
-    /// The transaction version number.
+    /// The signed 32-bit transaction version.
     version: Int,
-    /// The list of transaction inputs.
+    /// The transaction inputs in wire order.
     inputs: List(TxIn),
-    /// The list of transaction outputs.
+    /// The transaction outputs in wire order.
     outputs: List(TxOut),
-    /// The transaction lock time.
+    /// The unsigned 32-bit lock-time value.
     lock_time: Int,
   )
-
-  /// A SegWit transaction.
-  ///
-  /// SegWit transactions extend the legacy format
-  /// with a separate witness data section.
   Segwit(
-    /// The transaction version number.
+    /// The signed 32-bit transaction version.
     version: Int,
-    /// The list of transaction inputs.
+    /// The transaction inputs in wire order.
     inputs: List(TxIn),
-    /// The list of transaction outputs.
+    /// The transaction outputs in wire order.
     outputs: List(TxOut),
-    /// The transaction lock time.
+    /// The unsigned 32-bit lock-time value.
     lock_time: Int,
-    /// The witness stack for each input, indexed by input position.
+    /// One witness stack per input, in input order.
     witnesses: List(WitnessStack),
   )
 }
@@ -76,9 +67,6 @@ pub opaque type Transaction(validation_state) {
 /// Get the version number from a transaction.
 ///
 /// The version number indicates the transaction format and rules that apply.
-///
-/// Unknown or future version values are permitted by Bitcoin consensus rules,
-/// so the decoder does not reject transactions with unrecognized versions.
 pub fn get_version(tx: Transaction(v)) -> Int {
   tx.version
 }
@@ -154,12 +142,15 @@ pub fn get_outputs(tx: Transaction(v)) -> List(TxOut) {
   tx.outputs
 }
 
-/// Get the lock time from a transaction.
+/// Get the unsigned 32-bit lock-time value from a transaction.
 ///
-/// Lock time specifies when this transaction is valid:
-/// - Values less than 500,000,000 are interpreted as block heights
-/// - Values greater than or equal to 500,000,000 are interpreted as Unix timestamps
-/// - A value of 0 means the transaction is valid immediately
+/// Values less than 500,000,000 encode block heights, values greater than or
+/// equal to 500,000,000 encode Unix timestamps, and zero encodes no lock-time
+/// constraint.
+///
+/// Whether this value constrains transaction finality also depends on the input
+/// sequence numbers and block context. This library exposes the value without
+/// evaluating finality.
 pub fn get_lock_time(tx: Transaction(v)) -> Int {
   tx.lock_time
 }
@@ -185,17 +176,11 @@ pub fn get_witnesses(tx: Transaction(v)) -> Result(List(WitnessStack), Nil) {
 /// required to satisfy that output’s spending conditions.
 pub opaque type TxIn {
   TxIn(
-    /// The previous output being spent, or a coinbase marker.
+    /// The previous-output reference, or a coinbase marker.
     prev_out: PrevOut,
-    /// The unlocking script (scriptSig) for this input.
-    ///
-    /// This script is evaluated together with the referenced output’s
-    /// scriptPubKey during script execution.
+    /// The raw scriptSig bytes for this input.
     script_sig: ScriptBytes(InputScript),
-    /// The sequence number associated with this input.
-    ///
-    /// Sequence numbers are used for relative lock-time semantics and
-    /// transaction replacement rules.
+    /// The unsigned 32-bit sequence value encoded for this input.
     sequence: Int,
   )
 }
@@ -206,28 +191,31 @@ pub fn get_input_prev_out(input: TxIn) -> PrevOut {
 }
 
 /// Get the sequence number from an input.
+/// 
+/// Sequence values can participate in relative lock-time consensus rules and
+/// transaction replacement policy. This library exposes the value without
+/// interpreting those semantics.
 pub fn get_input_sequence(input: TxIn) -> Int {
   input.sequence
 }
 
 /// Get the scriptSig from an input.
+/// 
+/// For non-coinbase inputs, the scriptSig may provide data used during script
+/// execution. This library does not execute or validate scripts.
 pub fn get_input_script_sig(input: TxIn) -> ScriptBytes(InputScript) {
   input.script_sig
 }
 
-/// A reference to a previous transaction output.
+/// A previous-output reference carried by a transaction input.
 ///
-/// This identifies the output being consumed by a transaction input.
+/// For ordinary inputs, this identifies the output being spent. For coinbase
+/// inputs, it contains the null-outpoint marker and references no output.
 pub opaque type PrevOut {
   /// A special marker used by coinbase transactions.
-  ///
-  /// Coinbase inputs do not reference a previous transaction output.
   NullOutPoint
 
   /// A reference to a specific output of a previous transaction.
-  ///
-  /// `txid` identifies the transaction, and `vout` is the zero-based index
-  /// of the output within that transaction.
   OutPoint(txid: Hash32, vout: Int)
 }
 
@@ -267,9 +255,10 @@ pub fn prev_out_is_null_outpoint(prev_out: PrevOut) -> Bool {
 
 /// A witness stack for a single transaction input.
 ///
-/// Each SegWit input has an associated witness stack containing the items
-/// needed to satisfy its spending conditions. The number and interpretation
-/// of these items depends on the witness program being executed.
+/// Each input in a SegWit transaction has an associated stack of byte sequences
+/// supplied as witness data. Their interpretation depends on the spending
+/// conditions. This library exposes the items without executing or validating
+/// them.
 pub opaque type WitnessStack {
   WitnessStack(List(WitnessItem))
 }
@@ -295,8 +284,9 @@ pub fn witness_stack_is_empty(stack: WitnessStack) -> Bool {
 
 /// A single item from a witness stack.
 ///
-/// Witness items are arbitrary byte sequences (e.g., public keys, signatures,
-/// or script data) whose meaning is determined by the witness program.
+/// A witness item is an arbitrary byte sequence that may represent a public
+/// key, signature, script, or other data. Its meaning is context-dependent;
+/// this library does not interpret it.
 pub opaque type WitnessItem {
   WitnessItem(BitArray)
 }
@@ -309,35 +299,36 @@ pub fn get_witness_item_bytes(item: WitnessItem) -> BitArray {
 
 /// A transaction output.
 ///
-/// An output assigns a value and specifies the conditions under which that
-/// value may be spent in the future.
+/// An output contains an encoded value and a raw scriptPubKey. Decoding alone
+/// does not establish that the value is within the consensus money range or
+/// that the script's spending conditions can be satisfied.
 pub opaque type TxOut {
   TxOut(
-    /// The number of satoshis assigned to this output.
+    /// The signed output value in satoshis decoded from the wire.
     value: Int,
-    /// The locking script (scriptPubKey) defining the spending conditions.
+    /// The raw scriptPubKey bytes for this output.
     script_pubkey: ScriptBytes(OutputScript),
   )
 }
 
-/// Get the value assigned to a transaction output.
+/// Get the decoded value from a transaction output.
 ///
-/// Returns the number of satoshis that will be available to spend if the
-/// output's spending conditions (specified by scriptPubKey) are satisfied.
+/// For an output from a `Transaction(Parsed)`, this value may be negative or
+/// exceed Bitcoin's consensus money range. Use
+/// `validate_context_free_consensus` to check the transaction's output values.
 pub fn get_output_value(output: TxOut) -> Int {
   output.value
 }
 
-/// Get the locking script from a transaction output.
+/// Get the raw scriptPubKey from a transaction output.
 ///
-/// Returns the scriptPubKey that defines the conditions under which this
-/// output may be spent. The script is interpreted together with a spending
-/// input's scriptSig during script validation.
+/// A scriptPubKey encodes the conditions for spending an output. This library
+/// exposes the script bytes without executing or validating them.
 pub fn get_output_script_pubkey(output: TxOut) -> ScriptBytes(OutputScript) {
   output.script_pubkey
 }
 
-/// Phantom type tag for `ScriptBytes` — marks a scriptSig (input unlocking script).
+/// Phantom type tag for `ScriptBytes` — marks bytes from an input's scriptSig.
 pub type InputScript
 
 /// Phantom type tag for `ScriptBytes` — marks a scriptPubKey (output locking script).
@@ -384,9 +375,10 @@ pub fn get_script_size(script: ScriptBytes(k)) -> Int {
 /// parameters, or `OP_RETURN` payloads. Call `get_raw_script_bytes` when caller
 /// code needs to perform additional script-specific analysis.
 pub type OutputScriptType {
-  /// Pay-to-public-key. The script directly commits to a public key and uses
-  /// `OP_CHECKSIG` for validation. Accepts both compressed (33-byte) and
-  /// uncompressed (65-byte) public keys.
+  /// Pay-to-public-key template.
+  ///
+  /// Structurally matches a 33- or 65-byte key payload followed by
+  /// `OP_CHECKSIG`. The classifier does not validate the public key encoding.
   P2PK
 
   /// Pay-to-public-key-hash. The most common legacy output type.
@@ -406,8 +398,12 @@ pub type OutputScriptType {
   /// Pay-to-taproot. SegWit v1 output supporting key-path and script-path spends.
   P2TR
 
-  /// Bare m-of-n multisig. Uses `OP_CHECKMULTISIG` directly in the
-  /// `scriptPubKey`. Bitcoin Core allows 1–3 keys and 1–3 required signatures.
+  /// Bare m-of-n multisig template using `OP_CHECKMULTISIG` directly in the
+  /// `scriptPubKey`.
+  ///
+  /// Structurally matches 1–3 key payloads and 1–3 required signatures. The
+  /// classifier validates the template layout and counts, not public key
+  /// encoding.
   Multisig
 
   /// Standard null-data output as defined by Bitcoin Core relay policy.
@@ -456,15 +452,15 @@ pub type OutputScriptType {
 /// ├─ 00 14 [×20]                           → P2WPKH
 /// ├─ 00 20 [×32]                           → P2WSH
 /// ├─ 51 20 [×32]                           → P2TR
-/// ├─ 21 [×33] AC                           → P2PK (compressed)
-/// ├─ 41 [×65] AC                           → P2PK (uncompressed)
+/// ├─ 21 [×33] AC                           → P2PK (33-byte payload)
+/// ├─ 41 [×65] AC                           → P2PK (65-byte payload)
 /// ├─ 6A …                                  (OP_RETURN prefix)
 /// │   ├─ total ≤ 83 bytes AND push-only    → NullData
 /// │   └─ otherwise                         → NonStandard
 /// └─ (none matched)
 ///     ├─ [51–60] [02–28] [×push_length]    → UnknownWitness(version)
-///     └─ valid m-of-n (1≤m≤n≤3)
-///         ├─ AND pubkey count matches n    → Multisig
+///     └─ structural m-of-n (1≤m≤n≤3)
+///         ├─ AND key-payload count = n     → Multisig
 ///         └─ otherwise                     → NonStandard
 /// ```
 ///
@@ -681,8 +677,8 @@ fn decode_small_int_opcode(opcode: Int) -> Int {
 
 /// An error that occurred while decoding a Bitcoin transaction.
 ///
-/// This error type distinguishes between failures that occur during hex-to-bytes
-/// conversion and failures that occur during transaction parsing.
+/// Distinguishes failures during hex-to-bytes conversion from failures during
+/// transaction parsing.
 pub type DecodeError {
   /// The hexadecimal string could not be converted to bytes.
   ///
@@ -699,16 +695,15 @@ pub type DecodeError {
 
 /// An error that occurred while parsing a Bitcoin transaction.
 ///
-/// This opaque type contains details about what went wrong during parsing,
-/// including the byte offset where the error occurred, the kind of error,
-/// and the parsing context (which fields or structures were being parsed).
+/// Carries the byte offset where the error occurred, the kind of error, and the
+/// parsing context identifying which fields or structures were being parsed.
 pub opaque type ParseError {
   ParseError(offset: Int, kind: ParseErrorKind, ctx: List(ParseContext))
 }
 
 /// The specific kind of error that occurred during parsing.
 ///
-/// This type categorizes parsing failures into distinct categories.
+/// Categorizes parsing failures into distinct variants.
 pub type ParseErrorKind {
   /// The input ended before enough bytes could be read.
   ///
@@ -990,47 +985,19 @@ fn reader_error_to_kind(err: reader.ReaderError) -> ParseErrorKind {
 /// - `decode_with_policy` to apply a custom policy
 pub opaque type DecodePolicy {
   DecodePolicy(
-    /// Maximum size in bytes of the serialized transaction.
-    ///
-    /// This is the primary resource constraint and is enforced before parsing begins.
-    /// Transactions exceeding this size are rejected immediately to prevent excessive
-    /// memory allocation and processing time.
-    ///
-    /// Some consensus-valid transactions exceed this limit.
+    /// Maximum byte size accepted by the decoder, checked before parsing.
     max_tx_size: Int,
-    /// Maximum number of transaction inputs allowed.
-    /// 
-    /// Exceeding this causes the parser to reject the transaction
-    /// before allocating storage for the full input list.
+    /// Maximum decoded input count.
     max_vin_count: Int,
-    /// Maximum number of transaction outputs allowed.
-    /// 
-    /// Exceeding this causes the parser to reject the transaction
-    /// before allocating storage for the full output list.
+    /// Maximum decoded output count.
     max_vout_count: Int,
-    /// Maximum size in bytes for an individual transaction script
-    /// (`scriptSig` or `scriptPubKey`).
-    ///
-    /// This limit applies per script and prevents unbounded memory
-    /// allocation when reading script data.
+    /// Maximum raw byte size of each scriptSig or scriptPubKey, excluding its
+    /// CompactSize length prefix.
     max_script_size: Int,
-    /// Maximum number of witness stack items allowed for a single input.
-    ///
-    /// This limits the number of elements in the witness stack, preventing
-    /// excessive iteration or allocation when processing inputs with many
-    /// small items.
-    /// 
-    /// Set to `None` to disable this limit.
+    /// Maximum witness item count per input, or `None` for no limit.
     max_witness_items_per_input: Option(Int),
-    /// Maximum total size in bytes across all witness items for a single input.
-    ///
-    /// This is the sum of the byte lengths of all witness items and does not
-    /// include length prefixes.
-    ///
-    /// This caps the total size of witness data per input,
-    /// preventing many small items from accumulating into an excessively large total.
-    ///
-    /// Set to `None` to disable this limit.
+    /// Maximum witness-item payload bytes per input, excluding length prefixes,
+    /// or `None` for no limit.
     max_witness_size_per_input: Option(Int),
   )
 }
@@ -1177,9 +1144,8 @@ pub fn decode_policy_max_witness_size_per_input(
 /// ## Returns
 ///
 /// - `Ok(Transaction(Parsed))`: Successfully decoded transaction.
-/// - `Error(DecodeError)`: The bytes could not be parsed as a valid transaction.
-///   This includes malformed data, unexpected end of input, or violations of
-///   the policy limits.
+/// - `Error(DecodeError)`: The bytes were not a well-formed transaction encoding
+///   within the policy limits.
 ///
 /// ## Example
 ///
@@ -1206,7 +1172,7 @@ pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), DecodeError) {
 /// ## Returns
 ///
 /// - `Ok(Transaction(Parsed))`: Successfully decoded transaction within policy limits.
-/// - `Error(DecodeError)`: The bytes could not be parsed or exceeded policy limits.
+/// - `Error(DecodeError)`: The bytes were malformed or exceeded policy limits.
 pub fn decode_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
@@ -1264,14 +1230,15 @@ fn tx_parser(
 /// vectors.
 ///
 /// This function applies `default_decode_policy` for parsing limits.
-/// For custom parsing limits, use `decode_with_policy` instead.
+/// For custom parsing limits, use `decode_hex_with_policy` instead.
 ///
 /// ## Returns
 ///
 /// - `Ok(Transaction(Parsed))`: Successfully decoded transaction.
 /// - `Error(HexToBytesFailed)`: The hex string was invalid (odd length or
 ///   invalid characters).
-/// - `Error(ParseFailed(_))`: The bytes could not be parsed as a valid transaction.
+/// - `Error(ParseFailed(_))`: The decoded bytes were not a well-formed
+///   transaction encoding within the policy limits.
 ///
 /// ## Example
 ///
@@ -1280,7 +1247,7 @@ fn tx_parser(
 /// case decode_hex(hex) {
 ///   Ok(tx) -> // Transaction successfully parsed
 ///   Error(HexToBytesFailed) -> // Invalid hex string
-///   Error(ParseFailed(err)) -> // Valid hex but invalid transaction
+///   Error(ParseFailed(err)) -> // Valid hex but malformed transaction encoding
 /// }
 /// ```
 pub fn decode_hex(hex: String) -> Result(Transaction(Parsed), DecodeError) {
@@ -1301,7 +1268,8 @@ pub fn decode_hex(hex: String) -> Result(Transaction(Parsed), DecodeError) {
 /// - `Ok(Transaction(Parsed))`: Successfully decoded transaction within policy limits.
 /// - `Error(HexToBytesFailed)`: The hex string was invalid (odd length or
 ///   invalid characters).
-/// - `Error(ParseFailed(_))`: The bytes could not be parsed or exceeded policy limits.
+/// - `Error(ParseFailed(_))`: The decoded bytes were malformed or exceeded
+///   policy limits.
 pub fn decode_hex_with_policy(
   hex: String,
   policy: DecodePolicy,
