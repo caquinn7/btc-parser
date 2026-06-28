@@ -60,8 +60,12 @@ context, mempool policy, or network/RPC access unless the project scope changes.
   `BitArray` or integer behavior, runtime config, file/timer/CLI behavior, or a
   runtime-specific bug.
 
-Run both Erlang and at least one JavaScript runtime for meaningful code changes;
-the number of target-specific tests is small, but almost all tests run on every target.
+Run unit tests on both Erlang and at least one JavaScript runtime for meaningful
+library code changes; the number of target-specific tests is small, but almost
+all tests run on every target. Changes confined to the fuzz or perf harnesses do
+not require running the unit test suite; validate the affected harness directly
+on the appropriate targets and runtimes instead. Run unit tests when the same
+change also touches library code or shared behavior covered by those tests.
 Run all JavaScript runtimes before publishing a package release, changing public
 API behavior, or touching runtime-sensitive code such as `BitArray`, fixed-width
 integers, CompactSize, serialization, hashing, or FFI.

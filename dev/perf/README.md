@@ -58,6 +58,9 @@ gleam dev --target javascript --runtime deno perf
 gleam dev --target javascript --runtime bun perf
 ```
 
+The command exits with a nonzero status when its arguments are invalid or a
+requested report cannot be written.
+
 ## Decode
 
 `decode / fixtures` measures real transaction fixtures. These rows are smoke

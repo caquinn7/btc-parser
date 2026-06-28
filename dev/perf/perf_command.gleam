@@ -68,30 +68,38 @@ fn parse_perf_report_format(format: String) -> Result(PerfReportFormat, Nil) {
   }
 }
 
-pub fn run(command: PerfCommand) -> Nil {
+/// Runs the performance suite, returning an error when a requested report
+/// cannot be written.
+pub fn run(command: PerfCommand) -> Result(Nil, FileError) {
   io.println("Executing performance tests...\n")
 
   let perf_result = perf.run()
 
   case command {
-    PrintPerfReport ->
+    PrintPerfReport -> {
       perf_result
       |> report.to_string
       |> io.println
 
-    WritePerfReport(path, format) -> {
-      let contents = render_perf_report(perf_result, format)
+      Ok(Nil)
+    }
 
-      case write_perf_report(path, contents) {
-        Ok(Nil) -> io.println("Saved performance report to " <> path)
-        Error(error) ->
-          io.println(
-            "Failed to write performance report to "
-            <> path
-            <> ": "
-            <> string.inspect(error),
-          )
-      }
+    WritePerfReport(path, format) -> {
+      path
+      |> write_perf_report(render_perf_report(perf_result, format))
+      |> result.map(fn(_) {
+        io.println("Saved performance report to " <> path)
+        Nil
+      })
+      |> result.map_error(fn(err) {
+        io.println(
+          "Failed to write performance report to "
+          <> path
+          <> ": "
+          <> string.inspect(err),
+        )
+        err
+      })
     }
   }
 }
