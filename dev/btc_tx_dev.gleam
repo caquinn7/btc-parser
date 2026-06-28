@@ -38,8 +38,16 @@ fn fuzz(args: List(String)) -> Nil {
 
 fn perf(args: List(String)) -> Nil {
   case perf_command.parse(args) {
-    Ok(command) -> perf_command.run(command)
-    Error(Nil) -> io.println(usage_msg)
+    Ok(command) -> {
+      case perf_command.run(command) {
+        Ok(Nil) -> Nil
+        Error(_) -> exit_failure()
+      }
+    }
+    Error(Nil) -> {
+      io.println(usage_msg)
+      exit_failure()
+    }
   }
 }
 
