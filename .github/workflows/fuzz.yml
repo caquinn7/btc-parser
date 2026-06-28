@@ -39,10 +39,12 @@ jobs:
         with:
           js_runtime: ${{ matrix.js_runtime }}
 
+      - name: Download dependencies
+        run: gleam deps download
+
       - name: Run fuzz tests
         timeout-minutes: 5
         run: |
-          gleam deps download
           if [ "${{ matrix.target }}" = "javascript" ]; then
             gleam dev --target javascript --runtime ${{ matrix.js_runtime }} fuzz 100000 ${{ needs.seed.outputs.seed }}
           else

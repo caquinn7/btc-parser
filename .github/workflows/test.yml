@@ -42,9 +42,11 @@ jobs:
         with:
           js_runtime: ${{ matrix.js_runtime }}
 
+      - name: Download dependencies
+        run: gleam deps download
+
       - name: Run tests
         run: |
-          gleam deps download
           if [ "${{ matrix.target }}" = "javascript" ]; then
             gleam test --target javascript --runtime ${{ matrix.js_runtime }}
           else
