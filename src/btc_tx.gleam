@@ -467,12 +467,11 @@ pub type OutputScriptType {
 /// ## Example
 ///
 /// ```gleam
-/// let script_pubkey = get_output_script_pubkey(output)
-/// case classify_output_script(script_pubkey) {
-///   P2WPKH | P2WSH | P2TR -> handle_native_segwit(output)
-///   P2PKH | P2SH -> handle_legacy(output)
-///   UnknownWitness(v) -> handle_future_witness(v, output)
-///   _ -> handle_other(output)
+/// fn wallet_supports_output(output: TxOut) -> Bool {
+///   case classify_output_script(get_output_script_pubkey(output)) {
+///     P2WPKH | P2TR -> True
+///     _ -> False
+///   }
 /// }
 /// ```
 pub fn classify_output_script(
@@ -855,18 +854,6 @@ pub type Field {
 /// The offset is a zero-based position into the input buffer, indicating
 /// where the parser was reading when it encountered the error. This is useful
 /// for debugging and error reporting.
-///
-/// ## Example
-///
-/// ```gleam
-/// case decode(malformed_bytes) {
-///   Error(ParseFailed(err)) -> {
-///     let offset = parse_error_offset(err)
-///     // offset: 42 (error occurred at byte position 42)
-///   }
-///   _ -> // ...
-/// }
-/// ```
 pub fn parse_error_offset(err: ParseError) -> Int {
   err.offset
 }
@@ -881,12 +868,12 @@ pub fn parse_error_offset(err: ParseError) -> Int {
 ///
 /// ```gleam
 /// fn is_truncated(error: ParseError) -> Bool {
-///  case parse_error_kind(error) {
-///    UnexpectedEof(_, _) -> True
-///    InsufficientBytes(_, _) -> True
-///    _ -> False
-///  }
-///}
+///   case parse_error_kind(error) {
+///     UnexpectedEof(_, _) -> True
+///     InsufficientBytes(_, _) -> True
+///     _ -> False
+///   }
+/// }
 /// ```
 pub fn parse_error_kind(err: ParseError) -> ParseErrorKind {
   err.kind
@@ -899,18 +886,8 @@ pub fn parse_error_kind(err: ParseError) -> ParseErrorKind {
 /// to most specific (innermost), providing a "stack trace" through the parsing
 /// process.
 ///
-/// ## Example
-///
-/// ```gleam
-/// case decode(malformed_bytes) {
-///   Error(ParseFailed(err)) -> {
-///     let ctx = parse_error_ctx(err)
-///     // ctx: [InTransaction, InInputs, AtInput(2), AtField(ScriptSigLength)]
-///     // Means: failed at the scriptSig length prefix of input #2 (zero-based)
-///   }
-///   _ -> // ...
-/// }
-/// ```
+/// For example, failure at the scriptSig length prefix of the third input can
+/// produce `[InTransaction, InInputs, AtInput(2), AtField(ScriptSigLength)]`.
 pub fn parse_error_ctx(err: ParseError) -> List(ParseContext) {
   err.ctx
 }
