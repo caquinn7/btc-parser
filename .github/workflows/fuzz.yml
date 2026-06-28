@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Generate seed
         id: generate
-        run: echo "seed=$(od -An -N4 -tu4 < /dev/urandom | tr -d ' \n')" >> "$GITHUB_OUTPUT"
+        run: echo "seed=$(od -An -N4 -td4 < /dev/urandom | tr -d ' \n')" >> "$GITHUB_OUTPUT"
 
   fuzz:
     runs-on: ubuntu-latest
