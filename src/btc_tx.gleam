@@ -191,7 +191,7 @@ pub fn get_input_prev_out(input: TxIn) -> PrevOut {
 }
 
 /// Get the sequence number from an input.
-/// 
+///
 /// Sequence values can participate in relative lock-time consensus rules and
 /// transaction replacement policy. This library exposes the value without
 /// interpreting those semantics.
@@ -200,7 +200,7 @@ pub fn get_input_sequence(input: TxIn) -> Int {
 }
 
 /// Get the scriptSig from an input.
-/// 
+///
 /// For non-coinbase inputs, the scriptSig may provide data used during script
 /// execution. This library does not execute or validate scripts.
 pub fn get_input_script_sig(input: TxIn) -> ScriptBytes(InputScript) {
@@ -1143,20 +1143,11 @@ pub fn decode_policy_max_witness_size_per_input(
 ///
 /// ## Returns
 ///
-/// - `Ok(Transaction(Parsed))`: Successfully decoded transaction.
-/// - `Error(DecodeError)`: The bytes were not a well-formed transaction encoding
-///   within the policy limits.
-///
-/// ## Example
-///
-/// ```gleam
-/// let tx_bytes = <<0x01, 0x00, 0x00, 0x00, ...>>
-/// case decode(tx_bytes) {
-///   Ok(tx) -> // Transaction successfully parsed
-///   Error(ParseFailed(err)) -> // Handle parse error
-///   Error(HexToBytesFailed) -> // Won't occur with direct bytes
-/// }
-/// ```
+/// - `Ok(Transaction(Parsed))`: Successfully decoded within the default policy limits.
+/// - `Error(ParseFailed(error))`: The bytes were not a well-formed transaction
+///   encoding within the default policy limits.
+/// - `Error(HexToBytesFailed)`: Never returned by this function; used only by
+///   the hexadecimal decoding functions.
 pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), DecodeError) {
   decode_with_policy(bytes, default_decode_policy())
 }
@@ -1171,8 +1162,11 @@ pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), DecodeError) {
 ///
 /// ## Returns
 ///
-/// - `Ok(Transaction(Parsed))`: Successfully decoded transaction within policy limits.
-/// - `Error(DecodeError)`: The bytes were malformed or exceeded policy limits.
+/// - `Ok(Transaction(Parsed))`: Successfully decoded within the supplied policy limits.
+/// - `Error(ParseFailed(error))`: The bytes were not a well-formed transaction
+///   encoding within the supplied policy limits.
+/// - `Error(HexToBytesFailed)`: Never returned by this function; used only by
+///   the hexadecimal decoding functions.
 pub fn decode_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
@@ -1234,22 +1228,11 @@ fn tx_parser(
 ///
 /// ## Returns
 ///
-/// - `Ok(Transaction(Parsed))`: Successfully decoded transaction.
+/// - `Ok(Transaction(Parsed))`: Successfully decoded within the default policy limits.
 /// - `Error(HexToBytesFailed)`: The hex string was invalid (odd length or
 ///   invalid characters).
-/// - `Error(ParseFailed(_))`: The decoded bytes were not a well-formed
-///   transaction encoding within the policy limits.
-///
-/// ## Example
-///
-/// ```gleam
-/// let hex = "0100000001..."
-/// case decode_hex(hex) {
-///   Ok(tx) -> // Transaction successfully parsed
-///   Error(HexToBytesFailed) -> // Invalid hex string
-///   Error(ParseFailed(err)) -> // Valid hex but malformed transaction encoding
-/// }
-/// ```
+/// - `Error(ParseFailed(error))`: The decoded bytes were not a well-formed
+///   transaction encoding within the default policy limits.
 pub fn decode_hex(hex: String) -> Result(Transaction(Parsed), DecodeError) {
   hex
   |> hex_to_bytes
@@ -1265,11 +1248,11 @@ pub fn decode_hex(hex: String) -> Result(Transaction(Parsed), DecodeError) {
 ///
 /// ## Returns
 ///
-/// - `Ok(Transaction(Parsed))`: Successfully decoded transaction within policy limits.
+/// - `Ok(Transaction(Parsed))`: Successfully decoded within the supplied policy limits.
 /// - `Error(HexToBytesFailed)`: The hex string was invalid (odd length or
 ///   invalid characters).
-/// - `Error(ParseFailed(_))`: The decoded bytes were malformed or exceeded
-///   policy limits.
+/// - `Error(ParseFailed(error))`: The decoded bytes were not a well-formed
+///   transaction encoding within the supplied policy limits.
 pub fn decode_hex_with_policy(
   hex: String,
   policy: DecodePolicy,
