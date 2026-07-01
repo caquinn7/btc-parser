@@ -31,11 +31,11 @@ No security guarantees are provided.
 - **Context-free consensus validation**: Check transaction-local consensus rules
   such as input/output presence, output value ranges, coinbase structure, and duplicate inputs
 
-- **Validation-aware API**: Separate parsed transactions from operations that
-  require context-free validation
+- **Validation-aware API**: Phantom types distinguish parsed transactions from
+  transactions that have passed context-free consensus validation
 
-- **Serialization**: Serialize context-free-validated transactions in stripped
-  or full wire form, and compute their txid and wtxid
+- **Serialization**: Serialize decoded transactions in stripped or full wire
+  form, and compute their txid and wtxid
 
 - **Cross-runtime**: Supports both Erlang and JavaScript targets
 
@@ -50,21 +50,12 @@ gleam add btc_tx@1
 import btc_tx
 import gleam/result
 
-pub type TxidError {
-  DecodeFailed(btc_tx.DecodeError)
-  ConsensusValidationFailed(List(btc_tx.ConsensusViolation))
-}
-
-pub fn txid_from_bytes(bytes: BitArray) -> Result(BitArray, TxidError) {
+pub fn txid_from_bytes(
+  bytes: BitArray,
+) -> Result(BitArray, btc_tx.DecodeError) {
   bytes
   |> btc_tx.decode
-  |> result.map_error(DecodeFailed)
-  |> result.try(fn(tx) {
-    tx
-    |> btc_tx.validate_context_free_consensus
-    |> result.map_error(ConsensusValidationFailed)
-    |> result.map(btc_tx.compute_txid)
-  })
+  |> result.map(btc_tx.compute_txid)
 }
 ```
 
