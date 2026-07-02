@@ -3,11 +3,11 @@
 ////  The goal is to guarantee that *any* byte input results in either a correct
 ////  parse or a well-defined error — never an unhandled exception. Each run
 ////  receives a corpus of real Bitcoin transactions, applies random structural
-////  mutations, and exercises the full decode → validate → classify → txid
-////  pipeline. Using real transactions as a baseline produces higher-quality
-////  mutations than pure random bytes: they are structurally plausible, so
-////  mutations are more likely to reach deep parser paths rather than being
-////  rejected at early boundary checks.
+////  mutations, and exercises decoding, validation, inspection, serialization,
+////  and txid/wtxid computation. Using real transactions as a baseline produces
+////  higher-quality mutations than pure random bytes: they are structurally
+////  plausible, so mutations are more likely to reach deep parser paths rather
+////  than being rejected at early boundary checks.
 
 import btc_tx
 import exception.{type Exception}
@@ -43,7 +43,8 @@ pub type IterationFailure {
     mutated_tx: MutatedTx,
     /// Hex-encoded mutated transaction bytes for copying into regression tests.
     mutated_tx_hex: String,
-    /// Exception rescued from the decode, validate, classify, or txid pipeline.
+    /// Exception rescued while decoding, validating, inspecting, serializing,
+    /// or hashing the mutated transaction.
     exception: Exception,
   )
 }
@@ -99,9 +100,9 @@ pub type Mutation {
 /// provided deterministic RNG.
 ///
 /// Each iteration draws one transaction from `seed_txs` uniformly at random,
-/// applies a structural mutation, and runs the full decode → validate →
-/// classify → txid pipeline.  Any unhandled exception is recorded as an
-/// `IterationFailure` in the returned `FuzzResult`.
+/// applies a structural mutation, and exercises decoding plus the related
+/// validation, inspection, serialization, and hashing APIs. Any unhandled
+/// exception is recorded as an `IterationFailure` in the returned `FuzzResult`.
 ///
 /// The RNG's starting state is recorded in the returned `FuzzResult`. The
 /// returned `trace_hash` is an order-sensitive SHA-256 hash chain over every
@@ -190,24 +191,23 @@ fn run_iterations(
 fn run_decode(mutated_tx_bytes: BitArray) -> Nil {
   case btc_tx.decode(mutated_tx_bytes) {
     Ok(decoded_tx) -> {
-      case btc_tx.validate_context_free_consensus(decoded_tx) {
-        Ok(validated_tx) -> {
-          validated_tx
-          |> btc_tx.get_outputs
-          |> list.each(fn(txout) {
-            txout
-            |> btc_tx.get_output_script_pubkey
-            |> btc_tx.classify_output_script
-          })
+      let _ = btc_tx.validate_context_free_consensus(decoded_tx)
 
-          let _ = btc_tx.compute_txid(validated_tx)
-          let _ = btc_tx.compute_wtxid(validated_tx)
+      decoded_tx
+      |> btc_tx.get_outputs
+      |> list.each(fn(txout) {
+        txout
+        |> btc_tx.get_output_script_pubkey
+        |> btc_tx.classify_output_script
+      })
 
-          Nil
-        }
+      let _ = btc_tx.to_stripped_bytes(decoded_tx)
+      assert btc_tx.to_wire_bytes(decoded_tx) == mutated_tx_bytes
 
-        Error(_) -> Nil
-      }
+      let _ = btc_tx.compute_txid(decoded_tx)
+      let _ = btc_tx.compute_wtxid(decoded_tx)
+
+      Nil
     }
 
     Error(_) -> Nil

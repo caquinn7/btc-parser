@@ -2099,33 +2099,23 @@ fn validate_no_duplicate_inputs_loop(
 // Serialization
 // ==============================================================================
 
-/// Compute the transaction identifier (txid) for a context-free-validated
-/// transaction.
+/// Compute the transaction identifier (txid) for a transaction.
 ///
 /// Returns the 32 bytes of the txid in little-endian byte order, as they
 /// appear in Bitcoin transactions and on the wire.
-///
-/// **Requires validation**: Accepts only `Transaction(ContextFreeValidated)` to
-/// ensure the transaction has passed the context-free checks performed by
-/// `validate_context_free_consensus`.
-pub fn compute_txid(tx: Transaction(ContextFreeValidated)) -> BitArray {
+pub fn compute_txid(tx: Transaction(v)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
     |> to_stripped_bytes
     |> dsha256
 }
 
-/// Compute the witness transaction identifier (wtxid) for a
-/// context-free-validated transaction.
+/// Compute the witness transaction identifier (wtxid) for a transaction.
 ///
 /// Returns the 32 bytes of the wtxid in little-endian byte order, as they
 /// appear in Bitcoin transactions and on the wire. For legacy transactions,
 /// the wtxid is identical to the txid.
-///
-/// **Requires validation**: Accepts only `Transaction(ContextFreeValidated)` to
-/// ensure the transaction has passed the context-free checks performed by
-/// `validate_context_free_consensus`.
-pub fn compute_wtxid(tx: Transaction(ContextFreeValidated)) -> BitArray {
+pub fn compute_wtxid(tx: Transaction(v)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
     |> to_wire_bytes
@@ -2145,7 +2135,7 @@ pub fn compute_wtxid(tx: Transaction(ContextFreeValidated)) -> BitArray {
 ///
 /// - `compute_txid` — hashes this serialization to produce the txid
 /// - `to_wire_bytes` — the full wire serialization including witness data
-pub fn to_stripped_bytes(tx: Transaction(ContextFreeValidated)) -> BitArray {
+pub fn to_stripped_bytes(tx: Transaction(v)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
@@ -2183,7 +2173,7 @@ pub fn to_stripped_bytes(tx: Transaction(ContextFreeValidated)) -> BitArray {
 ///
 /// - `compute_wtxid` — hashes this serialization to produce the wtxid
 /// - `to_stripped_bytes` — the no-witness serialization used for the txid
-pub fn to_wire_bytes(tx: Transaction(ContextFreeValidated)) -> BitArray {
+pub fn to_wire_bytes(tx: Transaction(v)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))

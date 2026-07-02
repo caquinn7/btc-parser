@@ -10,14 +10,17 @@ This includes malformed, adversarial, and edge-case data, not just valid Bitcoin
 transactions.
 
 > **Core Goal:**  
-> Catch unhandled exceptions in the decode -> validate -> classify -> txid/wtxid
-> pipeline. Malformed input should return `Result` errors from the library, not
-> crash the process.
+> Catch unhandled exceptions while decoding, validating, inspecting, serializing,
+> and hashing mutated transaction input. Malformed input should return `Result`
+> errors from the library, not crash the process.
 
 The harness is not a semantic oracle. It does not verify that every malformed
 input returns a specific parse error kind, nor does it prove that every
 successfully decoded mutated transaction is semantically "correct." Focused unit
 tests cover exact error shapes and consensus-validation behavior.
+
+The harness does enforce one structural oracle: every successfully decoded
+transaction must serialize back to its exact original wire bytes.
 
 ---
 
@@ -94,9 +97,10 @@ selects one mutation, and applies that mutation to the selected transaction.
 Fuzz testing checks that:
 
 - `btc_tx.decode` handles mutated transaction bytes without unhandled exceptions
-- Successfully decoded and context-free-validated transactions can flow through
-  output script classification, txid, and wtxid APIs without unhandled
-  exceptions
+- Successfully decoded transactions can flow through context-free consensus
+  validation, output script classification, serialization, txid, and wtxid APIs
+  without unhandled exceptions, regardless of the validation result
+- Successfully decoded transactions serialize back to their exact input bytes
 
 ---
 
@@ -128,12 +132,15 @@ For each mutated input, the harness:
 
 - Calls `btc_tx.decode`
 - If decoding succeeds, calls `btc_tx.validate_context_free_consensus`
-- If context-free consensus validation succeeds, classifies every output script
+- Regardless of the validation result, classifies every output script
+- Serializes both stripped and full wire forms
+- Checks that the full wire serialization exactly matches the mutated input
 - Computes both txid and wtxid
 
 Any `Error(_)` returned by `decode` or `validate_context_free_consensus` is
-treated as a clean outcome. Any unhandled exception in that flow is reported as
-a fuzz failure with the mutated input hex needed for reproduction.
+treated as a clean outcome. A validation error does not stop the remaining APIs
+from being exercised. Any unhandled exception or wire round-trip mismatch is
+reported as a fuzz failure with the mutated input hex needed for reproduction.
 
 Use focused unit tests when exact failures matter, such as requiring
 `PolicyLimitExceeded`, `UnexpectedEof`, `NonMinimalCompactSize`, offsets, or
@@ -200,8 +207,9 @@ APIs by:
 - Feeding mutated transaction bytes into `btc_tx.decode`
 - Treating `decode` and `validate_context_free_consensus` `Error(_)` results as
   clean outcomes
-- Continuing successful decodes through context-free consensus validation,
-  output script classification, txid, and wtxid computation
+- Continuing every successful decode through context-free consensus validation,
+  output script classification, serialization, and txid/wtxid computation
+- Checking exact full-wire serialization round trips
 - Recording any unhandled exception with the run's initial RNG state, iteration,
   seed transaction txid, mutation, and mutated hex
 

@@ -5,10 +5,8 @@ intended to catch broad performance regressions in public transaction workflows,
 not to produce stable machine-independent numbers. Compare trends and relative
 changes within the same machine, target, and runtime.
 
-Input construction, hex decoding, preflight assertions, and context-free
-consensus validation needed to prepare context-free-validated transactions
-happen before timing begins. Timed rows
-measure only the operation named in the `case` column.
+Input construction, hex decoding, and preflight assertions happen before timing
+begins. Timed rows measure only the operation named in the `case` column.
 
 ## Commands
 
@@ -125,9 +123,8 @@ curve.
 ## Txid Computation
 
 `txid computation / fixtures` measures `compute_txid` and `compute_wtxid` on
-real validated fixtures. These rows cover common real shapes and the
-witness-heavy fixture where `wtxid` includes substantially more data than
-`txid`.
+real parsed fixtures. These rows cover common real shapes and the witness-heavy
+fixture where `wtxid` includes substantially more data than `txid`.
 
 `txid computation / synthetic inputs` measures `compute_txid` as legacy input
 count grows. It is meant to catch serialization or hashing regressions over
@@ -152,7 +149,7 @@ serialization and double-SHA256 must read those bytes.
 ## Serialization
 
 `serialization / fixtures` measures `to_stripped_bytes` and `to_wire_bytes`
-on real validated fixtures. These rows cover common real shapes and confirm the
+on real parsed fixtures. These rows cover common real shapes and confirm the
 legacy and SegWit serialization paths both stay healthy.
 
 `serialization / synthetic inputs` measures `to_stripped_bytes` as legacy input
