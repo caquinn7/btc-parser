@@ -2,10 +2,8 @@
 ////
 //// The suite measures repeated operations that callers are expected to pay for:
 //// decoding, context-free consensus validation, transaction id computation, and
-//// serialization. Input construction, hex decoding, preflight assertions, and
-//// context-free consensus validation needed to prepare
-//// `Transaction(ContextFreeValidated)` values are intentionally performed
-//// before timing begins.
+//// serialization. Input construction, hex decoding, and preflight assertions
+//// are intentionally performed before timing begins.
 ////
 //// Benchmark cases run one or more logical operations per timed call. Fast
 //// cases use larger batches to reduce timer overhead; slower cases can use
@@ -14,9 +12,8 @@
 //// `decode` or one `compute_txid` call.
 
 import btc_tx.{
-  type ContextFreeValidated, type Parsed, type Transaction, DuplicateInput,
-  InsufficientBytes, ParseFailed, PolicyLimitExceeded,
-  TotalOutputValueOutOfRange, UnexpectedEof,
+  type Parsed, type Transaction, DuplicateInput, InsufficientBytes, ParseFailed,
+  PolicyLimitExceeded, TotalOutputValueOutOfRange, UnexpectedEof,
 }
 import gleam/bit_array
 import gleam/float
@@ -794,9 +791,9 @@ fn preflight_validate_context_free_consensus(
 // Txid computation & serialization
 // ==============================================================================
 
-/// Measures `compute_txid` and `compute_wtxid` on already-validated
-/// transactions. This excludes decode and consensus-validation cost, leaving
-/// serialization and double-SHA256 work inside the timed region.
+/// Measures `compute_txid` and `compute_wtxid` on already-parsed transactions.
+/// This excludes decode cost, leaving serialization and double-SHA256 work
+/// inside the timed region.
 fn measure_txid_computation() -> List(PerfSection) {
   [
     measure_fixture_txid_computation(),
@@ -811,10 +808,7 @@ fn measure_txid_computation() -> List(PerfSection) {
 fn measure_fixture_txid_computation() -> PerfSection {
   PerfSection(
     "txid computation / fixtures",
-    measure_txid_functions(
-      fixture_validated_tx_cases(),
-      measurement_config(100),
-    ),
+    measure_txid_functions(fixture_parsed_tx_cases(), measurement_config(100)),
   )
 }
 
@@ -854,13 +848,13 @@ fn measure_synthetic_witness_payload_txid_computation() -> PerfSection {
 
   let cases =
     [
-      measure_synthetic_validated_function(
+      measure_synthetic_parsed_function(
         small_specs,
         small_config,
         "compute_wtxid",
         btc_tx.compute_wtxid,
       ),
-      measure_synthetic_validated_function(
+      measure_synthetic_parsed_function(
         large_specs,
         large_config,
         "compute_wtxid",
@@ -872,7 +866,7 @@ fn measure_synthetic_witness_payload_txid_computation() -> PerfSection {
   PerfSection("txid computation / synthetic witness payload", cases)
 }
 
-/// Measures `to_stripped_bytes` and `to_wire_bytes` on already-validated
+/// Measures `to_stripped_bytes` and `to_wire_bytes` on already-parsed
 /// transactions. The benchmark set includes legacy and SegWit transactions
 /// because witness serialization changes the code path and payload shape.
 fn measure_tx_serialization() -> List(PerfSection) {
@@ -890,7 +884,7 @@ fn measure_fixture_tx_serialization() -> PerfSection {
   PerfSection(
     "serialization / fixtures",
     measure_serialization_functions(
-      fixture_validated_tx_cases(),
+      fixture_parsed_tx_cases(),
       measurement_config(100),
     ),
   )
@@ -938,13 +932,13 @@ fn measure_synthetic_witness_payload_tx_serialization() -> PerfSection {
 
   let cases =
     [
-      measure_synthetic_validated_function(
+      measure_synthetic_parsed_function(
         small_specs,
         small_config,
         "to_wire_bytes",
         btc_tx.to_wire_bytes,
       ),
-      measure_synthetic_validated_function(
+      measure_synthetic_parsed_function(
         large_specs,
         large_config,
         "to_wire_bytes",
@@ -965,13 +959,13 @@ fn measure_synthetic_legacy_txid_curve(
   let large_config = large_synthetic_tx_measurement_config()
 
   [
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       small_specs,
       small_config,
       "compute_txid",
       btc_tx.compute_txid,
     ),
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       large_specs,
       large_config,
       "compute_txid",
@@ -990,13 +984,13 @@ fn measure_synthetic_legacy_serialization_curve(
   let large_config = large_synthetic_tx_measurement_config()
 
   [
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       small_specs,
       small_config,
       "to_stripped_bytes",
       btc_tx.to_stripped_bytes,
     ),
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       large_specs,
       large_config,
       "to_stripped_bytes",
@@ -1022,31 +1016,31 @@ fn measure_synthetic_segwit_txid_curve(
   let slow_config = slow_synthetic_tx_measurement_config()
 
   [
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       small_specs,
       small_config,
       "compute_txid",
       btc_tx.compute_txid,
     ),
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       large_specs,
       large_config,
       "compute_txid",
       btc_tx.compute_txid,
     ),
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       small_witness_specs,
       small_config,
       "compute_wtxid",
       btc_tx.compute_wtxid,
     ),
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       medium_witness_specs,
       medium_config,
       "compute_wtxid",
       btc_tx.compute_wtxid,
     ),
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       slow_witness_specs,
       slow_config,
       "compute_wtxid",
@@ -1065,13 +1059,13 @@ fn measure_synthetic_witness_wtxid_curve(
   let large_config = large_synthetic_tx_measurement_config()
 
   [
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       small_specs,
       small_config,
       "compute_wtxid",
       btc_tx.compute_wtxid,
     ),
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       large_specs,
       large_config,
       "compute_wtxid",
@@ -1097,31 +1091,31 @@ fn measure_synthetic_segwit_serialization_curve(
   let slow_config = slow_synthetic_tx_measurement_config()
 
   [
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       small_specs,
       small_config,
       "to_stripped_bytes",
       btc_tx.to_stripped_bytes,
     ),
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       large_specs,
       large_config,
       "to_stripped_bytes",
       btc_tx.to_stripped_bytes,
     ),
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       small_witness_specs,
       small_config,
       "to_wire_bytes",
       btc_tx.to_wire_bytes,
     ),
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       medium_witness_specs,
       medium_config,
       "to_wire_bytes",
       btc_tx.to_wire_bytes,
     ),
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       slow_witness_specs,
       slow_config,
       "to_wire_bytes",
@@ -1140,13 +1134,13 @@ fn measure_synthetic_witness_serialization_curve(
   let large_config = large_synthetic_tx_measurement_config()
 
   [
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       small_specs,
       small_config,
       "to_wire_bytes",
       btc_tx.to_wire_bytes,
     ),
-    measure_synthetic_validated_function(
+    measure_synthetic_parsed_function(
       large_specs,
       large_config,
       "to_wire_bytes",
@@ -1156,29 +1150,29 @@ fn measure_synthetic_witness_serialization_curve(
   |> list.flatten
 }
 
-fn measure_synthetic_validated_function(
+fn measure_synthetic_parsed_function(
   specs: List(SyntheticTxSpec),
   config: PerfMeasurementConfig,
   function_label: String,
-  measured_function: fn(Transaction(ContextFreeValidated)) -> BitArray,
+  measured_function: fn(Transaction(Parsed)) -> BitArray,
 ) -> List(PerfCaseResult) {
   specs
-  |> list.map(synthetic_validated_case)
-  |> measure_validated_tx_function(config, function_label, measured_function)
+  |> list.map(synthetic_parsed_case)
+  |> measure_parsed_tx_function(config, function_label, measured_function)
 }
 
 fn measure_txid_functions(
-  inputs: List(PerfCaseInput(Transaction(ContextFreeValidated))),
+  inputs: List(PerfCaseInput(Transaction(Parsed))),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   [
-    measure_validated_tx_function(
+    measure_parsed_tx_function(
       inputs,
       config,
       "compute_txid",
       btc_tx.compute_txid,
     ),
-    measure_validated_tx_function(
+    measure_parsed_tx_function(
       inputs,
       config,
       "compute_wtxid",
@@ -1189,17 +1183,17 @@ fn measure_txid_functions(
 }
 
 fn measure_serialization_functions(
-  inputs: List(PerfCaseInput(Transaction(ContextFreeValidated))),
+  inputs: List(PerfCaseInput(Transaction(Parsed))),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   [
-    measure_validated_tx_function(
+    measure_parsed_tx_function(
       inputs,
       config,
       "to_stripped_bytes",
       btc_tx.to_stripped_bytes,
     ),
-    measure_validated_tx_function(
+    measure_parsed_tx_function(
       inputs,
       config,
       "to_wire_bytes",
@@ -1209,11 +1203,11 @@ fn measure_serialization_functions(
   |> list.flatten
 }
 
-fn measure_validated_tx_function(
-  inputs: List(PerfCaseInput(Transaction(ContextFreeValidated))),
+fn measure_parsed_tx_function(
+  inputs: List(PerfCaseInput(Transaction(Parsed))),
   config: PerfMeasurementConfig,
   function_label: String,
-  measured_function: fn(Transaction(ContextFreeValidated)) -> BitArray,
+  measured_function: fn(Transaction(Parsed)) -> BitArray,
 ) -> List(PerfCaseResult) {
   run_bench_cases(
     inputs,
@@ -1227,34 +1221,25 @@ fn measure_validated_tx_function(
   )
 }
 
-fn synthetic_validated_case(
+fn synthetic_parsed_case(
   synthetic_spec: SyntheticTxSpec,
-) -> PerfCaseInput(Transaction(ContextFreeValidated)) {
+) -> PerfCaseInput(Transaction(Parsed)) {
   let #(label, tx_bytes) = synthetic_tx_spec_to_bytes(synthetic_spec)
-
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(validated_tx) =
-    btc_tx.validate_context_free_consensus(parsed_tx)
-
-  PerfCaseInput(label, bit_array.byte_size(tx_bytes), validated_tx)
+  PerfCaseInput(label, bit_array.byte_size(tx_bytes), parsed_tx)
 }
 
-fn fixture_validated_tx_cases() -> List(
-  PerfCaseInput(Transaction(ContextFreeValidated)),
-) {
-  let fixture_validated_tx_case = fn(input_label, tx_hex) {
+fn fixture_parsed_tx_cases() -> List(PerfCaseInput(Transaction(Parsed))) {
+  let fixture_parsed_tx_case = fn(input_label, tx_hex) {
     let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
     let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-    let assert Ok(validated_tx) =
-      btc_tx.validate_context_free_consensus(parsed_tx)
-
-    PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), validated_tx)
+    PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), parsed_tx)
   }
 
   [
-    fixture_validated_tx_case("simple legacy tx", simple_legacy_tx),
-    fixture_validated_tx_case("simple segwit tx", simple_segwit_tx),
-    fixture_validated_tx_case("witness-heavy tx", witness_heavy_p2wsh_tx),
+    fixture_parsed_tx_case("simple legacy tx", simple_legacy_tx),
+    fixture_parsed_tx_case("simple segwit tx", simple_segwit_tx),
+    fixture_parsed_tx_case("witness-heavy tx", witness_heavy_p2wsh_tx),
   ]
 }
 
