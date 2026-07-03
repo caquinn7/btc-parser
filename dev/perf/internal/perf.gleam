@@ -496,33 +496,33 @@ fn oversized_scriptsig_policy_decode_case(
 /// Measures read-only transaction inspection helpers over transactions that
 /// have already been decoded and context-free validated before timing begins.
 fn measure_tx_inspection() -> List(PerfSection) {
-  [measure_is_coinbase_inspection()]
+  [measure_coinbase_shape_inspection()]
 }
 
-fn measure_is_coinbase_inspection() -> PerfSection {
+fn measure_coinbase_shape_inspection() -> PerfSection {
   let small_config = fast_measurement_config(100)
   let large_config = fast_measurement_config(10)
 
   let cases =
     [
-      measure_is_coinbase_input_counts([20, 100], small_config),
-      measure_is_coinbase_input_counts([1000], large_config),
+      measure_coinbase_shape_input_counts([20, 100], small_config),
+      measure_coinbase_shape_input_counts([1000], large_config),
     ]
     |> list.flatten
 
-  PerfSection("inspection / is coinbase", cases)
+  PerfSection("inspection / coinbase shape", cases)
 }
 
-fn measure_is_coinbase_input_counts(
+fn measure_coinbase_shape_input_counts(
   input_counts: List(Int),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   input_counts
-  |> list.map(is_coinbase_case)
-  |> measure_is_coinbase(config)
+  |> list.map(coinbase_shape_case)
+  |> measure_coinbase_shape(config)
 }
 
-fn measure_is_coinbase(
+fn measure_coinbase_shape(
   inputs: List(PerfCaseInput(Transaction(ContextFreeValidated))),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
@@ -530,15 +530,18 @@ fn measure_is_coinbase(
     inputs,
     [
       Function(
-        "is_coinbase",
-        bench.repeat(config.operations_per_timed_call, btc_tx.is_coinbase),
+        "has_coinbase_shape",
+        bench.repeat(
+          config.operations_per_timed_call,
+          btc_tx.has_coinbase_shape,
+        ),
       ),
     ],
     config,
   )
 }
 
-fn is_coinbase_case(
+fn coinbase_shape_case(
   input_count: Int,
 ) -> PerfCaseInput(Transaction(ContextFreeValidated)) {
   let tx_bytes = build_synthetic_legacy_tx(input_count, 1, UniquePrevouts)
@@ -547,7 +550,7 @@ fn is_coinbase_case(
   let assert Ok(validated_tx) =
     btc_tx.validate_context_free_consensus(parsed_tx)
 
-  assert !btc_tx.is_coinbase(validated_tx)
+  assert !btc_tx.has_coinbase_shape(validated_tx)
 
   PerfCaseInput(
     "regular inputs=" <> int.to_string(input_count),

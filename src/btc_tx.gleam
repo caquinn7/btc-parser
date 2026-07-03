@@ -88,18 +88,20 @@ pub fn is_segwit(tx: Transaction(v)) -> Bool {
 
 /// Check whether a context-free-validated transaction has coinbase shape.
 ///
-/// This function returns `True` when the transaction has passed
-/// `validate_context_free_consensus` and has the transaction-local structure of
-/// a coinbase transaction:
+/// The `ContextFreeValidated` state guarantees that transaction-local consensus
+/// checks have already been applied. For this function, `True` means the
+/// transaction has the context-free coinbase structure:
 ///
 /// - exactly one input
-/// - that input uses the null previous outpoint
-/// - the coinbase scriptSig length satisfies the context-free consensus limit
+/// - the input uses the null previous outpoint
+/// - the coinbase scriptSig length is within the consensus range
 ///
-/// This does not prove that the transaction is valid as the coinbase transaction
-/// of a block. Block-level checks such as transaction position, block height,
-/// subsidy, fees, and script execution are outside the scope of this function.
-pub fn is_coinbase(tx: Transaction(ContextFreeValidated)) -> Bool {
+/// This does not prove that the transaction is valid as the coinbase
+/// transaction of a block. Block-level checks such as transaction position,
+/// block height, subsidy, and fees are outside the scope of this function.
+///
+/// Returns `True` if the transaction has coinbase shape, `False` otherwise.
+pub fn has_coinbase_shape(tx: Transaction(ContextFreeValidated)) -> Bool {
   has_coinbase_marker(tx)
 }
 

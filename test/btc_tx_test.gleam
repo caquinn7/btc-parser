@@ -2612,10 +2612,10 @@ pub fn hashing_and_serialization_accept_context_free_invalid_segwit_tx_test() {
 }
 
 // ============================================================================
-// is_coinbase
+// has_coinbase_shape
 // ============================================================================
 
-pub fn is_coinbase_regular_transaction_returns_false_test() {
+pub fn has_coinbase_shape_regular_transaction_returns_false_test() {
   // Regular (non-coinbase) transaction with valid inputs and outputs
   let vin_count = compact_size(1)
   let regular_input =
@@ -2636,10 +2636,10 @@ pub fn is_coinbase_regular_transaction_returns_false_test() {
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
   let assert Ok(validated_tx) =
     btc_tx.validate_context_free_consensus(parsed_tx)
-  assert !btc_tx.is_coinbase(validated_tx)
+  assert !btc_tx.has_coinbase_shape(validated_tx)
 }
 
-pub fn is_coinbase_coinbase_transaction_test() {
+pub fn has_coinbase_shape_coinbase_transaction_test() {
   // Valid coinbase: exactly 1 input with coinbase marker and 50-byte scriptSig
   let vin_count = compact_size(1)
   let coinbase_input =
@@ -2660,7 +2660,7 @@ pub fn is_coinbase_coinbase_transaction_test() {
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
   let assert Ok(validated_tx) =
     btc_tx.validate_context_free_consensus(parsed_tx)
-  assert btc_tx.is_coinbase(validated_tx)
+  assert btc_tx.has_coinbase_shape(validated_tx)
 }
 
 // ============================================================================

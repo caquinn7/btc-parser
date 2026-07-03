@@ -96,10 +96,10 @@ large payload bytes.
 
 ## Inspection
 
-`inspection / is coinbase` measures `is_coinbase` over context-free-validated
-transactions with many ordinary inputs. Decoding and validation happen before
-timing begins, isolating the cost of the private coinbase-marker scan used by the
-public inspection helper.
+`inspection / coinbase shape` measures `has_coinbase_shape` over
+context-free-validated transactions with many ordinary inputs. Decoding and
+validation happen before timing begins, isolating the cost of the private
+coinbase-marker scan used by the public inspection helper.
 
 ## Context-Free Consensus Validation
 
