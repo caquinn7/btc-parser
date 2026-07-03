@@ -29,9 +29,10 @@ context, mempool policy, or network/RPC access unless the project scope changes.
   values as little-endian bytes so values remain exact on JavaScript.
 - `src/btc_parser/internal/hash32.gleam` stores 32-byte transaction hashes in
   wire-order little-endian bytes.
-- `dev/fuzz/` contains the mutation-based fuzz harness and seed corpus.
-- `dev/perf/` contains the `gleam dev perf` benchmark harness and docs for
-  interpreting benchmark groups.
+- `dev/fuzz/transaction/` contains the transaction fuzz suite, report, and seed
+  corpus; `dev/fuzz/internal/` contains shared fuzz utilities.
+- `dev/perf/transaction/` contains the transaction benchmark suite and report;
+  `dev/perf/internal/` contains shared runtime metadata.
 - `docs/` documents API behavior and output script classification.
 
 ## Build And Test Commands

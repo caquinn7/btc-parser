@@ -1,6 +1,6 @@
-import fuzz/internal/fuzz.{type FuzzResult, type SeedTx}
-import fuzz/internal/report
 import fuzz/internal/rng
+import fuzz/transaction/report
+import fuzz/transaction/suite.{type FuzzResult, type SeedTx}
 import gleam/crypto
 import gleam/int
 import gleam/io
@@ -8,49 +8,49 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import simplifile
 
-pub opaque type FuzzCommand {
+pub opaque type Command {
   CreateSeedAndIterate(iterations: Int)
   IterateWithSeed(iterations: Int, rng_seed: Int)
 }
 
-pub type FuzzArgsError {
+pub type ArgsError {
   InvalidValue(String)
   InvalidNumberOfArgs
 }
 
-type FuzzArgs {
-  FuzzArgs(iterations: Int, rng_seed: Option(Int))
+type Args {
+  Args(iterations: Int, rng_seed: Option(Int))
 }
 
-pub fn parse(args: List(String)) -> Result(FuzzCommand, FuzzArgsError) {
+pub fn parse(args: List(String)) -> Result(Command, ArgsError) {
   args
   |> parse_args
   |> result.map(fn(args) {
     case args {
-      FuzzArgs(iterations, Some(seed)) -> IterateWithSeed(iterations, seed)
-      FuzzArgs(iterations, None) -> CreateSeedAndIterate(iterations)
+      Args(iterations, Some(seed)) -> IterateWithSeed(iterations, seed)
+      Args(iterations, None) -> CreateSeedAndIterate(iterations)
     }
   })
 }
 
-fn parse_args(args: List(String)) -> Result(FuzzArgs, FuzzArgsError) {
+fn parse_args(args: List(String)) -> Result(Args, ArgsError) {
   case args {
     [iterations_str, seed_str] -> {
       use iterations <- result.try(validate_iterations_arg(iterations_str))
       use seed <- result.try(validate_seed_arg(seed_str))
-      Ok(FuzzArgs(iterations, Some(seed)))
+      Ok(Args(iterations, Some(seed)))
     }
 
     [iterations_str] -> {
       use iterations <- result.try(validate_iterations_arg(iterations_str))
-      Ok(FuzzArgs(iterations, None))
+      Ok(Args(iterations, None))
     }
 
     _ -> Error(InvalidNumberOfArgs)
   }
 }
 
-fn validate_iterations_arg(arg: String) -> Result(Int, FuzzArgsError) {
+fn validate_iterations_arg(arg: String) -> Result(Int, ArgsError) {
   let err = InvalidValue("iterations must be a positive integer")
 
   use iterations <- result.try(
@@ -65,7 +65,7 @@ fn validate_iterations_arg(arg: String) -> Result(Int, FuzzArgsError) {
   }
 }
 
-fn validate_seed_arg(arg: String) -> Result(Int, FuzzArgsError) {
+fn validate_seed_arg(arg: String) -> Result(Int, ArgsError) {
   use seed <- result.try(
     arg
     |> int.parse
@@ -89,7 +89,7 @@ fn validate_seed_arg(arg: String) -> Result(Int, FuzzArgsError) {
 
 /// Runs the fuzz harness, returning an error when any iteration discovers an
 /// unhandled exception.
-pub fn run(command: FuzzCommand) -> Result(Nil, Nil) {
+pub fn run(command: Command) -> Result(Nil, Nil) {
   let #(iterations, rng_seed) = case command {
     CreateSeedAndIterate(iterations:) -> {
       io.println("Generating a random seed...\n")
@@ -134,13 +134,15 @@ pub fn run(command: FuzzCommand) -> Result(Nil, Nil) {
 }
 
 fn read_seed_txs() -> List(SeedTx) {
-  let assert Ok(file_content) = simplifile.read("dev/fuzz/corpus/seed_txs.txt")
-  fuzz.parse_seed_txs(file_content)
+  let assert Ok(file_content) =
+    simplifile.read("dev/fuzz/transaction/corpus/seed_txs.txt")
+
+  suite.parse_seed_txs(file_content)
 }
 
 fn run_fuzz(seed_txs, iteration_count, rng) -> #(FuzzResult, Int) {
   let start = monotonic_time_ms()
-  let fuzz_result = fuzz.run(seed_txs, iteration_count, rng)
+  let fuzz_result = suite.run(seed_txs, iteration_count, rng)
   let elapsed = monotonic_time_ms() - start
 
   #(fuzz_result, elapsed)

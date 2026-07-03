@@ -1,7 +1,7 @@
 import argv
-import fuzz/fuzz_command.{InvalidNumberOfArgs, InvalidValue}
+import fuzz/command.{InvalidNumberOfArgs, InvalidValue} as fuzz_command
 import gleam/io
-import perf/perf_command
+import perf/command as perf_command
 
 const usage_msg = "usage:
   gleam dev [OPTIONS] fuzz <iterations> [seed]
@@ -19,12 +19,11 @@ pub fn main() {
 
 fn fuzz(args: List(String)) -> Nil {
   case fuzz_command.parse(args) {
-    Ok(command) -> {
+    Ok(command) ->
       case fuzz_command.run(command) {
         Ok(Nil) -> Nil
         Error(Nil) -> exit_failure()
       }
-    }
     Error(InvalidNumberOfArgs) -> {
       io.println(usage_msg)
       exit_failure()
@@ -38,12 +37,11 @@ fn fuzz(args: List(String)) -> Nil {
 
 fn perf(args: List(String)) -> Nil {
   case perf_command.parse(args) {
-    Ok(command) -> {
+    Ok(command) ->
       case perf_command.run(command) {
         Ok(Nil) -> Nil
         Error(_) -> exit_failure()
       }
-    }
     Error(Nil) -> {
       io.println(usage_msg)
       exit_failure()
