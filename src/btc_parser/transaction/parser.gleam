@@ -1,6 +1,6 @@
+import btc_parser/transaction/reader.{type Reader}
 import gleam/list
 import gleam/result
-import internal/reader.{type Reader}
 
 pub opaque type Parser(ctx, a, err) {
   Parser(fn(Reader, List(ctx)) -> Result(#(Reader, a), err))

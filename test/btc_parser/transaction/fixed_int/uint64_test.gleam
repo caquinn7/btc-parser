@@ -1,5 +1,5 @@
-import internal/fixed_int/shared_inputs
-import internal/fixed_int/uint64.{
+import btc_parser/transaction/fixed_int/shared_inputs
+import btc_parser/transaction/fixed_int/uint64.{
   ExceedsUint64, InvalidByteCount, NegativeValue, UnsafeInteger,
 }
 import support/target

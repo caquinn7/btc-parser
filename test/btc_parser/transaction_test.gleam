@@ -1,4 +1,4 @@
-import btc_tx.{
+import btc_parser/transaction.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack,
   CoinbaseWithMultipleInputs, DuplicateInput, HexToBytesFailed, InInputs,
   InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
@@ -14,7 +14,6 @@ import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
-import gleeunit
 import support/target
 
 const legacy_v1_tx = "010000000173ea7c1caa2dc6669848997864cb9f597284760654a98f67f321ae78d89dcd380a0000006a4730440220185e66bef2903df84f7eb68c4eedb17bcf59f416324e1807e41461cad39aee8202200cbe809bfbac0f33ed5a23fc70473ff64462e225b9218b568bf5e13a11832445012103c3a5d7ca9937c6f862e3454d679171e90e7ff6d8147b0725cfae909a1c94a538feffffff2122020000000000001976a9145349473a38385c482b2f6a2b6d5476534b6f394f88ac22020000000000001976a91455677a584a742b5a544a5262516a627a50716b3888ac22020000000000001976a9146e7473336b746356685451555a5177326d55373788acdd3f0000000000001976a914b02562ff4e772f0875fbb4cccbc15ef08c431f3e88ac22020000000000001976a91448324f70644f667a36764e544665474a586d776688ac22020000000000001976a9144744756e56484142754a68586e513d4f424a5c3388ac22020000000000001976a91432362f7b2275726e223a2239346637313165353088ac22020000000000001976a914346238643131633162373835613162393663613088ac22020000000000001976a914383531333039376164663361316631303834313688ac22020000000000001976a9146535656134643733623437646166652f4120736d88ac22020000000000001976a914616c6c206d6573736167652e6a7067222c226e6d88ac22020000000000001976a91465223a2266756e6b20796f75222c22637265223a88ac22020000000000001976a9145b223139434b474c61426a64707045706148537488ac22020000000000001976a91438776e727a5371487838356850643955222c223188ac22020000000000001976a91444764e5039385a664857376d53397634426a375288ac22020000000000001976a9147436477457567844344c625a37222c223136726288ac22020000000000001976a9143979413746595150545570775a4a73575a56373788ac22020000000000001976a91466575555477366477077225d2c226f776e223a7b88ac22020000000000001976a914223139434b474c61426a6470704570614853743888ac22020000000000001976a914776e727a5371487838356850643955223a397d2c88ac22020000000000001976a91422726f79223a7b22314233444c725936344c4e6988ac22020000000000001976a91467775071755356414c64704b484563774a546a4688ac22020000000000001976a9144d59223a352e307d7d232323232323232323232388ac22020000000000001976a914393466373131653530346238643131633162373888ac22020000000000001976a914a968f1d8335db1404e32b6b360952e4bdd7ab20088ac22020000000000001976a91466756e6b2323232323232323232323232323232388ac22020000000000001976a914796f75232323232323232323232323232323232388ac22020000000000001976a9147032666b2323232323232323232323232323232388ac22020000000000001976a914656d62696923232323232323232323232323232388ac22020000000000001976a9146e1c6481b500237b14c7c474ae728e670d3b757588ac22020000000000001976a9144039859aabef04c076fd641744faedb3ee240f1588ac22020000000000001976a91459e4d4073fe0680c02fffb0cfe5ad923bf5c1f6588ac22020000000000001976a9148db967691586d193770e916d8cb9475d4118094988ac3a540e00"
@@ -29,24 +28,20 @@ const min_txin_size_bytes = 41
 
 const min_txout_size_bytes = 9
 
-pub fn main() -> Nil {
-  gleeunit.main()
-}
-
 // ============================================================================
 // decode_hex: invalid hex input
 // ============================================================================
 
 pub fn decode_hex_errors_on_odd_length_string_test() {
-  assert btc_tx.decode_hex("010") == Error(HexToBytesFailed)
+  assert transaction.decode_hex("010") == Error(HexToBytesFailed)
 }
 
 pub fn decode_hex_errors_on_invalid_hex_characters_test() {
-  assert btc_tx.decode_hex("0102zz") == Error(HexToBytesFailed)
+  assert transaction.decode_hex("0102zz") == Error(HexToBytesFailed)
 }
 
 pub fn decode_hex_errors_on_string_with_whitespace_test() {
-  assert btc_tx.decode_hex("01 02 03 04") == Error(HexToBytesFailed)
+  assert transaction.decode_hex("01 02 03 04") == Error(HexToBytesFailed)
 }
 
 // ============================================================================
@@ -55,35 +50,36 @@ pub fn decode_hex_errors_on_string_with_whitespace_test() {
 
 pub fn decode_policy_builder_overrides_default_limits_test() {
   let policy =
-    btc_tx.default_decode_policy()
-    |> btc_tx.decode_policy_with_max_tx_size(123)
-    |> btc_tx.decode_policy_with_max_vin_count(4)
-    |> btc_tx.decode_policy_with_max_vout_count(5)
-    |> btc_tx.decode_policy_with_max_script_size(6)
-    |> btc_tx.decode_policy_with_max_witness_items_per_input(Some(7))
-    |> btc_tx.decode_policy_with_max_witness_size_per_input(Some(8))
+    transaction.default_decode_policy()
+    |> transaction.decode_policy_with_max_tx_size(123)
+    |> transaction.decode_policy_with_max_vin_count(4)
+    |> transaction.decode_policy_with_max_vout_count(5)
+    |> transaction.decode_policy_with_max_script_size(6)
+    |> transaction.decode_policy_with_max_witness_items_per_input(Some(7))
+    |> transaction.decode_policy_with_max_witness_size_per_input(Some(8))
 
-  assert btc_tx.decode_policy_max_tx_size(policy) == 123
-  assert btc_tx.decode_policy_max_vin_count(policy) == 4
-  assert btc_tx.decode_policy_max_vout_count(policy) == 5
-  assert btc_tx.decode_policy_max_script_size(policy) == 6
-  assert btc_tx.decode_policy_max_witness_items_per_input(policy) == Some(7)
-  assert btc_tx.decode_policy_max_witness_size_per_input(policy) == Some(8)
+  assert transaction.decode_policy_max_tx_size(policy) == 123
+  assert transaction.decode_policy_max_vin_count(policy) == 4
+  assert transaction.decode_policy_max_vout_count(policy) == 5
+  assert transaction.decode_policy_max_script_size(policy) == 6
+  assert transaction.decode_policy_max_witness_items_per_input(policy)
+    == Some(7)
+  assert transaction.decode_policy_max_witness_size_per_input(policy) == Some(8)
 }
 
 pub fn decode_policy_builder_allows_zero_limits_test() {
   let policy =
-    btc_tx.default_decode_policy()
-    |> btc_tx.decode_policy_with_max_vin_count(0)
+    transaction.default_decode_policy()
+    |> transaction.decode_policy_with_max_vin_count(0)
 
-  assert btc_tx.decode_policy_max_vin_count(policy) == 0
+  assert transaction.decode_policy_max_vin_count(policy) == 0
 }
 
 pub fn default_decode_policy_uses_default_witness_limits_test() {
-  let policy = btc_tx.default_decode_policy()
+  let policy = transaction.default_decode_policy()
 
-  assert btc_tx.decode_policy_max_witness_items_per_input(policy) == None
-  assert btc_tx.decode_policy_max_witness_size_per_input(policy) == None
+  assert transaction.decode_policy_max_witness_items_per_input(policy) == None
+  assert transaction.decode_policy_max_witness_size_per_input(policy) == None
 }
 
 // ============================================================================
@@ -106,7 +102,7 @@ pub fn decode_with_policy_accepts_tx_at_max_tx_size_test() {
   let tx_size = bit_array.byte_size(tx_bytes)
 
   let assert Ok(_) =
-    btc_tx.decode_with_policy(tx_bytes, policy_with_max_tx_size(tx_size))
+    transaction.decode_with_policy(tx_bytes, policy_with_max_tx_size(tx_size))
 }
 
 pub fn decode_with_policy_rejects_tx_exceeding_max_tx_size_test() {
@@ -125,26 +121,29 @@ pub fn decode_with_policy_rejects_tx_exceeding_max_tx_size_test() {
   let tx_size = bit_array.byte_size(tx_bytes)
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode_with_policy(tx_bytes, policy_with_max_tx_size(tx_size - 1))
+    transaction.decode_with_policy(
+      tx_bytes,
+      policy_with_max_tx_size(tx_size - 1),
+    )
 
-  assert btc_tx.parse_error_offset(parse_err) == 0
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_offset(parse_err) == 0
+  assert transaction.parse_error_kind(parse_err)
     == PolicyLimitExceeded(tx_size, tx_size - 1)
-  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
 }
 
 pub fn decode_with_policy_rejects_tx_well_above_max_tx_size_test() {
   // Confirm that a transaction well above max_tx_size reports the correct
   // actual size and configured limit in the error.
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode_with_policy(
+    transaction.decode_with_policy(
       <<0:size({ 100 * 8 })>>,
       policy_with_max_tx_size(10),
     )
 
-  assert btc_tx.parse_error_offset(parse_err) == 0
-  assert btc_tx.parse_error_kind(parse_err) == PolicyLimitExceeded(100, 10)
-  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.parse_error_offset(parse_err) == 0
+  assert transaction.parse_error_kind(parse_err) == PolicyLimitExceeded(100, 10)
+  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
 }
 
 // ============================================================================
@@ -152,51 +151,53 @@ pub fn decode_with_policy_rejects_tx_well_above_max_tx_size_test() {
 // ============================================================================
 
 pub fn decode_legacy_full_tx_sets_version_and_is_segwit_false_test() {
-  let assert Ok(result) = btc_tx.decode_hex(legacy_v1_tx)
+  let assert Ok(result) = transaction.decode_hex(legacy_v1_tx)
 
-  assert btc_tx.get_version(result) == 1
-  assert !btc_tx.is_segwit(result)
+  assert transaction.get_version(result) == 1
+  assert !transaction.is_segwit(result)
 }
 
 pub fn decode_legacy_tx_parses_lock_time_test() {
-  let assert Ok(result) = btc_tx.decode_hex(legacy_v1_tx)
-  assert btc_tx.get_lock_time(result) == 939_066
+  let assert Ok(result) = transaction.decode_hex(legacy_v1_tx)
+  assert transaction.get_lock_time(result) == 939_066
 }
 
 pub fn decode_segwit_full_tx_sets_version_and_is_segwit_true_test() {
-  let assert Ok(result) = btc_tx.decode_hex(segwit_v1_tx)
+  let assert Ok(result) = transaction.decode_hex(segwit_v1_tx)
 
-  assert btc_tx.get_version(result) == 1
-  assert btc_tx.is_segwit(result)
+  assert transaction.get_version(result) == 1
+  assert transaction.is_segwit(result)
 }
 
 pub fn decode_segwit_tx_parses_lock_time_test() {
-  let assert Ok(result) = btc_tx.decode_hex(segwit_v1_tx)
-  assert btc_tx.get_lock_time(result) == 0
+  let assert Ok(result) = transaction.decode_hex(segwit_v1_tx)
+  assert transaction.get_lock_time(result) == 0
 }
 
 pub fn decode_legacy_v2_parses_version_2_test() {
-  let assert Ok(result) = btc_tx.decode_hex(legacy_v2_tx)
+  let assert Ok(result) = transaction.decode_hex(legacy_v2_tx)
 
-  assert btc_tx.get_version(result) == 2
-  assert !btc_tx.is_segwit(result)
+  assert transaction.get_version(result) == 2
+  assert !transaction.is_segwit(result)
 }
 
 pub fn decode_errors_on_empty_string_test() {
-  let assert Error(ParseFailed(parse_err)) = btc_tx.decode_hex("")
+  let assert Error(ParseFailed(parse_err)) = transaction.decode_hex("")
 
-  assert btc_tx.parse_error_offset(parse_err) == 0
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_offset(parse_err) == 0
+  assert transaction.parse_error_kind(parse_err)
     == UnexpectedEof(bytes_needed: 4, remaining: 0)
-  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction, AtField(Version)]
+  assert transaction.parse_error_ctx(parse_err)
+    == [InTransaction, AtField(Version)]
 }
 
 pub fn decode_errors_when_input_shorter_than_4_bytes_test() {
-  let assert Error(ParseFailed(parse_err)) = btc_tx.decode_hex("010203")
+  let assert Error(ParseFailed(parse_err)) = transaction.decode_hex("010203")
 
-  assert btc_tx.parse_error_offset(parse_err) == 0
-  assert btc_tx.parse_error_kind(parse_err) == UnexpectedEof(4, 3)
-  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction, AtField(Version)]
+  assert transaction.parse_error_offset(parse_err) == 0
+  assert transaction.parse_error_kind(parse_err) == UnexpectedEof(4, 3)
+  assert transaction.parse_error_ctx(parse_err)
+    == [InTransaction, AtField(Version)]
 }
 
 pub fn decode_errors_on_non_byte_aligned_input_test() {
@@ -209,21 +210,22 @@ pub fn decode_errors_on_non_byte_aligned_input_test() {
   let assert Ok(valid_bytes) = bit_array.base16_decode(legacy_v1_tx)
   let unaligned = <<valid_bytes:bits, 0:1>>
 
-  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(unaligned)
+  let assert Error(ParseFailed(parse_err)) = transaction.decode(unaligned)
 
   let expected_remaining = bit_array.byte_size(valid_bytes) + 1
-  assert btc_tx.parse_error_offset(parse_err) == 0
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_offset(parse_err) == 0
+  assert transaction.parse_error_kind(parse_err)
     == UnexpectedEof(bytes_needed: 4, remaining: expected_remaining)
-  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction, AtField(Version)]
+  assert transaction.parse_error_ctx(parse_err)
+    == [InTransaction, AtField(Version)]
 }
 
 pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_missing_test() {
-  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(version1)
+  let assert Error(ParseFailed(parse_err)) = transaction.decode(version1)
 
-  assert btc_tx.parse_error_offset(parse_err) == 4
-  assert btc_tx.parse_error_kind(parse_err) == UnexpectedEof(1, 0)
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_offset(parse_err) == 4
+  assert transaction.parse_error_kind(parse_err) == UnexpectedEof(1, 0)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InInputs, AtField(VinCount)]
 }
 
@@ -231,11 +233,11 @@ pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_truncated_tes
   let marker = <<0:size(8)>>
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<version1:bits, marker:bits>>)
+    transaction.decode(<<version1:bits, marker:bits>>)
 
-  assert btc_tx.parse_error_offset(parse_err) == 5
-  assert btc_tx.parse_error_kind(parse_err) == UnexpectedEof(1, 0)
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_offset(parse_err) == 5
+  assert transaction.parse_error_kind(parse_err) == UnexpectedEof(1, 0)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InOutputs, AtField(VoutCount)]
 }
 
@@ -244,11 +246,12 @@ pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
   let flag = <<2:little-size(8)>>
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<version1:bits, marker:bits, flag:bits>>)
+    transaction.decode(<<version1:bits, marker:bits, flag:bits>>)
 
-  assert btc_tx.parse_error_offset(parse_err) == 4
-  assert btc_tx.parse_error_kind(parse_err) == InvalidSegwitMarkerFlag(0, 2)
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_offset(parse_err) == 4
+  assert transaction.parse_error_kind(parse_err)
+    == InvalidSegwitMarkerFlag(0, 2)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, AtField(SegwitMarkerAndFlag)]
 }
 
@@ -261,12 +264,12 @@ pub fn decode_treats_zero_vin_and_vout_counts_as_empty_legacy_tx_test() {
     lock_time:little-size(32),
   >>
 
-  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(tx) = transaction.decode(tx_bytes)
 
-  assert !btc_tx.is_segwit(tx)
-  assert list.is_empty(btc_tx.get_inputs(tx))
-  assert list.is_empty(btc_tx.get_outputs(tx))
-  assert btc_tx.get_lock_time(tx) == lock_time
+  assert !transaction.is_segwit(tx)
+  assert list.is_empty(transaction.get_inputs(tx))
+  assert list.is_empty(transaction.get_outputs(tx))
+  assert transaction.get_lock_time(tx) == lock_time
 }
 
 // ============================================================================
@@ -281,7 +284,7 @@ pub fn validate_vin_count_minimum_succeeds_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       compact_size(vin_count):bits,
       input_padding:bits,
@@ -300,7 +303,7 @@ pub fn validate_vin_count_within_limits_succeeds_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
-    btc_tx.decode_with_policy(
+    transaction.decode_with_policy(
       <<
         version1:bits,
         compact_size(vin_count):bits,
@@ -322,7 +325,7 @@ pub fn validate_vin_count_equals_policy_succeeds_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
-    btc_tx.decode_with_policy(
+    transaction.decode_with_policy(
       <<
         version1:bits,
         compact_size(vin_count):bits,
@@ -344,16 +347,17 @@ pub fn validate_vin_count_exceeds_policy_error_test() {
   let input_padding = <<0:little-size({ 3 * min_txin_size_bytes * 8 })>>
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode_with_policy(
+    transaction.decode_with_policy(
       <<version1:bits, vin_count:size(8), input_padding:bits>>,
       policy_with_max_vin_count(2),
     )
 
-  assert btc_tx.parse_error_offset(parse_err) == 4
+  assert transaction.parse_error_offset(parse_err) == 4
 
-  assert btc_tx.parse_error_kind(parse_err) == PolicyLimitExceeded(vin_count, 2)
+  assert transaction.parse_error_kind(parse_err)
+    == PolicyLimitExceeded(vin_count, 2)
 
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InInputs, AtField(VinCount)]
 }
 
@@ -366,20 +370,20 @@ pub fn validate_vin_count_exceeds_structural_error_test() {
   let input_padding = <<0:little-size({ 2 * min_txin_size_bytes * 8 })>>
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode_with_policy(
+    transaction.decode_with_policy(
       <<version1:bits, compact_size(vin_count):bits, input_padding:bits>>,
       policy_with_max_vin_count(100),
     )
 
-  assert btc_tx.parse_error_offset(parse_err) == 4
+  assert transaction.parse_error_offset(parse_err) == 4
 
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(
       claimed: 2 * min_txin_size_bytes + 1,
       remaining: 2 * min_txin_size_bytes,
     )
 
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InInputs, AtField(VinCount)]
 }
 
@@ -393,7 +397,7 @@ pub fn validate_vin_count_structural_boundary_succeeds_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
-    btc_tx.decode_with_policy(
+    transaction.decode_with_policy(
       <<
         version1:bits,
         compact_size(vin_count):bits,
@@ -414,21 +418,21 @@ pub fn validate_vin_count_insufficient_bytes_for_inputs_test() {
   let input_padding = <<0:little-size({ 1 * { min_txin_size_bytes - 1 } * 8 })>>
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       compact_size(vin_count):bits,
       input_padding:bits,
     >>)
 
-  assert btc_tx.parse_error_offset(parse_err) == 4
+  assert transaction.parse_error_offset(parse_err) == 4
 
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(
       remaining: min_txin_size_bytes - 1,
       claimed: min_txin_size_bytes,
     )
 
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InInputs, AtField(VinCount)]
 }
 
@@ -451,11 +455,11 @@ pub fn decode_rejects_segwit_tx_with_zero_inputs_test() {
     lock_time:bits,
   >>
 
-  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+  let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert btc_tx.parse_error_offset(parse_err) == expected_witness_offset
-  assert btc_tx.parse_error_kind(parse_err) == SuperfluousWitnessRecord
-  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.parse_error_offset(parse_err) == expected_witness_offset
+  assert transaction.parse_error_kind(parse_err) == SuperfluousWitnessRecord
+  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
 }
 
 // ============================================================================
@@ -477,7 +481,7 @@ pub fn decode_parses_single_input_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(tx) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       vin_count:bits,
       input_bytes:bits,
@@ -486,28 +490,28 @@ pub fn decode_parses_single_input_test() {
     >>)
 
   // Verify we parsed exactly one input
-  let inputs = btc_tx.get_inputs(tx)
+  let inputs = transaction.get_inputs(tx)
   let assert [first_input] = inputs
 
   // Verify prev_out properties
-  let prev_out = btc_tx.get_input_prev_out(first_input)
+  let prev_out = transaction.get_input_prev_out(first_input)
 
-  assert btc_tx.get_prev_out_txid(prev_out) == prev_txid_bytes
-  assert btc_tx.get_prev_out_vout(prev_out) == vout
+  assert transaction.get_prev_out_txid(prev_out) == prev_txid_bytes
+  assert transaction.get_prev_out_vout(prev_out) == vout
 
   // Verify sequence
-  assert btc_tx.get_input_sequence(first_input) == sequence
+  assert transaction.get_input_sequence(first_input) == sequence
 
   // Verify scriptSig
   let actual_script_sig_bytes =
     first_input
-    |> btc_tx.get_input_script_sig
-    |> btc_tx.get_raw_script_bytes
+    |> transaction.get_input_script_sig
+    |> transaction.get_raw_script_bytes
 
   assert actual_script_sig_bytes == script_sig_bytes
   assert first_input
-    |> btc_tx.get_input_script_sig
-    |> btc_tx.get_script_size
+    |> transaction.get_input_script_sig
+    |> transaction.get_script_size
     == bit_array.byte_size(script_sig_bytes)
 }
 
@@ -525,7 +529,7 @@ pub fn decode_parses_coinbase_marker_input_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(tx) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       vin_count:bits,
       input_bytes:bits,
@@ -533,20 +537,20 @@ pub fn decode_parses_coinbase_marker_input_test() {
       lock_time:bits,
     >>)
 
-  let assert [input] = btc_tx.get_inputs(tx)
+  let assert [input] = transaction.get_inputs(tx)
   assert input
-    |> btc_tx.get_input_prev_out
-    |> btc_tx.prev_out_is_null_outpoint
+    |> transaction.get_input_prev_out
+    |> transaction.prev_out_is_null_outpoint
 }
 
 pub fn prev_out_is_null_outpoint_returns_true_for_coinbase_marker_test() {
   let prev_out = decode_single_input_prev_out(<<0:size(256)>>, 0xFFFFFFFF)
-  assert btc_tx.prev_out_is_null_outpoint(prev_out)
+  assert transaction.prev_out_is_null_outpoint(prev_out)
 }
 
 pub fn prev_out_is_null_outpoint_returns_false_for_regular_outpoint_test() {
   let prev_out = decode_single_input_prev_out(repeat_byte(1, 32), 0)
-  assert !btc_tx.prev_out_is_null_outpoint(prev_out)
+  assert !transaction.prev_out_is_null_outpoint(prev_out)
 }
 
 pub fn prev_out_is_null_outpoint_requires_null_hash_and_max_vout_test() {
@@ -554,8 +558,8 @@ pub fn prev_out_is_null_outpoint_requires_null_hash_and_max_vout_test() {
   let nonzero_hash_max_vout =
     decode_single_input_prev_out(repeat_byte(1, 32), 0xFFFFFFFF)
 
-  assert !btc_tx.prev_out_is_null_outpoint(zero_hash_regular_vout)
-  assert !btc_tx.prev_out_is_null_outpoint(nonzero_hash_max_vout)
+  assert !transaction.prev_out_is_null_outpoint(zero_hash_regular_vout)
+  assert !transaction.prev_out_is_null_outpoint(nonzero_hash_max_vout)
 }
 
 pub fn decode_parses_empty_scriptsig_test() {
@@ -572,7 +576,7 @@ pub fn decode_parses_empty_scriptsig_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(tx) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       vin_count:bits,
       input_bytes:bits,
@@ -580,13 +584,13 @@ pub fn decode_parses_empty_scriptsig_test() {
       lock_time:bits,
     >>)
 
-  let inputs = btc_tx.get_inputs(tx)
+  let inputs = transaction.get_inputs(tx)
   let assert [first_input] = inputs
 
   let actual_script_sig_bytes =
     first_input
-    |> btc_tx.get_input_script_sig
-    |> btc_tx.get_raw_script_bytes
+    |> transaction.get_input_script_sig
+    |> transaction.get_raw_script_bytes
 
   assert actual_script_sig_bytes == <<>>
 }
@@ -617,7 +621,7 @@ pub fn decode_parses_multiple_inputs_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(tx) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       vin_count:bits,
       in1_bytes:bits,
@@ -627,34 +631,34 @@ pub fn decode_parses_multiple_inputs_test() {
       lock_time:bits,
     >>)
 
-  let inputs = btc_tx.get_inputs(tx)
+  let inputs = transaction.get_inputs(tx)
   let assert [i1, i2, i3] = inputs
 
   // input 1
-  let prev_out1 = btc_tx.get_input_prev_out(i1)
+  let prev_out1 = transaction.get_input_prev_out(i1)
 
-  assert btc_tx.get_prev_out_txid(prev_out1) == prev1_txid_bytes
-  assert btc_tx.get_prev_out_vout(prev_out1) == vout1
-  assert btc_tx.get_input_sequence(i1) == seq1
-  assert btc_tx.get_raw_script_bytes(btc_tx.get_input_script_sig(i1))
+  assert transaction.get_prev_out_txid(prev_out1) == prev1_txid_bytes
+  assert transaction.get_prev_out_vout(prev_out1) == vout1
+  assert transaction.get_input_sequence(i1) == seq1
+  assert transaction.get_raw_script_bytes(transaction.get_input_script_sig(i1))
     == sig1_bytes
 
   // input 2
-  let prev_out2 = btc_tx.get_input_prev_out(i2)
+  let prev_out2 = transaction.get_input_prev_out(i2)
 
-  assert btc_tx.get_prev_out_txid(prev_out2) == prev2_txid_bytes
-  assert btc_tx.get_prev_out_vout(prev_out2) == vout2
-  assert btc_tx.get_input_sequence(i2) == seq2
-  assert btc_tx.get_raw_script_bytes(btc_tx.get_input_script_sig(i2))
+  assert transaction.get_prev_out_txid(prev_out2) == prev2_txid_bytes
+  assert transaction.get_prev_out_vout(prev_out2) == vout2
+  assert transaction.get_input_sequence(i2) == seq2
+  assert transaction.get_raw_script_bytes(transaction.get_input_script_sig(i2))
     == sig2_bytes
 
   // input 3
-  let prev_out3 = btc_tx.get_input_prev_out(i3)
+  let prev_out3 = transaction.get_input_prev_out(i3)
 
-  assert btc_tx.get_prev_out_txid(prev_out3) == prev3_txid_bytes
-  assert btc_tx.get_prev_out_vout(prev_out3) == vout3
-  assert btc_tx.get_input_sequence(i3) == seq3
-  assert btc_tx.get_raw_script_bytes(btc_tx.get_input_script_sig(i3))
+  assert transaction.get_prev_out_txid(prev_out3) == prev3_txid_bytes
+  assert transaction.get_prev_out_vout(prev_out3) == vout3
+  assert transaction.get_input_sequence(i3) == seq3
+  assert transaction.get_raw_script_bytes(transaction.get_input_script_sig(i3))
     == sig3_bytes
 }
 
@@ -676,18 +680,18 @@ pub fn decode_rejects_scriptsig_exceeding_max_size_test() {
   let input_bytes = build_input(prev_txid, vout, script_sig, sequence)
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       vin_count:bits,
       input_bytes:bits,
     >>)
 
-  assert btc_tx.parse_error_offset(parse_err) == 41
+  assert transaction.parse_error_offset(parse_err) == 41
 
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == PolicyLimitExceeded(10_001, 10_000)
 
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InInputs, AtInput(0), AtField(ScriptSigLength)]
 }
 
@@ -713,18 +717,18 @@ pub fn decode_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
   >>
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       vin_count:bits,
       input_bytes:bits,
     >>)
 
-  assert btc_tx.parse_error_offset(parse_err) == 41
+  assert transaction.parse_error_offset(parse_err) == 41
 
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 10)
 
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InInputs, AtInput(0), AtField(ScriptSigLength)]
 }
 
@@ -750,7 +754,7 @@ pub fn decode_returns_error_with_current_input_index_test() {
   let remaining_bytes = <<0:little-size(32)>>
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       vin_count:bits,
       input1_bytes:bits,
@@ -759,10 +763,10 @@ pub fn decode_returns_error_with_current_input_index_test() {
     >>)
 
   // Verify the error occurred in the second input (index 1)
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 4)
 
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InInputs, AtInput(1), AtField(ScriptSigLength)]
 }
 
@@ -774,7 +778,7 @@ pub fn validate_vout_count_minimum_succeeds_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
       build_minimal_output():bits,
@@ -791,7 +795,7 @@ pub fn validate_vout_count_within_limits_succeeds_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
-    btc_tx.decode_with_policy(
+    transaction.decode_with_policy(
       <<
         version1:bits,
         build_minimal_input():bits,
@@ -816,7 +820,7 @@ pub fn validate_vout_count_equals_policy_succeeds_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
-    btc_tx.decode_with_policy(
+    transaction.decode_with_policy(
       <<
         version1:bits,
         build_minimal_input():bits,
@@ -843,7 +847,7 @@ pub fn validate_vout_count_exceeds_policy_error_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode_with_policy(
+    transaction.decode_with_policy(
       <<
         version1:bits,
         build_minimal_input():bits,
@@ -856,10 +860,10 @@ pub fn validate_vout_count_exceeds_policy_error_test() {
       policy_with_max_vout_count(2),
     )
 
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == PolicyLimitExceeded(vout_count, 2)
 
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InOutputs, AtField(VoutCount)]
 }
 
@@ -873,7 +877,7 @@ pub fn validate_vout_count_exceeds_structural_error_test() {
   let output2 = build_output(<<0:little-size(64)>>, <<>>)
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode_with_policy(
+    transaction.decode_with_policy(
       <<
         version1:bits,
         build_minimal_input():bits,
@@ -884,15 +888,15 @@ pub fn validate_vout_count_exceeds_structural_error_test() {
       policy_with_max_vout_count(100),
     )
 
-  assert btc_tx.parse_error_offset(parse_err) == 46
+  assert transaction.parse_error_offset(parse_err) == 46
 
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(
       claimed: 2 * min_txout_size_bytes + 1,
       remaining: 2 * min_txout_size_bytes,
     )
 
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InOutputs, AtField(VoutCount)]
 }
 
@@ -907,7 +911,7 @@ pub fn validate_vout_count_structural_boundary_succeeds_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
-    btc_tx.decode_with_policy(
+    transaction.decode_with_policy(
       <<
         version1:bits,
         build_minimal_input():bits,
@@ -931,20 +935,20 @@ pub fn validate_vout_count_insufficient_bytes_for_outputs_test() {
   >>
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
       compact_size(vout_count):bits,
       output_padding:bits,
     >>)
 
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(
       remaining: min_txout_size_bytes - 1,
       claimed: min_txout_size_bytes,
     )
 
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InOutputs, AtField(VoutCount)]
 }
 
@@ -962,9 +966,9 @@ pub fn decode_accepts_legacy_tx_with_zero_outputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(tx) = btc_tx.decode(tx_bytes)
-  assert !btc_tx.is_segwit(tx)
-  assert list.is_empty(btc_tx.get_outputs(tx))
+  let assert Ok(tx) = transaction.decode(tx_bytes)
+  assert !transaction.is_segwit(tx)
+  assert list.is_empty(transaction.get_outputs(tx))
 }
 
 pub fn decode_accepts_segwit_tx_with_zero_outputs_test() {
@@ -991,9 +995,9 @@ pub fn decode_accepts_segwit_tx_with_zero_outputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(tx) = btc_tx.decode(tx_bytes)
-  assert btc_tx.is_segwit(tx)
-  assert list.is_empty(btc_tx.get_outputs(tx))
+  let assert Ok(tx) = transaction.decode(tx_bytes)
+  assert transaction.is_segwit(tx)
+  assert list.is_empty(transaction.get_outputs(tx))
 }
 
 // ============================================================================
@@ -1009,7 +1013,7 @@ pub fn decode_parses_single_output_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(tx) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
       compact_size(1):bits,
@@ -1018,20 +1022,20 @@ pub fn decode_parses_single_output_test() {
     >>)
 
   // Verify we parsed exactly one output
-  let outputs = btc_tx.get_outputs(tx)
+  let outputs = transaction.get_outputs(tx)
   let assert [first_output] = outputs
 
   // Verify output properties
   let actual_value =
     first_output
-    |> btc_tx.get_output_value
+    |> transaction.get_output_value
 
   assert actual_value == value_satoshis
 
   let actual_script_pubkey_bytes =
     first_output
-    |> btc_tx.get_output_script_pubkey
-    |> btc_tx.get_raw_script_bytes
+    |> transaction.get_output_script_pubkey
+    |> transaction.get_raw_script_bytes
 
   assert actual_script_pubkey_bytes == script_pubkey_bytes
 }
@@ -1054,7 +1058,7 @@ pub fn decode_parses_multiple_outputs_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(tx) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
       vout_count:bits,
@@ -1064,48 +1068,48 @@ pub fn decode_parses_multiple_outputs_test() {
       lock_time:bits,
     >>)
 
-  let outputs = btc_tx.get_outputs(tx)
+  let outputs = transaction.get_outputs(tx)
   let assert [o1, o2, o3] = outputs
 
   // output 1
   let actual_value1 =
     o1
-    |> btc_tx.get_output_value
+    |> transaction.get_output_value
 
   assert actual_value1 == 0
 
   let actual_script1_bytes =
     o1
-    |> btc_tx.get_output_script_pubkey
-    |> btc_tx.get_raw_script_bytes
+    |> transaction.get_output_script_pubkey
+    |> transaction.get_raw_script_bytes
 
   assert actual_script1_bytes == script1_bytes
 
   // output 2
   let actual_value2 =
     o2
-    |> btc_tx.get_output_value
+    |> transaction.get_output_value
 
   assert actual_value2 == 100_000_000
 
   let actual_script2_bytes =
     o2
-    |> btc_tx.get_output_script_pubkey
-    |> btc_tx.get_raw_script_bytes
+    |> transaction.get_output_script_pubkey
+    |> transaction.get_raw_script_bytes
 
   assert actual_script2_bytes == script2_bytes
 
   // output 3
   let actual_value3 =
     o3
-    |> btc_tx.get_output_value
+    |> transaction.get_output_value
 
   assert actual_value3 == 50_000_000
 
   let actual_script3_bytes =
     o3
-    |> btc_tx.get_output_script_pubkey
-    |> btc_tx.get_raw_script_bytes
+    |> transaction.get_output_script_pubkey
+    |> transaction.get_raw_script_bytes
 
   assert actual_script3_bytes == script3_bytes
 }
@@ -1119,7 +1123,7 @@ pub fn decode_parses_empty_scriptpubkey_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(tx) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
       compact_size(1):bits,
@@ -1128,20 +1132,20 @@ pub fn decode_parses_empty_scriptpubkey_test() {
     >>)
 
   // Verify we parsed exactly one output
-  let outputs = btc_tx.get_outputs(tx)
+  let outputs = transaction.get_outputs(tx)
   let assert [first_output] = outputs
 
   // Verify output properties
   let actual_value =
     first_output
-    |> btc_tx.get_output_value
+    |> transaction.get_output_value
 
   assert actual_value == value_satoshis
 
   let actual_script_pubkey_bytes =
     first_output
-    |> btc_tx.get_output_script_pubkey
-    |> btc_tx.get_raw_script_bytes
+    |> transaction.get_output_script_pubkey
+    |> transaction.get_raw_script_bytes
 
   assert actual_script_pubkey_bytes == <<>>
 }
@@ -1177,13 +1181,13 @@ pub fn decode_handles_output_value_min_i64_for_target_test() {
 
   case target.is_javascript() {
     True -> {
-      let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+      let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-      assert btc_tx.parse_error_kind(parse_err)
-        == btc_tx.IntegerOutOfRange("-9223372036854775808")
+      assert transaction.parse_error_kind(parse_err)
+        == transaction.IntegerOutOfRange("-9223372036854775808")
 
-      assert btc_tx.parse_error_ctx(parse_err)
-        == [InTransaction, InOutputs, AtOutput(0), AtField(btc_tx.Value)]
+      assert transaction.parse_error_ctx(parse_err)
+        == [InTransaction, InOutputs, AtOutput(0), AtField(transaction.Value)]
     }
 
     False -> {
@@ -1194,9 +1198,9 @@ pub fn decode_handles_output_value_min_i64_for_target_test() {
         0 - two_to_31 * two_to_32
       }
 
-      let assert Ok(tx) = btc_tx.decode(tx_bytes)
-      let assert [output] = btc_tx.get_outputs(tx)
-      assert btc_tx.get_output_value(output) == min_i64_output_value
+      let assert Ok(tx) = transaction.decode(tx_bytes)
+      let assert [output] = transaction.get_outputs(tx)
+      assert transaction.get_output_value(output) == min_i64_output_value
     }
   }
 }
@@ -1218,7 +1222,7 @@ pub fn decode_accepts_outputs_total_value_exactly_at_max_money_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
       vout_count:bits,
@@ -1244,19 +1248,19 @@ pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {
   let output_bytes = build_output(value, script_pubkey)
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
       vout_count:bits,
       output_bytes:bits,
     >>)
 
-  assert btc_tx.parse_error_offset(parse_err) == 55
+  assert transaction.parse_error_offset(parse_err) == 55
 
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == PolicyLimitExceeded(10_001, 10_000)
 
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InOutputs, AtOutput(0), AtField(ScriptPubKeyLength)]
 }
 
@@ -1269,7 +1273,7 @@ pub fn decode_parses_scriptpubkey_at_max_size_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(tx) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
       compact_size(1):bits,
@@ -1278,20 +1282,20 @@ pub fn decode_parses_scriptpubkey_at_max_size_test() {
     >>)
 
   // Verify we parsed exactly one output
-  let outputs = btc_tx.get_outputs(tx)
+  let outputs = transaction.get_outputs(tx)
   let assert [first_output] = outputs
 
   // Verify output properties
   let actual_value =
     first_output
-    |> btc_tx.get_output_value
+    |> transaction.get_output_value
 
   assert actual_value == value_satoshis
 
   let actual_script_pubkey_bytes =
     first_output
-    |> btc_tx.get_output_script_pubkey
-    |> btc_tx.get_raw_script_bytes
+    |> transaction.get_output_script_pubkey
+    |> transaction.get_raw_script_bytes
 
   assert bit_array.byte_size(actual_script_pubkey_bytes) == 10_000
 }
@@ -1315,17 +1319,17 @@ pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
   >>
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
       vout_count:bits,
       output_bytes:bits,
     >>)
 
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 10)
 
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, InOutputs, AtOutput(0), AtField(ScriptPubKeyLength)]
 }
 
@@ -1335,33 +1339,33 @@ pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
 
 pub fn decode_segwit_tx_parses_witness_data_test() {
   // Use the real SegWit transaction constant
-  let assert Ok(tx) = btc_tx.decode_hex(segwit_v1_tx)
+  let assert Ok(tx) = transaction.decode_hex(segwit_v1_tx)
 
   // Verify it's identified as a SegWit transaction
-  assert btc_tx.is_segwit(tx)
+  assert transaction.is_segwit(tx)
 
   // Verify basic transaction properties
-  assert btc_tx.get_version(tx) == 1
+  assert transaction.get_version(tx) == 1
 
   // Verify inputs were parsed correctly
-  let inputs = btc_tx.get_inputs(tx)
+  let inputs = transaction.get_inputs(tx)
   let assert [_, ..] = inputs
 
   // Verify outputs were parsed correctly
-  let outputs = btc_tx.get_outputs(tx)
+  let outputs = transaction.get_outputs(tx)
   let assert [_, ..] = outputs
 
   // Verify witness data was parsed
-  let assert Ok(witnesses) = btc_tx.get_witnesses(tx)
+  let assert Ok(witnesses) = transaction.get_witnesses(tx)
   let assert [witness_stack, ..] = witnesses
 
   // Verify the witness stack has 2 items (likely signature and pubkey for P2WPKH)
-  let witness_items = btc_tx.get_witness_items(witness_stack)
+  let witness_items = transaction.get_witness_items(witness_stack)
   let assert [item1, item2] = witness_items
 
   // Verify the items are non-empty (actual signature and pubkey data)
-  assert bit_array.byte_size(btc_tx.get_witness_item_bytes(item1)) > 0
-  assert bit_array.byte_size(btc_tx.get_witness_item_bytes(item2)) > 0
+  assert bit_array.byte_size(transaction.get_witness_item_bytes(item1)) > 0
+  assert bit_array.byte_size(transaction.get_witness_item_bytes(item2)) > 0
 }
 
 pub fn decode_rejects_segwit_tx_with_all_empty_witness_stacks_test() {
@@ -1387,11 +1391,11 @@ pub fn decode_rejects_segwit_tx_with_all_empty_witness_stacks_test() {
   let tx_bytes =
     build_segwit_tx([input1, input2], [output], [witness_stack1, witness_stack2])
 
-  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+  let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert btc_tx.parse_error_offset(parse_err) == expected_witness_offset
-  assert btc_tx.parse_error_kind(parse_err) == SuperfluousWitnessRecord
-  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.parse_error_offset(parse_err) == expected_witness_offset
+  assert transaction.parse_error_kind(parse_err) == SuperfluousWitnessRecord
+  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
 }
 
 pub fn decode_segwit_tx_allows_empty_stack_when_another_stack_has_item_test() {
@@ -1408,17 +1412,17 @@ pub fn decode_segwit_tx_allows_empty_stack_when_another_stack_has_item_test() {
       stack_with_empty_item,
     ])
 
-  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(tx) = transaction.decode(tx_bytes)
 
-  let assert Ok(witnesses) = btc_tx.get_witnesses(tx)
+  let assert Ok(witnesses) = transaction.get_witnesses(tx)
   let assert [stack1, stack2] = witnesses
 
-  let items1 = btc_tx.get_witness_items(stack1)
-  let items2 = btc_tx.get_witness_items(stack2)
+  let items1 = transaction.get_witness_items(stack1)
+  let items2 = transaction.get_witness_items(stack2)
 
   assert items1 == []
   let assert [empty_item] = items2
-  assert btc_tx.get_witness_item_bytes(empty_item) == <<>>
+  assert transaction.get_witness_item_bytes(empty_item) == <<>>
 }
 
 pub fn decode_witness_stack_with_multiple_items_test() {
@@ -1455,23 +1459,23 @@ pub fn decode_witness_stack_with_multiple_items_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(tx) = transaction.decode(tx_bytes)
 
   // Verify it's SegWit
-  assert btc_tx.is_segwit(tx)
+  assert transaction.is_segwit(tx)
 
   // Get the witness stack
-  let assert Ok(witnesses) = btc_tx.get_witnesses(tx)
+  let assert Ok(witnesses) = transaction.get_witnesses(tx)
   let assert [stack] = witnesses
 
   // Verify it has 3 items
-  let items = btc_tx.get_witness_items(stack)
+  let items = transaction.get_witness_items(stack)
   let assert [item1, item2, item3] = items
 
   // Verify each item has the correct data
-  let data1 = btc_tx.get_witness_item_bytes(item1)
-  let data2 = btc_tx.get_witness_item_bytes(item2)
-  let data3 = btc_tx.get_witness_item_bytes(item3)
+  let data1 = transaction.get_witness_item_bytes(item1)
+  let data2 = transaction.get_witness_item_bytes(item2)
+  let data3 = transaction.get_witness_item_bytes(item3)
 
   assert data1 == witness_item1_data
   assert data2 == witness_item2_data
@@ -1493,21 +1497,21 @@ pub fn decode_witness_item_with_zero_length_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let assert Ok(tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(tx) = transaction.decode(tx_bytes)
 
   // Verify it's SegWit
-  assert btc_tx.is_segwit(tx)
+  assert transaction.is_segwit(tx)
 
   // Get the witness stack
-  let assert Ok(witnesses) = btc_tx.get_witnesses(tx)
+  let assert Ok(witnesses) = transaction.get_witnesses(tx)
   let assert [stack] = witnesses
 
   // Verify it has 1 item
-  let items = btc_tx.get_witness_items(stack)
+  let items = transaction.get_witness_items(stack)
   let assert [item] = items
 
   // Verify the item is zero-length
-  let data = btc_tx.get_witness_item_bytes(item)
+  let data = transaction.get_witness_item_bytes(item)
   assert bit_array.byte_size(data) == 0
 }
 
@@ -1529,15 +1533,15 @@ pub fn decode_witness_item_length_exceeds_remaining_bytes_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+  let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
   // The compact_size encoding of 100 takes 3 bytes (0xFD + 2 bytes),
   // so remaining = 10 data bytes + 4 bytes overhead = 14
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 14)
 
   // Verify the error context indicates we're in witness item length parsing
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [
       InTransaction,
       AtWitnessStack(0),
@@ -1574,12 +1578,12 @@ pub fn decode_witness_invalid_compact_size_in_item_count_test() {
     lock_time:bits,
   >>
 
-  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+  let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert btc_tx.parse_error_kind(parse_err) == NonMinimalCompactSize(3, 1)
+  assert transaction.parse_error_kind(parse_err) == NonMinimalCompactSize(3, 1)
 
   // Verify the error context indicates we're in witness item count parsing
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, AtWitnessStack(0), AtField(WitnessItemCount)]
 }
 
@@ -1615,10 +1619,10 @@ pub fn decode_witness_invalid_compact_size_in_item_length_test() {
     lock_time:bits,
   >>
 
-  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+  let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert btc_tx.parse_error_kind(parse_err) == NonMinimalCompactSize(3, 1)
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_kind(parse_err) == NonMinimalCompactSize(3, 1)
+  assert transaction.parse_error_ctx(parse_err)
     == [
       InTransaction,
       AtWitnessStack(0),
@@ -1653,13 +1657,13 @@ pub fn decode_witness_stack_at_max_items_per_input_succeeds_test() {
 
   let policy = policy_with_max_witness_items_per_input(max_items_per_input)
 
-  let assert Ok(tx) = btc_tx.decode_with_policy(tx_bytes, policy)
+  let assert Ok(tx) = transaction.decode_with_policy(tx_bytes, policy)
 
   // Verify the witness stack has the correct number of items
-  let assert Ok(witnesses) = btc_tx.get_witnesses(tx)
+  let assert Ok(witnesses) = transaction.get_witnesses(tx)
   let assert [stack] = witnesses
 
-  let items = btc_tx.get_witness_items(stack)
+  let items = transaction.get_witness_items(stack)
   assert list.length(items) == max_items_per_input
 }
 
@@ -1686,16 +1690,16 @@ pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
   let policy = policy_with_max_witness_items_per_input(max_items_per_input)
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode_with_policy(tx_bytes, policy)
+    transaction.decode_with_policy(tx_bytes, policy)
 
-  assert btc_tx.parse_error_offset(parse_err) == 58
+  assert transaction.parse_error_offset(parse_err) == 58
 
   // Verify the error kind indicates the count exceeded max_items_per_input
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == PolicyLimitExceeded(max_items_per_input + 1, max_items_per_input)
 
   // Verify the error context indicates witness item count validation
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [InTransaction, AtWitnessStack(0), AtField(WitnessItemCount)]
 }
 
@@ -1727,13 +1731,13 @@ pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
 
   let policy = policy_with_max_witness_size_per_input(max_payload_bytes)
 
-  let assert Ok(tx) = btc_tx.decode_with_policy(tx_bytes, policy)
+  let assert Ok(tx) = transaction.decode_with_policy(tx_bytes, policy)
 
   // Verify the witness stack was parsed correctly
-  let assert Ok(witnesses) = btc_tx.get_witnesses(tx)
+  let assert Ok(witnesses) = transaction.get_witnesses(tx)
   let assert [stack] = witnesses
 
-  let items = btc_tx.get_witness_items(stack)
+  let items = transaction.get_witness_items(stack)
   assert list.length(items) == 3
 
   // Verify total bytes
@@ -1741,7 +1745,7 @@ pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
     items
     |> list.map(fn(item) {
       item
-      |> btc_tx.get_witness_item_bytes
+      |> transaction.get_witness_item_bytes
       |> bit_array.byte_size
     })
     |> list.fold(0, fn(acc, size) { acc + size })
@@ -1774,14 +1778,14 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
   let policy = policy_with_max_witness_size_per_input(max_payload_bytes)
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode_with_policy(tx_bytes, policy)
+    transaction.decode_with_policy(tx_bytes, policy)
 
   // Verify the error kind indicates policy limit was exceeded
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == PolicyLimitExceeded(51, max_payload_bytes)
 
   // Verify the error context indicates witness stack validation
-  assert btc_tx.parse_error_ctx(parse_err)
+  assert transaction.parse_error_ctx(parse_err)
     == [
       InTransaction,
       AtWitnessStack(0),
@@ -1819,7 +1823,7 @@ pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
   let policy = policy_with_max_witness_size_per_input(max_payload_bytes)
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode_with_policy(tx_bytes, policy)
+    transaction.decode_with_policy(tx_bytes, policy)
 
   // Calculate expected offset to start of third witness item's length field:
   // version (4) + marker (1) + flag (1) + vin_count (1) + input (41) +
@@ -1827,7 +1831,7 @@ pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
   // item1 length (1) + item1 bytes (20) + item2 length (1) + item2 bytes (15)
   let expected_offset = 4 + 1 + 1 + 1 + 41 + 1 + 9 + 1 + 1 + 20 + 1 + 15
 
-  assert btc_tx.parse_error_offset(parse_err) == expected_offset
+  assert transaction.parse_error_offset(parse_err) == expected_offset
 }
 
 // ============================================================================
@@ -1846,13 +1850,13 @@ pub fn decode_rejects_legacy_tx_with_trailing_byte_test() {
   >>
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<valid_tx:bits, 0x42:size(8)>>)
+    transaction.decode(<<valid_tx:bits, 0x42:size(8)>>)
 
-  assert btc_tx.parse_error_kind(parse_err) == TrailingBytes(1)
-  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.parse_error_kind(parse_err) == TrailingBytes(1)
+  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
 
   let expected_offset = bit_array.byte_size(valid_tx)
-  assert btc_tx.parse_error_offset(parse_err) == expected_offset
+  assert transaction.parse_error_offset(parse_err) == expected_offset
 }
 
 pub fn decode_rejects_segwit_tx_with_trailing_byte_test() {
@@ -1863,13 +1867,13 @@ pub fn decode_rejects_segwit_tx_with_trailing_byte_test() {
   let valid_tx = build_segwit_tx([input], [output], [witness_stack])
 
   let assert Error(ParseFailed(parse_err)) =
-    btc_tx.decode(<<valid_tx:bits, 0xFF:size(8)>>)
+    transaction.decode(<<valid_tx:bits, 0xFF:size(8)>>)
 
-  assert btc_tx.parse_error_kind(parse_err) == TrailingBytes(1)
-  assert btc_tx.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.parse_error_kind(parse_err) == TrailingBytes(1)
+  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
 
   let expected_offset = bit_array.byte_size(valid_tx)
-  assert btc_tx.parse_error_offset(parse_err) == expected_offset
+  assert transaction.parse_error_offset(parse_err) == expected_offset
 }
 
 // ============================================================================
@@ -1879,76 +1883,76 @@ pub fn decode_rejects_segwit_tx_with_trailing_byte_test() {
 pub fn classify_output_script_p2pkh_test() {
   let hash = repeat_byte(0xAA, 20)
   let script_bytes = <<0x76, 0xA9, 0x14, hash:bits, 0x88, 0xAC>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.P2PKH
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.P2PKH
 }
 
 pub fn classify_output_script_p2sh_test() {
   let hash = repeat_byte(0xBB, 20)
   let script_bytes = <<0xA9, 0x14, hash:bits, 0x87>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.P2SH
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.P2SH
 }
 
 pub fn classify_output_script_p2wpkh_test() {
   let hash = repeat_byte(0xCC, 20)
   let script_bytes = <<0x00, 0x14, hash:bits>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.P2WPKH
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.P2WPKH
 }
 
 pub fn classify_output_script_p2wsh_test() {
   let hash = repeat_byte(0xDD, 32)
   let script_bytes = <<0x00, 0x20, hash:bits>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.P2WSH
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.P2WSH
 }
 
 pub fn classify_output_script_p2tr_test() {
   let pubkey = repeat_byte(0xEE, 32)
   let script_bytes = <<0x51, 0x20, pubkey:bits>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.P2TR
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.P2TR
 }
 
 pub fn classify_output_script_p2pk_compressed_test() {
   let pubkey = repeat_byte(0x02, 33)
   let script_bytes = <<0x21, pubkey:bits, 0xAC>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.P2PK
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.P2PK
 }
 
 pub fn classify_output_script_p2pk_uncompressed_test() {
   let pubkey = repeat_byte(0x04, 65)
   let script_bytes = <<0x41, pubkey:bits, 0xAC>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.P2PK
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.P2PK
 }
 
 pub fn classify_output_script_nulldata_with_data_test() {
   let script_bytes = <<0x6A, 0x04, 0xDE, 0xAD, 0xBE, 0xEF>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.NullData
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.NullData
 }
 
 pub fn classify_output_script_nulldata_empty_test() {
   let script_bytes = <<0x6A>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.NullData
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.NullData
 }
 
 pub fn classify_output_script_nulldata_non_push_is_non_standard_test() {
   // OP_RETURN OP_ADD — non-push opcode after OP_RETURN is not a standard null-data script
   let script_bytes = <<0x6A, 0x93>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.NonStandard
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.NonStandard
 }
 
 pub fn classify_output_script_multisig_1of1_test() {
   let pubkey = repeat_byte(0xAA, 33)
   let script_bytes = <<0x51, 0x21, pubkey:bits, 0x51, 0xAE>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.Multisig
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.Multisig
 }
 
 pub fn classify_output_script_multisig_2of3_test() {
@@ -1958,43 +1962,43 @@ pub fn classify_output_script_multisig_2of3_test() {
   let script_bytes = <<
     0x52, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x21, pubkey3:bits, 0x53, 0xAE,
   >>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.Multisig
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.Multisig
 }
 
 pub fn classify_output_script_unknown_witness_v1_non_taproot_test() {
   // OP_1 with a 20-byte program — valid witness v1 but not Taproot (which requires 32 bytes)
   let program = repeat_byte(0xFF, 20)
   let script_bytes = <<0x51, 0x14, program:bits>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.UnknownWitness(version: 1)
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.UnknownWitness(version: 1)
 }
 
 pub fn classify_output_script_unknown_witness_v2_test() {
   let program = repeat_byte(0xFF, 32)
   let script_bytes = <<0x52, 0x20, program:bits>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.UnknownWitness(version: 2)
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.UnknownWitness(version: 2)
 }
 
 pub fn classify_output_script_unknown_witness_v16_test() {
   let program = repeat_byte(0xFF, 20)
   let script_bytes = <<0x60, 0x14, program:bits>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.UnknownWitness(version: 16)
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.UnknownWitness(version: 16)
 }
 
 pub fn classify_output_script_non_standard_test() {
   let script_bytes = <<0x00, 0x01, 0xAA>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.NonStandard
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.NonStandard
 }
 
 pub fn classify_output_script_empty_test() {
   // Zero-length script — no pattern matches → NonStandard
   let script_bytes = <<>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.NonStandard
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.NonStandard
 }
 
 pub fn classify_output_script_nulldata_at_max_size_test() {
@@ -2002,8 +2006,8 @@ pub fn classify_output_script_nulldata_at_max_size_test() {
   let data = repeat_byte(0xAB, 80)
   let script_bytes = <<0x6A, 0x4C, 80, data:bits>>
 
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.NullData
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.NullData
 }
 
 pub fn classify_output_script_nulldata_over_max_size_test() {
@@ -2011,8 +2015,8 @@ pub fn classify_output_script_nulldata_over_max_size_test() {
   let data = repeat_byte(0xAB, 81)
   let script_bytes = <<0x6A, 0x4C, 81, data:bits>>
 
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.NonStandard
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.NonStandard
 }
 
 pub fn classify_output_script_multisig_3of3_test() {
@@ -2022,8 +2026,8 @@ pub fn classify_output_script_multisig_3of3_test() {
   let script_bytes = <<
     0x53, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x21, pubkey3:bits, 0x53, 0xAE,
   >>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.Multisig
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.Multisig
 }
 
 pub fn classify_output_script_multisig_invalid_m_gt_n_test() {
@@ -2033,8 +2037,8 @@ pub fn classify_output_script_multisig_invalid_m_gt_n_test() {
   let script_bytes = <<
     0x53, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x52, 0xAE,
   >>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.NonStandard
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.NonStandard
 }
 
 pub fn classify_output_script_multisig_too_many_keys_test() {
@@ -2047,24 +2051,24 @@ pub fn classify_output_script_multisig_too_many_keys_test() {
     0x51, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x21, pubkey3:bits, 0x21,
     pubkey4:bits, 0x54, 0xAE,
   >>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.NonStandard
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.NonStandard
 }
 
 pub fn classify_output_script_unknown_witness_v1_min_program_test() {
   // OP_1 + OP_DATA_2 + 2-byte program — minimum valid witness program length
   let program = repeat_byte(0xFF, 2)
   let script_bytes = <<0x51, 0x02, program:bits>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.UnknownWitness(version: 1)
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.UnknownWitness(version: 1)
 }
 
 pub fn classify_output_script_unknown_witness_v1_max_program_test() {
   // OP_1 + OP_DATA_40 + 40-byte program — maximum valid witness program length
   let program = repeat_byte(0xFF, 40)
   let script_bytes = <<0x51, 0x28, program:bits>>
-  assert btc_tx.classify_output_script(decode_script_pubkey(script_bytes))
-    == btc_tx.UnknownWitness(version: 1)
+  assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
+    == transaction.UnknownWitness(version: 1)
 }
 
 // ============================================================================
@@ -2073,40 +2077,45 @@ pub fn classify_output_script_unknown_witness_v1_max_program_test() {
 
 pub fn validate_context_free_consensus_accepts_valid_legacy_tx_test() {
   // Use a real legacy transaction that has 1 input and 1 output
-  let assert Ok(parsed_tx) = btc_tx.decode_hex(legacy_v1_tx)
+  let assert Ok(parsed_tx) = transaction.decode_hex(legacy_v1_tx)
 
-  assert !btc_tx.is_segwit(parsed_tx)
+  assert !transaction.is_segwit(parsed_tx)
 
   let assert Ok(validated_tx) =
-    btc_tx.validate_context_free_consensus(parsed_tx)
+    transaction.validate_context_free_consensus(parsed_tx)
 
   // Verify the context-free-validated transaction maintains the same properties
-  assert !btc_tx.is_segwit(validated_tx)
-  assert btc_tx.get_version(validated_tx) == btc_tx.get_version(parsed_tx)
-  assert list.length(btc_tx.get_inputs(validated_tx))
-    == list.length(btc_tx.get_inputs(parsed_tx))
-  assert list.length(btc_tx.get_outputs(validated_tx))
-    == list.length(btc_tx.get_outputs(parsed_tx))
-  assert btc_tx.get_lock_time(validated_tx) == btc_tx.get_lock_time(parsed_tx)
+  assert !transaction.is_segwit(validated_tx)
+  assert transaction.get_version(validated_tx)
+    == transaction.get_version(parsed_tx)
+  assert list.length(transaction.get_inputs(validated_tx))
+    == list.length(transaction.get_inputs(parsed_tx))
+  assert list.length(transaction.get_outputs(validated_tx))
+    == list.length(transaction.get_outputs(parsed_tx))
+  assert transaction.get_lock_time(validated_tx)
+    == transaction.get_lock_time(parsed_tx)
 }
 
 pub fn validate_context_free_consensus_accepts_valid_segwit_tx_test() {
-  let assert Ok(parsed_tx) = btc_tx.decode_hex(segwit_v1_tx)
+  let assert Ok(parsed_tx) = transaction.decode_hex(segwit_v1_tx)
 
-  assert btc_tx.is_segwit(parsed_tx)
+  assert transaction.is_segwit(parsed_tx)
 
   let assert Ok(validated_tx) =
-    btc_tx.validate_context_free_consensus(parsed_tx)
+    transaction.validate_context_free_consensus(parsed_tx)
 
   // Verify the context-free-validated transaction maintains the same properties
-  assert btc_tx.is_segwit(validated_tx)
-  assert btc_tx.get_version(validated_tx) == btc_tx.get_version(parsed_tx)
-  assert list.length(btc_tx.get_inputs(validated_tx))
-    == list.length(btc_tx.get_inputs(parsed_tx))
-  assert list.length(btc_tx.get_outputs(validated_tx))
-    == list.length(btc_tx.get_outputs(parsed_tx))
-  assert btc_tx.get_lock_time(validated_tx) == btc_tx.get_lock_time(parsed_tx)
-  assert btc_tx.get_witnesses(validated_tx) == btc_tx.get_witnesses(parsed_tx)
+  assert transaction.is_segwit(validated_tx)
+  assert transaction.get_version(validated_tx)
+    == transaction.get_version(parsed_tx)
+  assert list.length(transaction.get_inputs(validated_tx))
+    == list.length(transaction.get_inputs(parsed_tx))
+  assert list.length(transaction.get_outputs(validated_tx))
+    == list.length(transaction.get_outputs(parsed_tx))
+  assert transaction.get_lock_time(validated_tx)
+    == transaction.get_lock_time(parsed_tx)
+  assert transaction.get_witnesses(validated_tx)
+    == transaction.get_witnesses(parsed_tx)
 }
 
 pub fn validate_context_free_consensus_collects_no_inputs_and_no_outputs_test() {
@@ -2117,9 +2126,9 @@ pub fn validate_context_free_consensus_collects_no_inputs_and_no_outputs_test() 
     0:little-size(32),
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
 
-  assert btc_tx.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(parsed_tx)
     == Error([NoInputs, NoOutputs])
 }
 
@@ -2138,9 +2147,10 @@ pub fn validate_context_free_consensus_rejects_tx_with_no_outputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
 
-  assert btc_tx.validate_context_free_consensus(parsed_tx) == Error([NoOutputs])
+  assert transaction.validate_context_free_consensus(parsed_tx)
+    == Error([NoOutputs])
 }
 
 pub fn validate_context_free_consensus_rejects_tx_with_negative_output_value_test() {
@@ -2162,9 +2172,9 @@ pub fn validate_context_free_consensus_rejects_tx_with_negative_output_value_tes
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
 
-  assert btc_tx.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(parsed_tx)
     == Error([OutputValueOutOfRange(0, -1)])
 }
 
@@ -2188,9 +2198,9 @@ pub fn validate_context_free_consensus_rejects_tx_with_output_exceeding_supply_t
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
 
-  assert btc_tx.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(parsed_tx)
     == Error([OutputValueOutOfRange(0, 2_100_000_000_000_001)])
 }
 
@@ -2217,9 +2227,9 @@ pub fn validate_context_free_consensus_rejects_tx_with_total_outputs_exceeding_s
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
 
-  assert btc_tx.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(parsed_tx)
     == Error([TotalOutputValueOutOfRange(1, 2_200_000_000_000_000)])
 }
 
@@ -2250,9 +2260,9 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_multiple_inputs_tes
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
 
-  assert btc_tx.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(parsed_tx)
     == Error([CoinbaseWithMultipleInputs])
 }
 
@@ -2281,9 +2291,9 @@ pub fn validate_context_free_consensus_rejects_multiple_coinbase_inputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
 
-  assert btc_tx.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(parsed_tx)
     == Error([CoinbaseWithMultipleInputs])
 }
 
@@ -2307,9 +2317,9 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_short
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
 
-  assert btc_tx.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(parsed_tx)
     == Error([InvalidCoinbaseScriptSigLength])
 }
 
@@ -2335,9 +2345,9 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_long_
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
 
-  assert btc_tx.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(parsed_tx)
     == Error([InvalidCoinbaseScriptSigLength])
 }
 
@@ -2363,8 +2373,8 @@ pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_min_lengt
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(_) = btc_tx.validate_context_free_consensus(parsed_tx)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(_) = transaction.validate_context_free_consensus(parsed_tx)
 }
 
 pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
@@ -2389,8 +2399,8 @@ pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_max_lengt
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(_) = btc_tx.validate_context_free_consensus(parsed_tx)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(_) = transaction.validate_context_free_consensus(parsed_tx)
 }
 
 pub fn validate_context_free_consensus_returns_multiple_errors_test() {
@@ -2420,10 +2430,11 @@ pub fn validate_context_free_consensus_returns_multiple_errors_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
 
   // Validate consensus rules - should fail with multiple errors
-  let assert Error(errors) = btc_tx.validate_context_free_consensus(parsed_tx)
+  let assert Error(errors) =
+    transaction.validate_context_free_consensus(parsed_tx)
 
   // Should contain both CoinbaseWithMultipleInputs and OutputValueOutOfRange
   assert list.contains(errors, CoinbaseWithMultipleInputs)
@@ -2453,11 +2464,11 @@ pub fn validate_context_free_consensus_rejects_tx_with_duplicate_inputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert [in0, ..] = btc_tx.get_inputs(parsed_tx)
-  let dup_prev_out = btc_tx.get_input_prev_out(in0)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert [in0, ..] = transaction.get_inputs(parsed_tx)
+  let dup_prev_out = transaction.get_input_prev_out(in0)
 
-  assert btc_tx.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(parsed_tx)
     == Error([DuplicateInput(dup_prev_out, 0, 1)])
 }
 
@@ -2486,11 +2497,11 @@ pub fn validate_context_free_consensus_rejects_duplicate_input_at_non_adjacent_i
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert [in0, ..] = btc_tx.get_inputs(parsed_tx)
-  let dup_prev_out = btc_tx.get_input_prev_out(in0)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert [in0, ..] = transaction.get_inputs(parsed_tx)
+  let dup_prev_out = transaction.get_input_prev_out(in0)
 
-  assert btc_tx.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(parsed_tx)
     == Error([DuplicateInput(dup_prev_out, 0, 2)])
 }
 
@@ -2516,8 +2527,8 @@ pub fn validate_context_free_consensus_accepts_inputs_with_same_txid_but_differe
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert Ok(_) = btc_tx.validate_context_free_consensus(parsed_tx)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(_) = transaction.validate_context_free_consensus(parsed_tx)
 }
 
 pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_errors_test() {
@@ -2543,11 +2554,12 @@ pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  let assert [in0, ..] = btc_tx.get_inputs(parsed_tx)
-  let dup_prev_out = btc_tx.get_input_prev_out(in0)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert [in0, ..] = transaction.get_inputs(parsed_tx)
+  let dup_prev_out = transaction.get_input_prev_out(in0)
 
-  let assert Error(errors) = btc_tx.validate_context_free_consensus(parsed_tx)
+  let assert Error(errors) =
+    transaction.validate_context_free_consensus(parsed_tx)
   assert list.contains(errors, OutputValueOutOfRange(0, -1))
   assert list.contains(errors, DuplicateInput(dup_prev_out, 0, 1))
   assert list.length(errors) == 2
@@ -2561,17 +2573,17 @@ pub fn round_trip_legacy_tx_wire_bytes_match_original_hex_test() {
   // The bytes produced by to_wire_bytes must exactly match the original
   // hex encoding — no byte dropped or added.
   let assert Ok(original_bytes) = bit_array.base16_decode(legacy_v1_tx)
-  let assert Ok(parsed_tx) = btc_tx.decode(original_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(original_bytes)
 
-  assert btc_tx.to_stripped_bytes(parsed_tx) == original_bytes
-  assert btc_tx.to_wire_bytes(parsed_tx) == original_bytes
+  assert transaction.to_stripped_bytes(parsed_tx) == original_bytes
+  assert transaction.to_wire_bytes(parsed_tx) == original_bytes
 }
 
 pub fn round_trip_segwit_tx_wire_bytes_match_original_hex_test() {
   let assert Ok(original_bytes) = bit_array.base16_decode(segwit_v1_tx)
-  let assert Ok(parsed_tx) = btc_tx.decode(original_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(original_bytes)
 
-  assert btc_tx.to_wire_bytes(parsed_tx) == original_bytes
+  assert transaction.to_wire_bytes(parsed_tx) == original_bytes
 }
 
 pub fn hashing_and_serialization_accept_context_free_invalid_segwit_tx_test() {
@@ -2591,11 +2603,12 @@ pub fn hashing_and_serialization_accept_context_free_invalid_segwit_tx_test() {
     0:little-size(32),
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(wire_bytes)
-  assert btc_tx.validate_context_free_consensus(parsed_tx) == Error([NoOutputs])
+  let assert Ok(parsed_tx) = transaction.decode(wire_bytes)
+  assert transaction.validate_context_free_consensus(parsed_tx)
+    == Error([NoOutputs])
 
-  assert btc_tx.to_stripped_bytes(parsed_tx) == stripped_bytes
-  assert btc_tx.to_wire_bytes(parsed_tx) == wire_bytes
+  assert transaction.to_stripped_bytes(parsed_tx) == stripped_bytes
+  assert transaction.to_wire_bytes(parsed_tx) == wire_bytes
 
   let expected_txid =
     stripped_bytes
@@ -2607,8 +2620,8 @@ pub fn hashing_and_serialization_accept_context_free_invalid_segwit_tx_test() {
     |> crypto.hash(Sha256, _)
     |> crypto.hash(Sha256, _)
 
-  assert btc_tx.compute_txid(parsed_tx) == expected_txid
-  assert btc_tx.compute_wtxid(parsed_tx) == expected_wtxid
+  assert transaction.compute_txid(parsed_tx) == expected_txid
+  assert transaction.compute_wtxid(parsed_tx) == expected_wtxid
 }
 
 // ============================================================================
@@ -2633,10 +2646,10 @@ pub fn has_coinbase_shape_regular_transaction_returns_false_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
   let assert Ok(validated_tx) =
-    btc_tx.validate_context_free_consensus(parsed_tx)
-  assert !btc_tx.has_coinbase_shape(validated_tx)
+    transaction.validate_context_free_consensus(parsed_tx)
+  assert !transaction.has_coinbase_shape(validated_tx)
 }
 
 pub fn has_coinbase_shape_coinbase_transaction_test() {
@@ -2657,10 +2670,10 @@ pub fn has_coinbase_shape_coinbase_transaction_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
   let assert Ok(validated_tx) =
-    btc_tx.validate_context_free_consensus(parsed_tx)
-  assert btc_tx.has_coinbase_shape(validated_tx)
+    transaction.validate_context_free_consensus(parsed_tx)
+  assert transaction.has_coinbase_shape(validated_tx)
 }
 
 // ============================================================================
@@ -2692,9 +2705,9 @@ fn compare_compute_txid_against_known_vector(
   tx_hex: String,
   known_txid: String,
 ) -> Nil {
-  let assert Ok(tx) = btc_tx.decode_hex(tx_hex)
+  let assert Ok(tx) = transaction.decode_hex(tx_hex)
 
-  let wire_txid = btc_tx.compute_txid(tx)
+  let wire_txid = transaction.compute_txid(tx)
   assert get_display_hex(wire_txid) == known_txid
 }
 
@@ -2720,8 +2733,8 @@ pub fn compute_txid_matches_manual_dsha256_test() {
     |> crypto.hash(Sha256, _)
     |> crypto.hash(Sha256, _)
 
-  let assert Ok(tx) = btc_tx.decode(tx_bytes)
-  let txid = btc_tx.compute_txid(tx)
+  let assert Ok(tx) = transaction.decode(tx_bytes)
+  let txid = transaction.compute_txid(tx)
 
   assert txid == expected_txid
 }
@@ -2748,8 +2761,8 @@ pub fn compute_wtxid_matches_manual_dsha256_test() {
     |> crypto.hash(Sha256, _)
     |> crypto.hash(Sha256, _)
 
-  let assert Ok(tx) = btc_tx.decode(tx_bytes)
-  let wtxid = btc_tx.compute_wtxid(tx)
+  let assert Ok(tx) = transaction.decode(tx_bytes)
+  let wtxid = transaction.compute_wtxid(tx)
 
   assert wtxid == expected_wtxid
 }
@@ -2768,9 +2781,9 @@ fn compare_compute_wtxid_against_known_vector(
   tx_hex: String,
   known_txid: String,
 ) -> Nil {
-  let assert Ok(tx) = btc_tx.decode_hex(tx_hex)
+  let assert Ok(tx) = transaction.decode_hex(tx_hex)
 
-  let wire_txid = btc_tx.compute_wtxid(tx)
+  let wire_txid = transaction.compute_wtxid(tx)
   assert get_display_hex(wire_txid) == known_txid
 }
 
@@ -2782,19 +2795,19 @@ fn get_display_hex(bytes: BitArray) -> String {
 }
 
 pub fn compute_txid_differs_from_wtxid_for_segwit_test() {
-  let assert Ok(tx) = btc_tx.decode_hex(segwit_v1_tx)
+  let assert Ok(tx) = transaction.decode_hex(segwit_v1_tx)
 
-  let txid = btc_tx.compute_txid(tx)
-  let wtxid = btc_tx.compute_wtxid(tx)
+  let txid = transaction.compute_txid(tx)
+  let wtxid = transaction.compute_wtxid(tx)
 
   assert txid != wtxid
 }
 
 pub fn compute_txid_equals_compute_wtxid_for_legacy_tx_test() {
-  let assert Ok(tx) = btc_tx.decode_hex(legacy_v1_tx)
+  let assert Ok(tx) = transaction.decode_hex(legacy_v1_tx)
 
-  let txid = btc_tx.compute_txid(tx)
-  let wtxid = btc_tx.compute_wtxid(tx)
+  let txid = transaction.compute_txid(tx)
+  let wtxid = transaction.compute_wtxid(tx)
 
   assert txid == wtxid
 }
@@ -2835,7 +2848,7 @@ fn decode_single_input_prev_out(prev_txid: BitArray, vout: Int) {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(tx) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       compact_size(1):bits,
       input:bits,
@@ -2843,8 +2856,8 @@ fn decode_single_input_prev_out(prev_txid: BitArray, vout: Int) {
       lock_time:bits,
     >>)
 
-  let assert [first_input] = btc_tx.get_inputs(tx)
-  btc_tx.get_input_prev_out(first_input)
+  let assert [first_input] = transaction.get_inputs(tx)
+  transaction.get_input_prev_out(first_input)
 }
 
 /// Build an output with specific values
@@ -2944,19 +2957,19 @@ fn do_reverse_bytes(bits: BitArray, acc: BitArray) -> BitArray {
 /// ready to pass to `classify_output_script`.
 fn decode_script_pubkey(
   script_pubkey_bytes: BitArray,
-) -> btc_tx.ScriptBytes(btc_tx.OutputScript) {
+) -> transaction.ScriptBytes(transaction.OutputScript) {
   let output = build_output(<<0:little-size(64)>>, script_pubkey_bytes)
   let lock_time = <<0:little-size(32)>>
   let assert Ok(tx) =
-    btc_tx.decode(<<
+    transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
       compact_size(1):bits,
       output:bits,
       lock_time:bits,
     >>)
-  let assert [first_output] = btc_tx.get_outputs(tx)
-  btc_tx.get_output_script_pubkey(first_output)
+  let assert [first_output] = transaction.get_outputs(tx)
+  transaction.get_output_script_pubkey(first_output)
 }
 
 // ============================================================================
@@ -2964,30 +2977,30 @@ fn decode_script_pubkey(
 // ============================================================================
 
 fn policy_with_max_tx_size(max_tx_size: Int) {
-  btc_tx.default_decode_policy()
-  |> btc_tx.decode_policy_with_max_tx_size(max_tx_size)
+  transaction.default_decode_policy()
+  |> transaction.decode_policy_with_max_tx_size(max_tx_size)
 }
 
 fn policy_with_max_vin_count(max_vin_count: Int) {
-  btc_tx.default_decode_policy()
-  |> btc_tx.decode_policy_with_max_vin_count(max_vin_count)
+  transaction.default_decode_policy()
+  |> transaction.decode_policy_with_max_vin_count(max_vin_count)
 }
 
 fn policy_with_max_vout_count(max_vout_count: Int) {
-  btc_tx.default_decode_policy()
-  |> btc_tx.decode_policy_with_max_vout_count(max_vout_count)
+  transaction.default_decode_policy()
+  |> transaction.decode_policy_with_max_vout_count(max_vout_count)
 }
 
 fn policy_with_max_witness_items_per_input(max_items_per_input: Int) {
-  btc_tx.default_decode_policy()
-  |> btc_tx.decode_policy_with_max_witness_items_per_input(Some(
+  transaction.default_decode_policy()
+  |> transaction.decode_policy_with_max_witness_items_per_input(Some(
     max_items_per_input,
   ))
 }
 
 fn policy_with_max_witness_size_per_input(max_payload_bytes: Int) {
-  btc_tx.default_decode_policy()
-  |> btc_tx.decode_policy_with_max_witness_size_per_input(Some(
+  transaction.default_decode_policy()
+  |> transaction.decode_policy_with_max_witness_size_per_input(Some(
     max_payload_bytes,
   ))
 }

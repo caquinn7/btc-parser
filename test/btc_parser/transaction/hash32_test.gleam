@@ -1,4 +1,4 @@
-import internal/hash32.{InvalidByteCount}
+import btc_parser/transaction/hash32.{InvalidByteCount}
 
 pub fn from_bytes_le_returns_error_when_input_is_not_32_bytes_test() {
   assert Error(InvalidByteCount(0)) == hash32.from_bytes_le(<<>>)

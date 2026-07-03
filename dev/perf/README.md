@@ -22,14 +22,14 @@ stdout.
 Save a CSV report to a file. CSV is the default format when `--out` is used:
 
 ```sh
-gleam dev perf --out /tmp/btc_tx_perf/perf.csv
-gleam dev perf --format csv --out /tmp/btc_tx_perf/perf.csv
+gleam dev perf --out /tmp/btc_parser_perf/perf.csv
+gleam dev perf --format csv --out /tmp/btc_parser_perf/perf.csv
 ```
 
 Save the table report to a file:
 
 ```sh
-gleam dev perf --format table --out /tmp/btc_tx_perf/perf.txt
+gleam dev perf --format table --out /tmp/btc_parser_perf/perf.txt
 ```
 
 When `--out` references a file in a directory that does not exist, the missing

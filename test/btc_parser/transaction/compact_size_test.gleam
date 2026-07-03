@@ -1,6 +1,6 @@
-import internal/compact_size.{NonMinimalCompactSize}
-import internal/fixed_int/uint64
-import internal/reader
+import btc_parser/transaction/compact_size.{NonMinimalCompactSize}
+import btc_parser/transaction/fixed_int/uint64
+import btc_parser/transaction/reader
 
 // ===============================
 // Read

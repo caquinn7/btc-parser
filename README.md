@@ -1,17 +1,17 @@
-# btc_tx
+# btc_parser
 
-<!-- [![Package Version](https://img.shields.io/hexpm/v/btc_tx)](https://hex.pm/packages/btc_tx)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/btc_tx/) -->
+<!-- [![Package Version](https://img.shields.io/hexpm/v/btc_parser)](https://hex.pm/packages/btc_parser)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/btc_parser/) -->
 
-A reference-oriented library for parsing and modeling Bitcoin transactions.
+A reference-oriented library for parsing and modeling Bitcoin data structures.
 
 Designed to closely reflect Bitcoin's wire format and protocol structure.
 
 This library is intended for educational and infrastructure use.
-It parses and models Bitcoin transaction data, including basic serialization
-and format checks, but does not perform full transaction validation such as
-script evaluation, signature verification, or UTXO-contextual consensus rules.
-No security guarantees are provided.
+Its current public API parses and models transaction data, including basic
+serialization and format checks, but does not perform full transaction
+validation such as script evaluation, signature verification, or
+UTXO-contextual consensus rules. No security guarantees are provided.
 
 ## Key Features
 
@@ -41,21 +41,21 @@ No security guarantees are provided.
 
 <!-- ## Installation
 ```sh
-gleam add btc_tx@1
+gleam add btc_parser@1
 ``` -->
 
 ## Quick Start
 
 ```gleam
-import btc_tx
+import btc_parser/transaction
 import gleam/result
 
 pub fn txid_from_bytes(
   bytes: BitArray,
-) -> Result(BitArray, btc_tx.DecodeError) {
+) -> Result(BitArray, transaction.DecodeError) {
   bytes
-  |> btc_tx.decode
-  |> result.map(btc_tx.compute_txid)
+  |> transaction.decode
+  |> result.map(transaction.compute_txid)
 }
 ```
 

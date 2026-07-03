@@ -51,6 +51,6 @@ fn perf(args: List(String)) -> Nil {
   }
 }
 
-@external(erlang, "btc_tx_dev_ffi", "exit_failure")
-@external(javascript, "./btc_tx_dev_ffi.mjs", "exitFailure")
+@external(erlang, "btc_parser_dev_ffi", "exit_failure")
+@external(javascript, "./btc_parser_dev_ffi.mjs", "exitFailure")
 fn exit_failure() -> Nil

@@ -1,4 +1,4 @@
-//// Performance benchmarks for the public `btc_tx` transaction workflows.
+//// Performance benchmarks for the public `btc_parser/transaction` workflows.
 ////
 //// The suite measures repeated operations that callers are expected to pay for:
 //// decoding, transaction inspection, context-free consensus validation,
@@ -12,7 +12,7 @@
 //// and latency are converted back to one logical operation, such as one
 //// `decode` or one `compute_txid` call.
 
-import btc_tx.{
+import btc_parser/transaction.{
   type ContextFreeValidated, type Parsed, type Transaction, DuplicateInput,
   InsufficientBytes, ParseFailed, PolicyLimitExceeded,
   TotalOutputValueOutOfRange, UnexpectedEof,
@@ -121,7 +121,7 @@ pub fn run() -> PerfResult {
 // Transaction decoding
 // ==============================================================================
 
-/// Measures `btc_tx.decode` from byte arrays that are prepared before timing.
+/// Measures `transaction.decode` from byte arrays that are prepared before timing.
 /// This group includes valid legacy/SegWit fixtures, synthetic many-input and
 /// many-output legacy transactions, synthetic SegWit transactions that isolate
 /// witness scaling dimensions, malformed inputs that fail after most of the
@@ -241,7 +241,7 @@ fn measure_decode(
     [
       Function(
         "decode",
-        bench.repeat(config.operations_per_timed_call, btc_tx.decode),
+        bench.repeat(config.operations_per_timed_call, transaction.decode),
       ),
     ],
     config,
@@ -386,7 +386,7 @@ fn synthetic_decode_case(
 ) -> PerfCaseInput(BitArray) {
   let #(label, tx_bytes) = synthetic_tx_spec_to_bytes(synthetic_spec)
 
-  let assert Ok(_) = btc_tx.decode(tx_bytes)
+  let assert Ok(_) = transaction.decode(tx_bytes)
 
   PerfCaseInput(label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
@@ -423,7 +423,7 @@ fn fixture_decode_case(
   tx_hex: String,
 ) -> PerfCaseInput(BitArray) {
   let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
-  let assert Ok(_) = btc_tx.decode(tx_bytes)
+  let assert Ok(_) = transaction.decode(tx_bytes)
 
   PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
@@ -434,9 +434,9 @@ fn late_truncated_decode_case(
 ) -> PerfCaseInput(BitArray) {
   let assert Ok(valid_tx_bytes) = bit_array.base16_decode(tx_hex)
   let tx_bytes = drop_last_byte(valid_tx_bytes)
-  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+  let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == UnexpectedEof(bytes_needed: 4, remaining: 3)
 
   PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
@@ -446,9 +446,9 @@ fn late_truncated_witness_payload_decode_case(
   input_label: String,
 ) -> PerfCaseInput(BitArray) {
   let tx_bytes = build_late_truncated_witness_payload_tx()
-  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
+  let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert btc_tx.parse_error_kind(parse_err)
+  assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 32, remaining: 31)
 
   PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
@@ -464,8 +464,8 @@ fn oversized_scriptsig_policy_decode_case(
   input_label: String,
 ) -> PerfCaseInput(BitArray) {
   let max_script_size =
-    btc_tx.default_decode_policy()
-    |> btc_tx.decode_policy_max_script_size
+    transaction.default_decode_policy()
+    |> transaction.decode_policy_max_script_size
 
   let script_sig_size = max_script_size + 1
   let script_sig = <<0:size({ script_sig_size * 8 })>>
@@ -482,8 +482,8 @@ fn oversized_scriptsig_policy_decode_case(
     0xFFFFFFFF:little-size(32),
   >>
 
-  let assert Error(ParseFailed(parse_err)) = btc_tx.decode(tx_bytes)
-  assert btc_tx.parse_error_kind(parse_err)
+  let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
+  assert transaction.parse_error_kind(parse_err)
     == PolicyLimitExceeded(script_sig_size, max_script_size)
 
   PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
@@ -533,7 +533,7 @@ fn measure_coinbase_shape(
         "has_coinbase_shape",
         bench.repeat(
           config.operations_per_timed_call,
-          btc_tx.has_coinbase_shape,
+          transaction.has_coinbase_shape,
         ),
       ),
     ],
@@ -546,11 +546,11 @@ fn coinbase_shape_case(
 ) -> PerfCaseInput(Transaction(ContextFreeValidated)) {
   let tx_bytes = build_synthetic_legacy_tx(input_count, 1, UniquePrevouts)
 
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
   let assert Ok(validated_tx) =
-    btc_tx.validate_context_free_consensus(parsed_tx)
+    transaction.validate_context_free_consensus(parsed_tx)
 
-  assert !btc_tx.has_coinbase_shape(validated_tx)
+  assert !transaction.has_coinbase_shape(validated_tx)
 
   PerfCaseInput(
     "regular inputs=" <> int.to_string(input_count),
@@ -563,7 +563,7 @@ fn coinbase_shape_case(
 // Context-free consensus validation
 // ==============================================================================
 
-/// Measures `btc_tx.validate_context_free_consensus` on already-parsed
+/// Measures `transaction.validate_context_free_consensus` on already-parsed
 /// synthetic transactions.
 /// The valid cases exercise full success-path input-count and output-count
 /// scanning. The late-duplicate cases place the duplicate prevout at the end so
@@ -729,7 +729,7 @@ fn context_free_consensus_validation_case(
   tx_bytes: BitArray,
   expectation: ContextFreeConsensusValidationExpectation,
 ) -> PerfCaseInput(Transaction(Parsed)) {
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
   preflight_validate_context_free_consensus(parsed_tx, expectation)
 
   PerfCaseInput(label, bit_array.byte_size(tx_bytes), parsed_tx)
@@ -746,7 +746,7 @@ fn measure_validate_context_free_consensus(
         "validate_context_free_consensus",
         bench.repeat(
           config.operations_per_timed_call,
-          btc_tx.validate_context_free_consensus,
+          transaction.validate_context_free_consensus,
         ),
       ),
     ],
@@ -766,20 +766,20 @@ fn preflight_validate_context_free_consensus(
 ) -> Nil {
   case expectation {
     ExpectValid -> {
-      let assert Ok(_) = btc_tx.validate_context_free_consensus(parsed_tx)
+      let assert Ok(_) = transaction.validate_context_free_consensus(parsed_tx)
       Nil
     }
 
     ExpectLateDuplicate(input_count) -> {
-      let assert [first_input, ..] = btc_tx.get_inputs(parsed_tx)
-      let dup_prev_out = btc_tx.get_input_prev_out(first_input)
+      let assert [first_input, ..] = transaction.get_inputs(parsed_tx)
+      let dup_prev_out = transaction.get_input_prev_out(first_input)
 
-      assert btc_tx.validate_context_free_consensus(parsed_tx)
+      assert transaction.validate_context_free_consensus(parsed_tx)
         == Error([DuplicateInput(dup_prev_out, 0, input_count - 1)])
     }
 
     ExpectOutputOverflow(output_count) -> {
-      assert btc_tx.validate_context_free_consensus(parsed_tx)
+      assert transaction.validate_context_free_consensus(parsed_tx)
         == Error([
           TotalOutputValueOutOfRange(
             output_count - 1,
@@ -855,13 +855,13 @@ fn measure_synthetic_witness_payload_txid_computation() -> PerfSection {
         small_specs,
         small_config,
         "compute_wtxid",
-        btc_tx.compute_wtxid,
+        transaction.compute_wtxid,
       ),
       measure_synthetic_parsed_function(
         large_specs,
         large_config,
         "compute_wtxid",
-        btc_tx.compute_wtxid,
+        transaction.compute_wtxid,
       ),
     ]
     |> list.flatten
@@ -939,13 +939,13 @@ fn measure_synthetic_witness_payload_tx_serialization() -> PerfSection {
         small_specs,
         small_config,
         "to_wire_bytes",
-        btc_tx.to_wire_bytes,
+        transaction.to_wire_bytes,
       ),
       measure_synthetic_parsed_function(
         large_specs,
         large_config,
         "to_wire_bytes",
-        btc_tx.to_wire_bytes,
+        transaction.to_wire_bytes,
       ),
     ]
     |> list.flatten
@@ -966,13 +966,13 @@ fn measure_synthetic_legacy_txid_curve(
       small_specs,
       small_config,
       "compute_txid",
-      btc_tx.compute_txid,
+      transaction.compute_txid,
     ),
     measure_synthetic_parsed_function(
       large_specs,
       large_config,
       "compute_txid",
-      btc_tx.compute_txid,
+      transaction.compute_txid,
     ),
   ]
   |> list.flatten
@@ -991,13 +991,13 @@ fn measure_synthetic_legacy_serialization_curve(
       small_specs,
       small_config,
       "to_stripped_bytes",
-      btc_tx.to_stripped_bytes,
+      transaction.to_stripped_bytes,
     ),
     measure_synthetic_parsed_function(
       large_specs,
       large_config,
       "to_stripped_bytes",
-      btc_tx.to_stripped_bytes,
+      transaction.to_stripped_bytes,
     ),
   ]
   |> list.flatten
@@ -1023,31 +1023,31 @@ fn measure_synthetic_segwit_txid_curve(
       small_specs,
       small_config,
       "compute_txid",
-      btc_tx.compute_txid,
+      transaction.compute_txid,
     ),
     measure_synthetic_parsed_function(
       large_specs,
       large_config,
       "compute_txid",
-      btc_tx.compute_txid,
+      transaction.compute_txid,
     ),
     measure_synthetic_parsed_function(
       small_witness_specs,
       small_config,
       "compute_wtxid",
-      btc_tx.compute_wtxid,
+      transaction.compute_wtxid,
     ),
     measure_synthetic_parsed_function(
       medium_witness_specs,
       medium_config,
       "compute_wtxid",
-      btc_tx.compute_wtxid,
+      transaction.compute_wtxid,
     ),
     measure_synthetic_parsed_function(
       slow_witness_specs,
       slow_config,
       "compute_wtxid",
-      btc_tx.compute_wtxid,
+      transaction.compute_wtxid,
     ),
   ]
   |> list.flatten
@@ -1066,13 +1066,13 @@ fn measure_synthetic_witness_wtxid_curve(
       small_specs,
       small_config,
       "compute_wtxid",
-      btc_tx.compute_wtxid,
+      transaction.compute_wtxid,
     ),
     measure_synthetic_parsed_function(
       large_specs,
       large_config,
       "compute_wtxid",
-      btc_tx.compute_wtxid,
+      transaction.compute_wtxid,
     ),
   ]
   |> list.flatten
@@ -1098,31 +1098,31 @@ fn measure_synthetic_segwit_serialization_curve(
       small_specs,
       small_config,
       "to_stripped_bytes",
-      btc_tx.to_stripped_bytes,
+      transaction.to_stripped_bytes,
     ),
     measure_synthetic_parsed_function(
       large_specs,
       large_config,
       "to_stripped_bytes",
-      btc_tx.to_stripped_bytes,
+      transaction.to_stripped_bytes,
     ),
     measure_synthetic_parsed_function(
       small_witness_specs,
       small_config,
       "to_wire_bytes",
-      btc_tx.to_wire_bytes,
+      transaction.to_wire_bytes,
     ),
     measure_synthetic_parsed_function(
       medium_witness_specs,
       medium_config,
       "to_wire_bytes",
-      btc_tx.to_wire_bytes,
+      transaction.to_wire_bytes,
     ),
     measure_synthetic_parsed_function(
       slow_witness_specs,
       slow_config,
       "to_wire_bytes",
-      btc_tx.to_wire_bytes,
+      transaction.to_wire_bytes,
     ),
   ]
   |> list.flatten
@@ -1141,13 +1141,13 @@ fn measure_synthetic_witness_serialization_curve(
       small_specs,
       small_config,
       "to_wire_bytes",
-      btc_tx.to_wire_bytes,
+      transaction.to_wire_bytes,
     ),
     measure_synthetic_parsed_function(
       large_specs,
       large_config,
       "to_wire_bytes",
-      btc_tx.to_wire_bytes,
+      transaction.to_wire_bytes,
     ),
   ]
   |> list.flatten
@@ -1173,13 +1173,13 @@ fn measure_txid_functions(
       inputs,
       config,
       "compute_txid",
-      btc_tx.compute_txid,
+      transaction.compute_txid,
     ),
     measure_parsed_tx_function(
       inputs,
       config,
       "compute_wtxid",
-      btc_tx.compute_wtxid,
+      transaction.compute_wtxid,
     ),
   ]
   |> list.flatten
@@ -1194,13 +1194,13 @@ fn measure_serialization_functions(
       inputs,
       config,
       "to_stripped_bytes",
-      btc_tx.to_stripped_bytes,
+      transaction.to_stripped_bytes,
     ),
     measure_parsed_tx_function(
       inputs,
       config,
       "to_wire_bytes",
-      btc_tx.to_wire_bytes,
+      transaction.to_wire_bytes,
     ),
   ]
   |> list.flatten
@@ -1228,14 +1228,14 @@ fn synthetic_parsed_case(
   synthetic_spec: SyntheticTxSpec,
 ) -> PerfCaseInput(Transaction(Parsed)) {
   let #(label, tx_bytes) = synthetic_tx_spec_to_bytes(synthetic_spec)
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
   PerfCaseInput(label, bit_array.byte_size(tx_bytes), parsed_tx)
 }
 
 fn fixture_parsed_tx_cases() -> List(PerfCaseInput(Transaction(Parsed))) {
   let fixture_parsed_tx_case = fn(input_label, tx_hex) {
     let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
-    let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
+    let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
     PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), parsed_tx)
   }
 
