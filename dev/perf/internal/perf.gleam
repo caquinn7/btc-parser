@@ -105,7 +105,6 @@ pub fn run() -> PerfResult {
   let sections =
     [
       measure_tx_decoding(),
-      measure_tx_inspection(),
       measure_context_free_consensus_validation(),
       measure_txid_computation(),
       measure_tx_serialization(),
@@ -485,75 +484,6 @@ fn oversized_scriptsig_policy_decode_case(
     == PolicyLimitExceeded(script_sig_size, max_script_size)
 
   PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
-}
-
-// ==============================================================================
-// Transaction inspection
-// ==============================================================================
-
-/// Measures read-only transaction inspection helpers over transactions that
-/// have already been decoded before timing begins.
-fn measure_tx_inspection() -> List(PerfSection) {
-  [measure_coinbase_marker_inspection()]
-}
-
-fn measure_coinbase_marker_inspection() -> PerfSection {
-  let small_config = fast_measurement_config(100)
-  let large_config = fast_measurement_config(10)
-
-  let cases =
-    [
-      measure_coinbase_marker_input_counts([20, 100], small_config),
-      measure_coinbase_marker_input_counts([1000], large_config),
-    ]
-    |> list.flatten
-
-  PerfSection("inspection / coinbase marker", cases)
-}
-
-fn measure_coinbase_marker_input_counts(
-  input_counts: List(Int),
-  config: PerfMeasurementConfig,
-) -> List(PerfCaseResult) {
-  input_counts
-  |> list.map(coinbase_marker_case(_, "no marker", UniquePrevouts, False))
-  |> measure_coinbase_marker(config)
-}
-
-fn measure_coinbase_marker(
-  inputs: List(PerfCaseInput(Transaction(Parsed))),
-  config: PerfMeasurementConfig,
-) -> List(PerfCaseResult) {
-  run_bench_cases(
-    inputs,
-    [
-      Function(
-        "has_coinbase_marker",
-        bench.repeat(
-          config.operations_per_timed_call,
-          btc_tx.has_coinbase_marker,
-        ),
-      ),
-    ],
-    config,
-  )
-}
-
-fn coinbase_marker_case(
-  input_count: Int,
-  marker_label: String,
-  prevout_pattern: SyntheticPrevoutPattern,
-  expected: Bool,
-) -> PerfCaseInput(Transaction(Parsed)) {
-  let tx_bytes = build_synthetic_legacy_tx(input_count, 1, prevout_pattern)
-  let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  assert btc_tx.has_coinbase_marker(parsed_tx) == expected
-
-  PerfCaseInput(
-    marker_label <> " inputs=" <> int.to_string(input_count),
-    bit_array.byte_size(tx_bytes),
-    parsed_tx,
-  )
 }
 
 // ==============================================================================
@@ -1626,16 +1556,6 @@ fn measurement_config(operations_per_timed_call: Int) -> PerfMeasurementConfig {
 /// that batching would leave too few timed calls.
 fn slow_synthetic_tx_measurement_config() -> PerfMeasurementConfig {
   measurement_config(1)
-}
-
-fn fast_measurement_config(
-  operations_per_timed_call: Int,
-) -> PerfMeasurementConfig {
-  PerfMeasurementConfig(
-    operations_per_timed_call:,
-    warmup_ms: 100,
-    duration_ms: 500,
-  )
 }
 
 /// Uses larger batches for fast synthetic cases to reduce timer overhead.

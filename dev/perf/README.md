@@ -94,12 +94,6 @@ late-failure paths and ensure truncation checks stay precise.
 payload work. This should remain cheap even when the serialized input includes
 large payload bytes.
 
-## Inspection
-
-`inspection / coinbase marker` measures `has_coinbase_marker` over already
-decoded transactions with many ordinary inputs. This isolates the cost of the
-public structural scan used by coinbase-related checks.
-
 ## Context-Free Consensus Validation
 
 `validate_context_free_consensus / valid inputs` measures successful

@@ -533,7 +533,10 @@ pub fn decode_parses_coinbase_marker_input_test() {
       lock_time:bits,
     >>)
 
-  assert btc_tx.has_coinbase_marker(tx)
+  let assert [input] = btc_tx.get_inputs(tx)
+  assert input
+    |> btc_tx.get_input_prev_out
+    |> btc_tx.prev_out_is_null_outpoint
 }
 
 pub fn prev_out_is_null_outpoint_returns_true_for_coinbase_marker_test() {
@@ -2609,79 +2612,8 @@ pub fn hashing_and_serialization_accept_context_free_invalid_segwit_tx_test() {
 }
 
 // ============================================================================
-// has_coinbase_marker and is_coinbase
+// is_coinbase
 // ============================================================================
-
-pub fn has_coinbase_marker_regular_inputs_returns_false_test() {
-  // Multiple inputs, none with coinbase marker
-  let vin_count = compact_size(2)
-  let input1 = build_input(repeat_byte(1, 32), 0, <<0>>, 0xFFFFFFFE)
-  let input2 = build_input(repeat_byte(2, 32), 1, <<0>>, 0xFFFFFFFE)
-  let vout_count = compact_size(1)
-  let output = build_output(<<100_000_000:little-size(64)>>, <<>>)
-  let lock_time = <<0:little-size(32)>>
-
-  let tx_bytes = <<
-    version1:bits,
-    vin_count:bits,
-    input1:bits,
-    input2:bits,
-    vout_count:bits,
-    output:bits,
-    lock_time:bits,
-  >>
-
-  let assert Ok(tx) = btc_tx.decode(tx_bytes)
-  assert !btc_tx.has_coinbase_marker(tx)
-}
-
-pub fn has_coinbase_marker_multiple_inputs_one_coinbase_returns_true_test() {
-  // Multiple inputs where one has coinbase marker (function checks "any")
-  let vin_count = compact_size(3)
-  let regular_input1 = build_input(repeat_byte(1, 32), 5, <<0>>, 0xFFFFFFFE)
-  let coinbase_input = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
-  let regular_input2 = build_input(repeat_byte(2, 32), 10, <<0>>, 0xFFFFFFFE)
-  let vout_count = compact_size(1)
-  let output = build_output(<<5_000_000_000:little-size(64)>>, <<>>)
-  let lock_time = <<0:little-size(32)>>
-
-  let tx_bytes = <<
-    version1:bits,
-    vin_count:bits,
-    regular_input1:bits,
-    coinbase_input:bits,
-    regular_input2:bits,
-    vout_count:bits,
-    output:bits,
-    lock_time:bits,
-  >>
-
-  let assert Ok(tx) = btc_tx.decode(tx_bytes)
-  assert btc_tx.has_coinbase_marker(tx)
-}
-
-pub fn has_coinbase_marker_all_inputs_coinbase_returns_true_test() {
-  // All inputs have coinbase marker (edge case)
-  let vin_count = compact_size(2)
-  let coinbase_input1 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
-  let coinbase_input2 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 1>>, 0)
-  let vout_count = compact_size(1)
-  let output = build_output(<<5_000_000_000:little-size(64)>>, <<>>)
-  let lock_time = <<0:little-size(32)>>
-
-  let tx_bytes = <<
-    version1:bits,
-    vin_count:bits,
-    coinbase_input1:bits,
-    coinbase_input2:bits,
-    vout_count:bits,
-    output:bits,
-    lock_time:bits,
-  >>
-
-  let assert Ok(tx) = btc_tx.decode(tx_bytes)
-  assert btc_tx.has_coinbase_marker(tx)
-}
 
 pub fn is_coinbase_regular_transaction_returns_false_test() {
   // Regular (non-coinbase) transaction with valid inputs and outputs
