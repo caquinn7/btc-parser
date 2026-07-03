@@ -1,9 +1,10 @@
 //// Performance benchmarks for the public `btc_tx` transaction workflows.
 ////
 //// The suite measures repeated operations that callers are expected to pay for:
-//// decoding, context-free consensus validation, transaction id computation, and
-//// serialization. Input construction, hex decoding, and preflight assertions
-//// are intentionally performed before timing begins.
+//// decoding, transaction inspection, context-free consensus validation,
+//// transaction id computation, and serialization. Input construction, hex
+//// decoding, validation of inspection fixtures, and preflight assertions are
+//// intentionally performed before timing begins.
 ////
 //// Benchmark cases run one or more logical operations per timed call. Fast
 //// cases use larger batches to reduce timer overhead; slower cases can use
@@ -12,8 +13,9 @@
 //// `decode` or one `compute_txid` call.
 
 import btc_tx.{
-  type Parsed, type Transaction, DuplicateInput, InsufficientBytes, ParseFailed,
-  PolicyLimitExceeded, TotalOutputValueOutOfRange, UnexpectedEof,
+  type ContextFreeValidated, type Parsed, type Transaction, DuplicateInput,
+  InsufficientBytes, ParseFailed, PolicyLimitExceeded,
+  TotalOutputValueOutOfRange, UnexpectedEof,
 }
 import gleam/bit_array
 import gleam/float
@@ -492,46 +494,46 @@ fn oversized_scriptsig_policy_decode_case(
 // ==============================================================================
 
 /// Measures read-only transaction inspection helpers over transactions that
-/// have already been decoded before timing begins.
+/// have already been decoded and context-free validated before timing begins.
 fn measure_tx_inspection() -> List(PerfSection) {
-  [measure_coinbase_marker_inspection()]
+  [measure_coinbase_shape_inspection()]
 }
 
-fn measure_coinbase_marker_inspection() -> PerfSection {
+fn measure_coinbase_shape_inspection() -> PerfSection {
   let small_config = fast_measurement_config(100)
   let large_config = fast_measurement_config(10)
 
   let cases =
     [
-      measure_coinbase_marker_input_counts([20, 100], small_config),
-      measure_coinbase_marker_input_counts([1000], large_config),
+      measure_coinbase_shape_input_counts([20, 100], small_config),
+      measure_coinbase_shape_input_counts([1000], large_config),
     ]
     |> list.flatten
 
-  PerfSection("inspection / coinbase marker", cases)
+  PerfSection("inspection / coinbase shape", cases)
 }
 
-fn measure_coinbase_marker_input_counts(
+fn measure_coinbase_shape_input_counts(
   input_counts: List(Int),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   input_counts
-  |> list.map(coinbase_marker_case(_, "no marker", UniquePrevouts, False))
-  |> measure_coinbase_marker(config)
+  |> list.map(coinbase_shape_case)
+  |> measure_coinbase_shape(config)
 }
 
-fn measure_coinbase_marker(
-  inputs: List(PerfCaseInput(Transaction(Parsed))),
+fn measure_coinbase_shape(
+  inputs: List(PerfCaseInput(Transaction(ContextFreeValidated))),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   run_bench_cases(
     inputs,
     [
       Function(
-        "has_coinbase_marker",
+        "has_coinbase_shape",
         bench.repeat(
           config.operations_per_timed_call,
-          btc_tx.has_coinbase_marker,
+          btc_tx.has_coinbase_shape,
         ),
       ),
     ],
@@ -539,20 +541,21 @@ fn measure_coinbase_marker(
   )
 }
 
-fn coinbase_marker_case(
+fn coinbase_shape_case(
   input_count: Int,
-  marker_label: String,
-  prevout_pattern: SyntheticPrevoutPattern,
-  expected: Bool,
-) -> PerfCaseInput(Transaction(Parsed)) {
-  let tx_bytes = build_synthetic_legacy_tx(input_count, 1, prevout_pattern)
+) -> PerfCaseInput(Transaction(ContextFreeValidated)) {
+  let tx_bytes = build_synthetic_legacy_tx(input_count, 1, UniquePrevouts)
+
   let assert Ok(parsed_tx) = btc_tx.decode(tx_bytes)
-  assert btc_tx.has_coinbase_marker(parsed_tx) == expected
+  let assert Ok(validated_tx) =
+    btc_tx.validate_context_free_consensus(parsed_tx)
+
+  assert !btc_tx.has_coinbase_shape(validated_tx)
 
   PerfCaseInput(
-    marker_label <> " inputs=" <> int.to_string(input_count),
+    "regular inputs=" <> int.to_string(input_count),
     bit_array.byte_size(tx_bytes),
-    parsed_tx,
+    validated_tx,
   )
 }
 

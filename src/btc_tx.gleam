@@ -86,46 +86,28 @@ pub fn is_segwit(tx: Transaction(v)) -> Bool {
   }
 }
 
-/// Check whether a transaction has a coinbase input marker (structural check).
+/// Check whether a context-free-validated transaction has coinbase shape.
 ///
-/// This function performs a **structural check only**, determining whether any
-/// input has the coinbase marker (null previous outpoint). It does not verify
-/// that the transaction satisfies coinbase consensus rules.
+/// The `ContextFreeValidated` state guarantees that transaction-local consensus
+/// checks have already been applied. For this function, `True` means the
+/// transaction has the context-free coinbase structure:
 ///
-/// A transaction may have a coinbase input but fail validation due to:
-/// - Having multiple inputs (coinbase transactions must have exactly one input)
-/// - Invalid scriptSig length (must be 2-100 bytes for coinbase)
+/// - exactly one input
+/// - the input uses the null previous outpoint
+/// - the coinbase scriptSig length is within the consensus range
 ///
-/// For a context-free-validated check, use `is_coinbase` after calling
-/// `validate_context_free_consensus`.
+/// This does not prove that the transaction is valid as the coinbase
+/// transaction of a block. Block-level checks such as transaction position,
+/// block height, subsidy, and fees are outside the scope of this function.
 ///
-/// Returns `True` if any input has a coinbase marker, `False` otherwise.
-pub fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
-  list.any(tx.inputs, fn(txin) { prev_out_is_null_outpoint(txin.prev_out) })
+/// Returns `True` if the transaction has coinbase shape, `False` otherwise.
+pub fn has_coinbase_shape(tx: Transaction(ContextFreeValidated)) -> Bool {
+  has_coinbase_marker(tx)
 }
 
-/// Check whether a transaction is a valid coinbase transaction.
-///
-/// This function returns `True` only for transactions that have passed the
-/// context-free Bitcoin consensus checks performed by
-/// `validate_context_free_consensus` and have a valid transaction-local
-/// coinbase shape.
-///
-/// A coinbase transaction is the first transaction in a block, which creates new
-/// bitcoins as a block reward and does not spend any previous outputs. Valid
-/// coinbase transactions must:
-/// - Have exactly one input with a coinbase marker (null previous outpoint)
-/// - Have a scriptSig between 2 and 100 bytes in length
-///
-/// **Requires validation**: This function accepts only
-/// `Transaction(ContextFreeValidated)`, ensuring the transaction has passed the
-/// context-free checks performed by `validate_context_free_consensus`.
-///
-/// For a structural check without validation, use `has_coinbase_marker`.
-///
-/// Returns `True` if this is a valid coinbase transaction, `False` otherwise.
-pub fn is_coinbase(tx: Transaction(ContextFreeValidated)) -> Bool {
-  has_coinbase_marker(tx)
+/// Return whether any input has the coinbase marker (null previous outpoint).
+fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
+  list.any(tx.inputs, fn(txin) { prev_out_is_null_outpoint(txin.prev_out) })
 }
 
 /// Get the transaction inputs.
@@ -157,12 +139,13 @@ pub fn get_lock_time(tx: Transaction(v)) -> Int {
 
 /// Get the witness stacks from a SegWit transaction.
 ///
-/// Returns `Ok(witnesses)` if the transaction uses SegWit format, or `Error(Nil)`
-/// if it's a legacy transaction (which has no witness data).
+/// Returns `Ok(witnesses)` if the transaction uses SegWit serialization.
 ///
-/// The witness stacks are returned in order, corresponding 1-to-1 with the
-/// transaction inputs by position (witness stack at index N corresponds to
-/// input at index N).
+/// Returns `Error(Nil)` if the transaction uses legacy serialization, because
+/// legacy transactions do not contain witness data.
+///
+/// For SegWit transactions, the witness stacks are returned in order,
+/// corresponding 1-to-1 with the transaction inputs by position.
 pub fn get_witnesses(tx: Transaction(v)) -> Result(List(WitnessStack), Nil) {
   case tx {
     Segwit(witnesses:, ..) -> Ok(witnesses)
@@ -1942,17 +1925,17 @@ pub fn validate_context_free_consensus(
     validate_no_duplicate_inputs,
   ]
 
-  let errors =
+  let violations =
     list.filter_map(validators, fn(validator) {
       case validator(tx) {
         Ok(_) -> Error(Nil)
-        Error(err) -> Ok(err)
+        Error(violation) -> Ok(violation)
       }
     })
 
-  case errors {
+  case violations {
     [] -> Ok(mark_as_context_free_validated(tx))
-    _ -> Error(errors)
+    _ -> Error(violations)
   }
 }
 

@@ -96,9 +96,10 @@ large payload bytes.
 
 ## Inspection
 
-`inspection / coinbase marker` measures `has_coinbase_marker` over already
-decoded transactions with many ordinary inputs. This isolates the cost of the
-public structural scan used by coinbase-related checks.
+`inspection / coinbase shape` measures `has_coinbase_shape` over
+context-free-validated transactions with many ordinary inputs. Decoding and
+validation happen before timing begins, isolating the cost of the private
+coinbase-marker scan used by the public inspection helper.
 
 ## Context-Free Consensus Validation
 
