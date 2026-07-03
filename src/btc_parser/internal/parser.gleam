@@ -1,4 +1,4 @@
-import btc_parser/transaction/reader.{type Reader}
+import btc_parser/internal/reader.{type Reader}
 import gleam/list
 import gleam/result
 

@@ -12,7 +12,7 @@ repo = "btc-parser"
 gleam = ">= 1.16.0"
 
 target = "erlang"
-internal_modules = ["btc_parser/transaction/*"]
+internal_modules = ["btc_parser/internal/*"]
 
 [javascript]
 runtime = "node"

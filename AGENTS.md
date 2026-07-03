@@ -15,19 +15,19 @@ context, mempool policy, or network/RPC access unless the project scope changes.
 
 ## Architecture
 
-- `src/btc_parser/transaction.gleam` is the public transaction API and main
-  domain model. It contains opaque transaction/input/output/script types, decode
-  policy, parse errors, output script classification, context-free consensus
+- `src/btc_parser/transaction.gleam` defines the public transaction API and
+  transaction data model. It contains opaque transaction/input/output/script types,
+  decode policy, parse errors, output script classification, context-free consensus
   validation, serialization, and txid/wtxid computation.
-- `src/btc_parser/transaction/reader.gleam` is the byte reader. It owns offset
+- `src/btc_parser/internal/reader.gleam` is the byte reader. It owns offset
   tracking and byte-aligned reads.
-- `src/btc_parser/transaction/parser.gleam` is a small parser combinator layer
+- `src/btc_parser/internal/parser.gleam` is a small parser combinator layer
   used to attach parse contexts and indexed locations to errors.
-- `src/btc_parser/transaction/compact_size.gleam` handles Bitcoin CompactSize
+- `src/btc_parser/internal/compact_size.gleam` handles Bitcoin CompactSize
   read/write, including minimal-encoding checks.
-- `src/btc_parser/transaction/fixed_int/*.gleam` stores signed/unsigned 64-bit
+- `src/btc_parser/internal/fixed_int/*.gleam` stores signed/unsigned 64-bit
   values as little-endian bytes so values remain exact on JavaScript.
-- `src/btc_parser/transaction/hash32.gleam` stores 32-byte transaction hashes in
+- `src/btc_parser/internal/hash32.gleam` stores 32-byte transaction hashes in
   wire-order little-endian bytes.
 - `dev/fuzz/` contains the mutation-based fuzz harness and seed corpus.
 - `dev/perf/` contains the `gleam dev perf` benchmark harness and docs for
@@ -140,9 +140,9 @@ integers, CompactSize, serialization, hashing, or FFI.
 
 ## Testing Strategy
 
-- Add focused unit tests near the behavior changed, usually in
-  `test/btc_parser/transaction_test.gleam` for public API behavior or
-  `test/btc_parser/transaction/...` for transaction implementation helpers.
+- Add focused unit tests near the behavior changed. Mirror source module paths
+  under `test/`, adding the `_test` suffix for test modules; for example,
+  `src/btc_parser/transaction.gleam` maps to `test/btc_parser/transaction_test.gleam`.
 - Test both success and exact failure shape for parser changes: error kind,
   offset, and context stack.
 - Include boundary tests for limits: exactly at limit, one over limit, truncated
