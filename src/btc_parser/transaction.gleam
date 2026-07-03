@@ -1,4 +1,4 @@
-//// Parse, inspect, and validate Bitcoin transactions.
+//// Parse and inspect Bitcoin transactions.
 
 import btc_parser/transaction/compact_size
 import btc_parser/transaction/fixed_int/int64
