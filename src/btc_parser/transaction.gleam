@@ -798,7 +798,7 @@ pub type ParseContext {
 /// and are used in error reporting to indicate which field was being parsed
 /// when an error occurred.
 /// 
-/// `WitnessItemsTotalBytes` is the exception: it is a
+/// `WitnessStackPayloadSize` is the exception: it is a
 /// synthetic marker with no corresponding serialized field, used solely to
 /// report when the cumulative witness payload byte limit is exceeded across
 /// all items in a single input's witness stack.
@@ -812,8 +812,8 @@ pub type Field {
 
   // Input-related fields
   InputCount
-  PrevTxId
-  Vout
+  OutPointTxid
+  OutPointVout
   ScriptSig
   ScriptSigLength
   Sequence
@@ -827,7 +827,7 @@ pub type Field {
   // Witness-related fields
   WitnessItemCount
   WitnessItemLength
-  WitnessItemsTotalBytes
+  WitnessStackPayloadSize
 }
 
 /// Get the byte offset where a parsing error occurred.
@@ -1442,8 +1442,8 @@ fn input_parser(
 
 fn outpoint_parser() -> Parser(ParseContext, OutPoint, DecodeError) {
   parser.map2(
-    field_parser(PrevTxId, reader.read_bytes(_, 32)),
-    field_parser(Vout, reader.read_u32_le),
+    field_parser(OutPointTxid, reader.read_bytes(_, 32)),
+    field_parser(OutPointVout, reader.read_u32_le),
     fn(prev_txid_bytes, vout) {
       case prev_txid_bytes, vout {
         <<0:256>>, 0xFFFFFFFF -> NullOutPoint
@@ -1747,7 +1747,7 @@ fn tracked_witness_items_parser(
     max_total_bytes,
     fn(exceeded_val, start_offset, ctx) {
       PolicyLimitExceeded(exceeded_val, max_total_bytes)
-      |> field_error(WitnessItemsTotalBytes, start_offset, ctx)
+      |> field_error(WitnessStackPayloadSize, start_offset, ctx)
     },
   )
 }

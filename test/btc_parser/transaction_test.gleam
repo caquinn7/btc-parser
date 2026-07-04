@@ -7,7 +7,7 @@ import btc_parser/transaction.{
   ScriptPubKeyLength, ScriptSigLength, SegwitMarkerAndFlag,
   SuperfluousWitnessRecord, TotalOutputValueOutOfRange, TrailingBytes,
   UnexpectedEof, Version, WitnessItemCount, WitnessItemLength,
-  WitnessItemsTotalBytes,
+  WitnessStackPayloadSize,
 }
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -1800,7 +1800,7 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
       InTransaction,
       AtWitnessStack(0),
       AtWitnessItem(2),
-      AtField(WitnessItemsTotalBytes),
+      AtField(WitnessStackPayloadSize),
     ]
 }
 
