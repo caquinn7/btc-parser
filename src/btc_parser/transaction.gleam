@@ -107,7 +107,7 @@ pub fn has_coinbase_shape(tx: Transaction(ContextFreeValidated)) -> Bool {
 
 /// Return whether any input has the coinbase marker (null previous outpoint).
 fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
-  list.any(tx.inputs, fn(txin) { outpoint_is_null(txin.prev_out) })
+  list.any(tx.inputs, fn(txin) { outpoint_is_null(txin.outpoint) })
 }
 
 /// Get the transaction inputs.
@@ -159,8 +159,8 @@ pub fn get_witnesses(tx: Transaction(v)) -> Result(List(WitnessStack), Nil) {
 /// required to satisfy that output’s spending conditions.
 pub opaque type TxIn {
   TxIn(
-    /// The previous-output reference, or a coinbase marker.
-    prev_out: PrevOut,
+    /// The outpoint being spent, or the null outpoint for a coinbase input.
+    outpoint: OutPoint,
     /// The raw scriptSig bytes for this input.
     script_sig: ScriptBytes(InputScript),
     /// The unsigned 32-bit sequence value encoded for this input.
@@ -168,9 +168,9 @@ pub opaque type TxIn {
   )
 }
 
-/// Get the previous output reference from an input.
-pub fn get_input_prev_out(input: TxIn) -> PrevOut {
-  input.prev_out
+/// Get the outpoint from an input.
+pub fn get_input_outpoint(input: TxIn) -> OutPoint {
+  input.outpoint
 }
 
 /// Get the sequence number from an input.
@@ -190,11 +190,11 @@ pub fn get_input_script_sig(input: TxIn) -> ScriptBytes(InputScript) {
   input.script_sig
 }
 
-/// A previous-output reference carried by a transaction input.
+/// An outpoint carried by a transaction input.
 ///
 /// For ordinary inputs, this identifies the output being spent. For coinbase
 /// inputs, it contains the null-outpoint marker and references no output.
-pub opaque type PrevOut {
+pub opaque type OutPoint {
   /// A special marker used by coinbase transactions.
   NullOutPoint
 
@@ -202,35 +202,35 @@ pub opaque type PrevOut {
   OutPoint(txid: Hash32, vout: Int)
 }
 
-/// Get the transaction ID from a previous output reference.
+/// Get the transaction ID from an outpoint.
 ///
 /// Returns the 32 bytes of the txid in little-endian byte order.
 /// For coinbase inputs (which don't reference a previous output), returns an all-zero hash.
-pub fn get_prev_out_txid(prev_out: PrevOut) -> BitArray {
-  case prev_out {
+pub fn get_outpoint_txid(outpoint: OutPoint) -> BitArray {
+  case outpoint {
     NullOutPoint -> <<0:256>>
     OutPoint(txid:, ..) -> hash32.to_bytes_le(txid)
   }
 }
 
-/// Get the output index from a previous output reference.
+/// Get the output index from an outpoint.
 ///
 /// Returns the zero-based index of the output within the referenced transaction.
 /// For coinbase inputs (which don't reference a previous output), returns `0xFFFFFFFF`,
 /// a special sentinel value indicating no previous output.
-pub fn get_prev_out_vout(prev_out: PrevOut) -> Int {
-  case prev_out {
+pub fn get_outpoint_vout(outpoint: OutPoint) -> Int {
+  case outpoint {
     NullOutPoint -> 0xFFFFFFFF
     OutPoint(vout:, ..) -> vout
   }
 }
 
-/// Check whether a previous output reference is the null outpoint.
+/// Check whether an outpoint is the null outpoint.
 ///
 /// The null outpoint is the special previous output reference used as the
 /// coinbase input marker: an all-zero txid with vout `0xFFFFFFFF`.
-pub fn outpoint_is_null(prev_out: PrevOut) -> Bool {
-  case prev_out {
+pub fn outpoint_is_null(outpoint: OutPoint) -> Bool {
+  case outpoint {
     NullOutPoint -> True
     OutPoint(..) -> False
   }
@@ -1428,14 +1428,14 @@ fn txin_parser(
   // │ scriptSig bytes
   // │ sequence (4 bytes)
   parser.map3(
-    prev_out_parser(),
+    outpoint_parser(),
     script_sig_parser(max_script_size_policy),
     field_parser(Sequence, reader.read_u32_le),
     TxIn,
   )
 }
 
-fn prev_out_parser() -> Parser(ParseContext, PrevOut, DecodeError) {
+fn outpoint_parser() -> Parser(ParseContext, OutPoint, DecodeError) {
   parser.map2(
     field_parser(PrevTxId, reader.read_bytes(_, 32)),
     field_parser(Vout, reader.read_u32_le),
@@ -1881,14 +1881,14 @@ pub type ConsensusViolation {
   ///
   /// Each input in a transaction must reference a unique previous output.
   ///
-  /// The `prev_out` field identifies the duplicated outpoint.
+  /// The `outpoint` field identifies the duplicated outpoint.
   ///
   /// The `first_index` field indicates the zero-based index of the first
   /// occurrence of this outpoint in the input list.
   ///
   /// The `duplicate_index` field indicates the zero-based index of the
   /// subsequent input that duplicates the same outpoint.
-  DuplicateInput(prev_out: PrevOut, first_index: Int, duplicate_index: Int)
+  DuplicateInput(outpoint: OutPoint, first_index: Int, duplicate_index: Int)
 }
 
 /// Validate a transaction against context-free Bitcoin consensus rules.
@@ -2017,7 +2017,7 @@ fn validate_coinbase_script_sig_length(
 ) -> Result(Nil, ConsensusViolation) {
   case tx.inputs {
     [input] ->
-      case input.prev_out {
+      case input.outpoint {
         NullOutPoint -> {
           let script_size = get_script_size(input.script_sig)
           case 2 <= script_size && script_size <= 100 {
@@ -2044,24 +2044,24 @@ fn validate_no_duplicate_inputs(
 fn validate_no_duplicate_inputs_loop(
   inputs: List(TxIn),
   index: Int,
-  seen: Dict(PrevOut, Int),
+  seen: Dict(OutPoint, Int),
 ) -> Result(Nil, ConsensusViolation) {
   case inputs {
     [] -> Ok(Nil)
 
     [txin, ..rest] -> {
-      let prev_out = txin.prev_out
+      let outpoint = txin.outpoint
 
       // NullOutPoint is skipped: validate_coinbase_structure already rejects any
       // transaction with multiple NullOutPoint inputs as CoinbaseWithMultipleInputs.
-      case prev_out {
+      case outpoint {
         NullOutPoint -> validate_no_duplicate_inputs_loop(rest, index + 1, seen)
 
         _ ->
-          case dict.get(seen, prev_out) {
+          case dict.get(seen, outpoint) {
             Ok(first_index) ->
               Error(DuplicateInput(
-                prev_out,
+                outpoint,
                 first_index:,
                 duplicate_index: index,
               ))
@@ -2070,7 +2070,7 @@ fn validate_no_duplicate_inputs_loop(
               validate_no_duplicate_inputs_loop(
                 rest,
                 index + 1,
-                dict.insert(seen, prev_out, index),
+                dict.insert(seen, outpoint, index),
               )
           }
       }
@@ -2186,7 +2186,7 @@ fn serialize_inputs(inputs: List(TxIn)) -> BitArray {
 }
 
 fn serialize_tx_in(txin: TxIn) -> BitArray {
-  let prev_out_bytes = serialize_prev_out(txin.prev_out)
+  let outpoint_bytes = serialize_outpoint(txin.outpoint)
 
   let script_sig_length_bytes = {
     let assert Ok(script_sig_length) =
@@ -2198,17 +2198,17 @@ fn serialize_tx_in(txin: TxIn) -> BitArray {
   }
 
   <<
-    prev_out_bytes:bits,
+    outpoint_bytes:bits,
     script_sig_length_bytes:bits,
     get_raw_script_bytes(txin.script_sig):bits,
     txin.sequence:32-little,
   >>
 }
 
-fn serialize_prev_out(prev_out: PrevOut) -> BitArray {
+fn serialize_outpoint(outpoint: OutPoint) -> BitArray {
   <<
-    get_prev_out_txid(prev_out):bits,
-    get_prev_out_vout(prev_out):32-little,
+    get_outpoint_txid(outpoint):bits,
+    get_outpoint_vout(outpoint):32-little,
   >>
 }
 

@@ -469,7 +469,7 @@ pub fn decode_rejects_segwit_tx_with_zero_inputs_test() {
 pub fn decode_parses_single_input_test() {
   let vin_count = compact_size(1)
 
-  // Create a transaction with a single input with specific prev_out values
+  // Create a transaction with a single input with specific outpoint values
   let prev_txid_bytes = repeat_byte(1, 32)
   let vout = 5
   let script_sig_bytes = <<0x48, 0x30, 0x45, 0x02, 0x21>>
@@ -493,11 +493,11 @@ pub fn decode_parses_single_input_test() {
   let inputs = transaction.get_inputs(tx)
   let assert [first_input] = inputs
 
-  // Verify prev_out properties
-  let prev_out = transaction.get_input_prev_out(first_input)
+  // Verify outpoint properties
+  let outpoint = transaction.get_input_outpoint(first_input)
 
-  assert transaction.get_prev_out_txid(prev_out) == prev_txid_bytes
-  assert transaction.get_prev_out_vout(prev_out) == vout
+  assert transaction.get_outpoint_txid(outpoint) == prev_txid_bytes
+  assert transaction.get_outpoint_vout(outpoint) == vout
 
   // Verify sequence
   assert transaction.get_input_sequence(first_input) == sequence
@@ -539,24 +539,24 @@ pub fn decode_parses_coinbase_marker_input_test() {
 
   let assert [input] = transaction.get_inputs(tx)
   assert input
-    |> transaction.get_input_prev_out
+    |> transaction.get_input_outpoint
     |> transaction.outpoint_is_null
 }
 
 pub fn outpoint_is_null_returns_true_for_coinbase_marker_test() {
-  let prev_out = decode_single_input_prev_out(<<0:size(256)>>, 0xFFFFFFFF)
-  assert transaction.outpoint_is_null(prev_out)
+  let outpoint = decode_single_input_outpoint(<<0:size(256)>>, 0xFFFFFFFF)
+  assert transaction.outpoint_is_null(outpoint)
 }
 
 pub fn outpoint_is_null_returns_false_for_regular_outpoint_test() {
-  let prev_out = decode_single_input_prev_out(repeat_byte(1, 32), 0)
-  assert !transaction.outpoint_is_null(prev_out)
+  let outpoint = decode_single_input_outpoint(repeat_byte(1, 32), 0)
+  assert !transaction.outpoint_is_null(outpoint)
 }
 
 pub fn outpoint_is_null_requires_null_hash_and_max_vout_test() {
-  let zero_hash_regular_vout = decode_single_input_prev_out(<<0:size(256)>>, 0)
+  let zero_hash_regular_vout = decode_single_input_outpoint(<<0:size(256)>>, 0)
   let nonzero_hash_max_vout =
-    decode_single_input_prev_out(repeat_byte(1, 32), 0xFFFFFFFF)
+    decode_single_input_outpoint(repeat_byte(1, 32), 0xFFFFFFFF)
 
   assert !transaction.outpoint_is_null(zero_hash_regular_vout)
   assert !transaction.outpoint_is_null(nonzero_hash_max_vout)
@@ -635,28 +635,28 @@ pub fn decode_parses_multiple_inputs_test() {
   let assert [i1, i2, i3] = inputs
 
   // input 1
-  let prev_out1 = transaction.get_input_prev_out(i1)
+  let outpoint1 = transaction.get_input_outpoint(i1)
 
-  assert transaction.get_prev_out_txid(prev_out1) == prev1_txid_bytes
-  assert transaction.get_prev_out_vout(prev_out1) == vout1
+  assert transaction.get_outpoint_txid(outpoint1) == prev1_txid_bytes
+  assert transaction.get_outpoint_vout(outpoint1) == vout1
   assert transaction.get_input_sequence(i1) == seq1
   assert transaction.get_raw_script_bytes(transaction.get_input_script_sig(i1))
     == sig1_bytes
 
   // input 2
-  let prev_out2 = transaction.get_input_prev_out(i2)
+  let outpoint2 = transaction.get_input_outpoint(i2)
 
-  assert transaction.get_prev_out_txid(prev_out2) == prev2_txid_bytes
-  assert transaction.get_prev_out_vout(prev_out2) == vout2
+  assert transaction.get_outpoint_txid(outpoint2) == prev2_txid_bytes
+  assert transaction.get_outpoint_vout(outpoint2) == vout2
   assert transaction.get_input_sequence(i2) == seq2
   assert transaction.get_raw_script_bytes(transaction.get_input_script_sig(i2))
     == sig2_bytes
 
   // input 3
-  let prev_out3 = transaction.get_input_prev_out(i3)
+  let outpoint3 = transaction.get_input_outpoint(i3)
 
-  assert transaction.get_prev_out_txid(prev_out3) == prev3_txid_bytes
-  assert transaction.get_prev_out_vout(prev_out3) == vout3
+  assert transaction.get_outpoint_txid(outpoint3) == prev3_txid_bytes
+  assert transaction.get_outpoint_vout(outpoint3) == vout3
   assert transaction.get_input_sequence(i3) == seq3
   assert transaction.get_raw_script_bytes(transaction.get_input_script_sig(i3))
     == sig3_bytes
@@ -2466,10 +2466,10 @@ pub fn validate_context_free_consensus_rejects_tx_with_duplicate_inputs_test() {
 
   let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
   let assert [in0, ..] = transaction.get_inputs(parsed_tx)
-  let dup_prev_out = transaction.get_input_prev_out(in0)
+  let duplicate_outpoint = transaction.get_input_outpoint(in0)
 
   assert transaction.validate_context_free_consensus(parsed_tx)
-    == Error([DuplicateInput(dup_prev_out, 0, 1)])
+    == Error([DuplicateInput(duplicate_outpoint, 0, 1)])
 }
 
 pub fn validate_context_free_consensus_rejects_duplicate_input_at_non_adjacent_indices_test() {
@@ -2499,14 +2499,14 @@ pub fn validate_context_free_consensus_rejects_duplicate_input_at_non_adjacent_i
 
   let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
   let assert [in0, ..] = transaction.get_inputs(parsed_tx)
-  let dup_prev_out = transaction.get_input_prev_out(in0)
+  let duplicate_outpoint = transaction.get_input_outpoint(in0)
 
   assert transaction.validate_context_free_consensus(parsed_tx)
-    == Error([DuplicateInput(dup_prev_out, 0, 2)])
+    == Error([DuplicateInput(duplicate_outpoint, 0, 2)])
 }
 
 pub fn validate_context_free_consensus_accepts_inputs_with_same_txid_but_different_vout_test() {
-  // Same txid but different output indices are distinct prev_outs — not a duplicate
+  // Same txid but different output indices are distinct outpoints — not a duplicate
   let vin_count = compact_size(2)
   let txid = repeat_byte(0xAB, 32)
   let input0 = build_input(txid, 0, <<>>, 0xFFFFFFFF)
@@ -2556,12 +2556,12 @@ pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_
 
   let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
   let assert [in0, ..] = transaction.get_inputs(parsed_tx)
-  let dup_prev_out = transaction.get_input_prev_out(in0)
+  let duplicate_outpoint = transaction.get_input_outpoint(in0)
 
   let assert Error(errors) =
     transaction.validate_context_free_consensus(parsed_tx)
   assert list.contains(errors, OutputValueOutOfRange(0, -1))
-  assert list.contains(errors, DuplicateInput(dup_prev_out, 0, 1))
+  assert list.contains(errors, DuplicateInput(duplicate_outpoint, 0, 1))
   assert list.length(errors) == 2
 }
 
@@ -2843,7 +2843,7 @@ fn build_minimal_input() -> BitArray {
   <<vin_count:bits, input:bits>>
 }
 
-fn decode_single_input_prev_out(prev_txid: BitArray, vout: Int) {
+fn decode_single_input_outpoint(prev_txid: BitArray, vout: Int) {
   let input = build_input(prev_txid, vout, <<>>, 0)
   let lock_time = <<0:little-size(32)>>
 
@@ -2857,7 +2857,7 @@ fn decode_single_input_prev_out(prev_txid: BitArray, vout: Int) {
     >>)
 
   let assert [first_input] = transaction.get_inputs(tx)
-  transaction.get_input_prev_out(first_input)
+  transaction.get_input_outpoint(first_input)
 }
 
 /// Build an output with specific values
