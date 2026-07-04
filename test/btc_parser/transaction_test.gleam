@@ -56,16 +56,17 @@ pub fn decode_policy_builder_overrides_default_limits_test() {
     |> transaction.decode_policy_with_max_input_count(4)
     |> transaction.decode_policy_with_max_output_count(5)
     |> transaction.decode_policy_with_max_script_size(6)
-    |> transaction.decode_policy_with_max_witness_items_per_input(Some(7))
-    |> transaction.decode_policy_with_max_witness_size_per_input(Some(8))
+    |> transaction.decode_policy_with_max_witness_stack_item_count(Some(7))
+    |> transaction.decode_policy_with_max_witness_stack_payload_size(Some(8))
 
   assert transaction.decode_policy_max_tx_size(policy) == 123
   assert transaction.decode_policy_max_input_count(policy) == 4
   assert transaction.decode_policy_max_output_count(policy) == 5
   assert transaction.decode_policy_max_script_size(policy) == 6
-  assert transaction.decode_policy_max_witness_items_per_input(policy)
+  assert transaction.decode_policy_max_witness_stack_item_count(policy)
     == Some(7)
-  assert transaction.decode_policy_max_witness_size_per_input(policy) == Some(8)
+  assert transaction.decode_policy_max_witness_stack_payload_size(policy)
+    == Some(8)
 }
 
 pub fn decode_policy_builder_allows_zero_limits_test() {
@@ -79,8 +80,9 @@ pub fn decode_policy_builder_allows_zero_limits_test() {
 pub fn default_decode_policy_uses_default_witness_limits_test() {
   let policy = transaction.default_decode_policy()
 
-  assert transaction.decode_policy_max_witness_items_per_input(policy) == None
-  assert transaction.decode_policy_max_witness_size_per_input(policy) == None
+  assert transaction.decode_policy_max_witness_stack_item_count(policy) == None
+  assert transaction.decode_policy_max_witness_stack_payload_size(policy)
+    == None
 }
 
 // ============================================================================
@@ -1642,30 +1644,31 @@ pub fn decode_witness_invalid_compact_size_in_item_length_test() {
 }
 
 // ============================================================================
-// Witness Items Per Input (max_items_per_input) Policy Enforcement
+// Witness Stack Item Count Policy Enforcement
 // ============================================================================
 
-pub fn decode_witness_stack_at_max_items_per_input_succeeds_test() {
-  let max_items_per_input = 3
+pub fn decode_witness_stack_at_max_item_count_succeeds_test() {
+  let max_witness_stack_item_count = 3
 
   // Build input and output
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with exactly max_items_per_input items
+  // Build witness stack with exactly max_witness_stack_item_count items
   let witness_items =
-    int.range(0, max_items_per_input, with: <<>>, run: fn(acc, _) {
+    int.range(0, max_witness_stack_item_count, with: <<>>, run: fn(acc, _) {
       <<acc:bits, compact_size(5):bits, 1, 2, 3, 4, 5>>
     })
 
   let witness_stack = <<
-    compact_size(max_items_per_input):bits,
+    compact_size(max_witness_stack_item_count):bits,
     witness_items:bits,
   >>
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy = policy_with_max_witness_items_per_input(max_items_per_input)
+  let policy =
+    policy_with_max_witness_stack_item_count(max_witness_stack_item_count)
 
   let assert Ok(tx) = transaction.decode_with_policy(tx_bytes, policy)
 
@@ -1674,39 +1677,43 @@ pub fn decode_witness_stack_at_max_items_per_input_succeeds_test() {
   let assert [stack] = witnesses
 
   let items = transaction.get_witness_items(stack)
-  assert list.length(items) == max_items_per_input
+  assert list.length(items) == max_witness_stack_item_count
 }
 
-pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
-  let max_items_per_input = 2
+pub fn decode_witness_stack_exceeds_max_item_count_fails_test() {
+  let max_witness_stack_item_count = 2
 
   // Build input and output
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with max_items_per_input + 1 items
+  // Build witness stack with max_witness_stack_item_count + 1 items
   let witness_items =
-    int.range(0, max_items_per_input + 1, with: <<>>, run: fn(acc, _) {
+    int.range(0, max_witness_stack_item_count + 1, with: <<>>, run: fn(acc, _) {
       <<acc:bits, compact_size(5):bits, 1, 2, 3, 4, 5>>
     })
 
   let witness_stack = <<
-    compact_size(max_items_per_input + 1):bits,
+    compact_size(max_witness_stack_item_count + 1):bits,
     witness_items:bits,
   >>
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy = policy_with_max_witness_items_per_input(max_items_per_input)
+  let policy =
+    policy_with_max_witness_stack_item_count(max_witness_stack_item_count)
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode_with_policy(tx_bytes, policy)
 
   assert transaction.get_parse_error_offset(parse_err) == 58
 
-  // Verify the error kind indicates the count exceeded max_items_per_input
+  // Verify the error kind indicates the count exceeded max_witness_stack_item_count
   assert transaction.get_parse_error_kind(parse_err)
-    == PolicyLimitExceeded(max_items_per_input + 1, max_items_per_input)
+    == PolicyLimitExceeded(
+      max_witness_stack_item_count + 1,
+      max_witness_stack_item_count,
+    )
 
   // Verify the error context indicates witness item count validation
   assert transaction.get_parse_error_context(parse_err)
@@ -1714,17 +1721,17 @@ pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
 }
 
 // ============================================================================
-// Witness Stack Payload Bytes (max_stack_payload_bytes_per_input) Policy Enforcement
+// Witness Stack Payload Size Policy Enforcement
 // ============================================================================
 
-pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
-  let max_payload_bytes = 50
+pub fn decode_witness_stack_at_max_payload_size_succeeds_test() {
+  let max_witness_stack_payload_size = 50
 
   // Build input and output
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with items totaling exactly max_payload_bytes
+  // Build witness stack with items totaling exactly max_witness_stack_payload_size
   // 3 items: 20 bytes + 15 bytes + 15 bytes = 50 bytes total
   let witness_items = <<
     compact_size(20):bits,
@@ -1739,7 +1746,8 @@ pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy = policy_with_max_witness_size_per_input(max_payload_bytes)
+  let policy =
+    policy_with_max_witness_stack_payload_size(max_witness_stack_payload_size)
 
   let assert Ok(tx) = transaction.decode_with_policy(tx_bytes, policy)
 
@@ -1750,8 +1758,8 @@ pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
   let items = transaction.get_witness_items(stack)
   assert list.length(items) == 3
 
-  // Verify total bytes
-  let total_bytes =
+  // Verify total payload size
+  let total_payload_size =
     items
     |> list.map(fn(item) {
       item
@@ -1760,17 +1768,17 @@ pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
     })
     |> list.fold(0, fn(acc, size) { acc + size })
 
-  assert total_bytes == max_payload_bytes
+  assert total_payload_size == max_witness_stack_payload_size
 }
 
-pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
-  let max_payload_bytes = 50
+pub fn decode_witness_stack_exceeds_max_payload_size_fails_test() {
+  let max_witness_stack_payload_size = 50
 
   // Build input and output
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with items totaling more than max_payload_bytes
+  // Build witness stack exceeding max_witness_stack_payload_size
   // 3 items: 20 bytes + 15 bytes + 16 bytes = 51 bytes total (exceeds 50)
   let witness_items = <<
     compact_size(20):bits,
@@ -1785,14 +1793,15 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy = policy_with_max_witness_size_per_input(max_payload_bytes)
+  let policy =
+    policy_with_max_witness_stack_payload_size(max_witness_stack_payload_size)
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode_with_policy(tx_bytes, policy)
 
   // Verify the error kind indicates policy limit was exceeded
   assert transaction.get_parse_error_kind(parse_err)
-    == PolicyLimitExceeded(51, max_payload_bytes)
+    == PolicyLimitExceeded(51, max_witness_stack_payload_size)
 
   // Verify the error context indicates witness stack validation
   assert transaction.get_parse_error_context(parse_err)
@@ -1809,13 +1818,13 @@ pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
   // third witness item, the error offset points to the start of the third item's
   // length field
 
-  let max_payload_bytes = 50
+  let max_witness_stack_payload_size = 50
 
   // Build input and output
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with items totaling more than max_payload_bytes
+  // Build witness stack exceeding max_witness_stack_payload_size
   // 3 items: 20 bytes + 15 bytes + 16 bytes = 51 bytes total (exceeds 50)
   let witness_items = <<
     compact_size(20):bits,
@@ -1830,7 +1839,8 @@ pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy = policy_with_max_witness_size_per_input(max_payload_bytes)
+  let policy =
+    policy_with_max_witness_stack_payload_size(max_witness_stack_payload_size)
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode_with_policy(tx_bytes, policy)
@@ -3001,16 +3011,18 @@ fn policy_with_max_output_count(max_output_count: Int) {
   |> transaction.decode_policy_with_max_output_count(max_output_count)
 }
 
-fn policy_with_max_witness_items_per_input(max_items_per_input: Int) {
+fn policy_with_max_witness_stack_item_count(max_witness_stack_item_count: Int) {
   transaction.default_decode_policy()
-  |> transaction.decode_policy_with_max_witness_items_per_input(Some(
-    max_items_per_input,
+  |> transaction.decode_policy_with_max_witness_stack_item_count(Some(
+    max_witness_stack_item_count,
   ))
 }
 
-fn policy_with_max_witness_size_per_input(max_payload_bytes: Int) {
+fn policy_with_max_witness_stack_payload_size(
+  max_witness_stack_payload_size: Int,
+) {
   transaction.default_decode_policy()
-  |> transaction.decode_policy_with_max_witness_size_per_input(Some(
-    max_payload_bytes,
+  |> transaction.decode_policy_with_max_witness_stack_payload_size(Some(
+    max_witness_stack_payload_size,
   ))
 }

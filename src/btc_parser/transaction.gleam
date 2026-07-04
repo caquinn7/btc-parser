@@ -952,11 +952,11 @@ pub opaque type DecodePolicy {
     /// Maximum raw byte size of each scriptSig or scriptPubKey, excluding its
     /// CompactSize length prefix.
     max_script_size: Int,
-    /// Maximum witness item count per input, or `None` for no limit.
-    max_witness_items_per_input: Option(Int),
-    /// Maximum witness-item payload bytes per input, excluding length prefixes,
-    /// or `None` for no limit.
-    max_witness_size_per_input: Option(Int),
+    /// Maximum item count per witness stack, or `None` for no limit.
+    max_witness_stack_item_count: Option(Int),
+    /// Maximum payload size per witness stack, excluding length prefixes, or
+    /// `None` for no limit.
+    max_witness_stack_payload_size: Option(Int),
   )
 }
 
@@ -982,16 +982,16 @@ pub opaque type DecodePolicy {
 /// - `max_script_size`: 10,000 bytes - Accommodates common transaction scripts
 ///   (e.g., P2PKH, P2SH, P2WPKH, P2WSH, P2TR) with significant headroom for
 ///   complex or non-standard scripts.
-/// - `max_witness_items_per_input`: `None` - No limit on witness stack item count.
-/// - `max_witness_size_per_input`: `None` - No limit on total witness data bytes per input.
+/// - `max_witness_stack_item_count`: `None` - No limit on witness stack item count.
+/// - `max_witness_stack_payload_size`: `None` - No limit on witness stack payload size.
 pub fn default_decode_policy() -> DecodePolicy {
   DecodePolicy(
     max_tx_size: 400_000,
     max_input_count: 100_000,
     max_output_count: 100_000,
     max_script_size: 10_000,
-    max_witness_items_per_input: None,
-    max_witness_size_per_input: None,
+    max_witness_stack_item_count: None,
+    max_witness_stack_payload_size: None,
   )
 }
 
@@ -1029,25 +1029,25 @@ pub fn decode_policy_with_max_script_size(
   DecodePolicy(..policy, max_script_size:)
 }
 
-/// Return a policy with a custom witness item count limit per input.
+/// Return a policy with a custom item count limit per witness stack.
 ///
 /// Set to `None` to disable this limit.
-pub fn decode_policy_with_max_witness_items_per_input(
+pub fn decode_policy_with_max_witness_stack_item_count(
   policy: DecodePolicy,
-  max_witness_items_per_input: Option(Int),
+  max_witness_stack_item_count: Option(Int),
 ) -> DecodePolicy {
-  DecodePolicy(..policy, max_witness_items_per_input:)
+  DecodePolicy(..policy, max_witness_stack_item_count:)
 }
 
-/// Return a policy with a custom witness payload size limit per input.
+/// Return a policy with a custom payload size limit per witness stack.
 ///
 /// This limit is the total number of bytes across all witness items for a
 /// single input. Set to `None` to disable this limit.
-pub fn decode_policy_with_max_witness_size_per_input(
+pub fn decode_policy_with_max_witness_stack_payload_size(
   policy: DecodePolicy,
-  max_witness_size_per_input: Option(Int),
+  max_witness_stack_payload_size: Option(Int),
 ) -> DecodePolicy {
-  DecodePolicy(..policy, max_witness_size_per_input:)
+  DecodePolicy(..policy, max_witness_stack_payload_size:)
 }
 
 /// Get the maximum serialized transaction size.
@@ -1070,18 +1070,18 @@ pub fn decode_policy_max_script_size(policy: DecodePolicy) -> Int {
   policy.max_script_size
 }
 
-/// Get the maximum witness item count per input.
-pub fn decode_policy_max_witness_items_per_input(
+/// Get the maximum item count per witness stack.
+pub fn decode_policy_max_witness_stack_item_count(
   policy: DecodePolicy,
 ) -> Option(Int) {
-  policy.max_witness_items_per_input
+  policy.max_witness_stack_item_count
 }
 
-/// Get the maximum witness payload size per input.
-pub fn decode_policy_max_witness_size_per_input(
+/// Get the maximum payload size per witness stack.
+pub fn decode_policy_max_witness_stack_payload_size(
   policy: DecodePolicy,
 ) -> Option(Int) {
-  policy.max_witness_size_per_input
+  policy.max_witness_stack_payload_size
 }
 
 /// Decode a Bitcoin transaction from its binary representation.
@@ -1650,8 +1650,8 @@ fn witnesses_if_segwit_parser(
     True ->
       input_count
       |> witnesses_parser(
-        policy.max_witness_items_per_input,
-        policy.max_witness_size_per_input,
+        policy.max_witness_stack_item_count,
+        policy.max_witness_stack_payload_size,
       )
       |> parser.map(Some)
 
@@ -1661,12 +1661,12 @@ fn witnesses_if_segwit_parser(
 
 fn witnesses_parser(
   input_count: Int,
-  max_items_per_input: Option(Int),
-  max_size_per_input: Option(Int),
+  max_witness_stack_item_count: Option(Int),
+  max_witness_stack_payload_size: Option(Int),
 ) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
   input_count
   |> parser.indexed_repeat(
-    witness_parser(max_items_per_input, max_size_per_input),
+    witness_parser(max_witness_stack_item_count, max_witness_stack_payload_size),
     AtWitnessStack,
   )
   |> parser.try_with_start_offset(fn(witnesses, start_offset, _reader, ctx) {
@@ -1684,8 +1684,8 @@ fn witnesses_parser(
 }
 
 fn witness_parser(
-  max_items_per_input: Option(Int),
-  max_size_per_input: Option(Int),
+  max_witness_stack_item_count: Option(Int),
+  max_witness_stack_payload_size: Option(Int),
 ) -> Parser(ParseContext, WitnessStack, DecodeError) {
   // WitnessStack for one input:
   // ├─ item count (CompactSize)
@@ -1695,10 +1695,10 @@ fn witness_parser(
   // ├─ WitnessItem #1
   // │    ├─ ...
   // └─ WitnessItem #(item_count - 1)
-  max_items_per_input
+  max_witness_stack_item_count
   |> witness_item_count_parser
   |> parser.then(fn(item_count) {
-    case max_size_per_input {
+    case max_witness_stack_payload_size {
       Some(max_size) -> tracked_witness_items_parser(item_count, max_size)
       None -> witness_items_parser(item_count)
     }
@@ -1709,14 +1709,14 @@ fn witness_parser(
 /// Construct a parser for a validated witness item count field.
 ///
 /// When run, it parses a CompactSize count, converts it to `Int`, and validates
-/// it against the `max_items_per_input` policy.
+/// it against the `max_witness_stack_item_count` policy.
 fn witness_item_count_parser(
-  max_items_per_input_policy: Option(Int),
+  max_witness_stack_item_count_policy: Option(Int),
 ) -> Parser(ParseContext, Int, DecodeError) {
   WitnessItemCount
   |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(item_count, start_offset, _reader, ctx) {
-    case max_items_per_input_policy {
+    case max_witness_stack_item_count_policy {
       Some(max_items) if item_count > max_items ->
         PolicyLimitExceeded(item_count, max_items)
         |> field_error(WitnessItemCount, start_offset, ctx)
