@@ -436,7 +436,7 @@ fn late_truncated_decode_case(
   let tx_bytes = drop_last_byte(valid_tx_bytes)
   let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == UnexpectedEof(bytes_needed: 4, remaining: 3)
 
   PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
@@ -448,7 +448,7 @@ fn late_truncated_witness_payload_decode_case(
   let tx_bytes = build_late_truncated_witness_payload_tx()
   let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 32, remaining: 31)
 
   PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
@@ -483,7 +483,7 @@ fn oversized_scriptsig_policy_decode_case(
   >>
 
   let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(script_sig_size, max_script_size)
 
   PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)

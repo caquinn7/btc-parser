@@ -127,10 +127,10 @@ pub fn decode_with_policy_rejects_tx_exceeding_max_tx_size_test() {
       policy_with_max_tx_size(tx_size - 1),
     )
 
-  assert transaction.parse_error_offset(parse_err) == 0
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_offset(parse_err) == 0
+  assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(tx_size, tx_size - 1)
-  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 }
 
 pub fn decode_with_policy_rejects_tx_well_above_max_tx_size_test() {
@@ -142,9 +142,10 @@ pub fn decode_with_policy_rejects_tx_well_above_max_tx_size_test() {
       policy_with_max_tx_size(10),
     )
 
-  assert transaction.parse_error_offset(parse_err) == 0
-  assert transaction.parse_error_kind(parse_err) == PolicyLimitExceeded(100, 10)
-  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_offset(parse_err) == 0
+  assert transaction.get_parse_error_kind(parse_err)
+    == PolicyLimitExceeded(100, 10)
+  assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 }
 
 // ============================================================================
@@ -185,19 +186,19 @@ pub fn decode_legacy_v2_parses_version_2_test() {
 pub fn decode_errors_on_empty_string_test() {
   let assert Error(ParseFailed(parse_err)) = transaction.decode_hex("")
 
-  assert transaction.parse_error_offset(parse_err) == 0
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_offset(parse_err) == 0
+  assert transaction.get_parse_error_kind(parse_err)
     == UnexpectedEof(bytes_needed: 4, remaining: 0)
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtField(Version)]
 }
 
 pub fn decode_errors_when_input_shorter_than_4_bytes_test() {
   let assert Error(ParseFailed(parse_err)) = transaction.decode_hex("010203")
 
-  assert transaction.parse_error_offset(parse_err) == 0
-  assert transaction.parse_error_kind(parse_err) == UnexpectedEof(4, 3)
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_offset(parse_err) == 0
+  assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(4, 3)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtField(Version)]
 }
 
@@ -214,19 +215,19 @@ pub fn decode_errors_on_non_byte_aligned_input_test() {
   let assert Error(ParseFailed(parse_err)) = transaction.decode(unaligned)
 
   let expected_remaining = bit_array.byte_size(valid_bytes) + 1
-  assert transaction.parse_error_offset(parse_err) == 0
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_offset(parse_err) == 0
+  assert transaction.get_parse_error_kind(parse_err)
     == UnexpectedEof(bytes_needed: 4, remaining: expected_remaining)
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtField(Version)]
 }
 
 pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_missing_test() {
   let assert Error(ParseFailed(parse_err)) = transaction.decode(version1)
 
-  assert transaction.parse_error_offset(parse_err) == 4
-  assert transaction.parse_error_kind(parse_err) == UnexpectedEof(1, 0)
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_offset(parse_err) == 4
+  assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(1, 0)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InInputs, AtField(InputCount)]
 }
 
@@ -236,9 +237,9 @@ pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_truncated_tes
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<version1:bits, marker:bits>>)
 
-  assert transaction.parse_error_offset(parse_err) == 5
-  assert transaction.parse_error_kind(parse_err) == UnexpectedEof(1, 0)
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_offset(parse_err) == 5
+  assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(1, 0)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InOutputs, AtField(OutputCount)]
 }
 
@@ -249,10 +250,10 @@ pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<version1:bits, marker:bits, flag:bits>>)
 
-  assert transaction.parse_error_offset(parse_err) == 4
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_offset(parse_err) == 4
+  assert transaction.get_parse_error_kind(parse_err)
     == InvalidSegwitMarkerFlag(0, 2)
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtField(SegwitMarkerAndFlag)]
 }
 
@@ -353,12 +354,12 @@ pub fn validate_input_count_exceeds_policy_error_test() {
       policy_with_max_input_count(2),
     )
 
-  assert transaction.parse_error_offset(parse_err) == 4
+  assert transaction.get_parse_error_offset(parse_err) == 4
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(input_count, 2)
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InInputs, AtField(InputCount)]
 }
 
@@ -376,15 +377,15 @@ pub fn validate_input_count_exceeds_structural_error_test() {
       policy_with_max_input_count(100),
     )
 
-  assert transaction.parse_error_offset(parse_err) == 4
+  assert transaction.get_parse_error_offset(parse_err) == 4
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(
       claimed: 2 * min_input_size_bytes + 1,
       remaining: 2 * min_input_size_bytes,
     )
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InInputs, AtField(InputCount)]
 }
 
@@ -429,15 +430,15 @@ pub fn validate_input_count_insufficient_bytes_for_inputs_test() {
       input_padding:bits,
     >>)
 
-  assert transaction.parse_error_offset(parse_err) == 4
+  assert transaction.get_parse_error_offset(parse_err) == 4
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(
       remaining: min_input_size_bytes - 1,
       claimed: min_input_size_bytes,
     )
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InInputs, AtField(InputCount)]
 }
 
@@ -462,9 +463,10 @@ pub fn decode_rejects_segwit_tx_with_zero_inputs_test() {
 
   let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert transaction.parse_error_offset(parse_err) == expected_witness_offset
-  assert transaction.parse_error_kind(parse_err) == SuperfluousWitnessRecord
-  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_offset(parse_err)
+    == expected_witness_offset
+  assert transaction.get_parse_error_kind(parse_err) == SuperfluousWitnessRecord
+  assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 }
 
 // ============================================================================
@@ -691,12 +693,12 @@ pub fn decode_rejects_scriptsig_exceeding_max_size_test() {
       input_bytes:bits,
     >>)
 
-  assert transaction.parse_error_offset(parse_err) == 41
+  assert transaction.get_parse_error_offset(parse_err) == 41
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(10_001, 10_000)
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InInputs, AtInput(0), AtField(ScriptSigLength)]
 }
 
@@ -728,12 +730,12 @@ pub fn decode_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
       input_bytes:bits,
     >>)
 
-  assert transaction.parse_error_offset(parse_err) == 41
+  assert transaction.get_parse_error_offset(parse_err) == 41
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 10)
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InInputs, AtInput(0), AtField(ScriptSigLength)]
 }
 
@@ -768,10 +770,10 @@ pub fn decode_returns_error_with_current_input_index_test() {
     >>)
 
   // Verify the error occurred in the second input (index 1)
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 4)
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InInputs, AtInput(1), AtField(ScriptSigLength)]
 }
 
@@ -865,10 +867,10 @@ pub fn validate_output_count_exceeds_policy_error_test() {
       policy_with_max_output_count(2),
     )
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(output_count, 2)
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InOutputs, AtField(OutputCount)]
 }
 
@@ -893,15 +895,15 @@ pub fn validate_output_count_exceeds_structural_error_test() {
       policy_with_max_output_count(100),
     )
 
-  assert transaction.parse_error_offset(parse_err) == 46
+  assert transaction.get_parse_error_offset(parse_err) == 46
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(
       claimed: 2 * min_output_size_bytes + 1,
       remaining: 2 * min_output_size_bytes,
     )
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InOutputs, AtField(OutputCount)]
 }
 
@@ -947,13 +949,13 @@ pub fn validate_output_count_insufficient_bytes_for_outputs_test() {
       output_padding:bits,
     >>)
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(
       remaining: min_output_size_bytes - 1,
       claimed: min_output_size_bytes,
     )
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InOutputs, AtField(OutputCount)]
 }
 
@@ -1188,10 +1190,10 @@ pub fn decode_handles_output_value_min_i64_for_target_test() {
     True -> {
       let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-      assert transaction.parse_error_kind(parse_err)
+      assert transaction.get_parse_error_kind(parse_err)
         == transaction.IntegerOutOfRange("-9223372036854775808")
 
-      assert transaction.parse_error_ctx(parse_err)
+      assert transaction.get_parse_error_context(parse_err)
         == [InTransaction, InOutputs, AtOutput(0), AtField(transaction.Value)]
     }
 
@@ -1260,12 +1262,12 @@ pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {
       output_bytes:bits,
     >>)
 
-  assert transaction.parse_error_offset(parse_err) == 55
+  assert transaction.get_parse_error_offset(parse_err) == 55
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(10_001, 10_000)
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InOutputs, AtOutput(0), AtField(ScriptPubKeyLength)]
 }
 
@@ -1331,10 +1333,10 @@ pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
       output_bytes:bits,
     >>)
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 10)
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InOutputs, AtOutput(0), AtField(ScriptPubKeyLength)]
 }
 
@@ -1398,9 +1400,10 @@ pub fn decode_rejects_segwit_tx_with_all_empty_witness_stacks_test() {
 
   let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert transaction.parse_error_offset(parse_err) == expected_witness_offset
-  assert transaction.parse_error_kind(parse_err) == SuperfluousWitnessRecord
-  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_offset(parse_err)
+    == expected_witness_offset
+  assert transaction.get_parse_error_kind(parse_err) == SuperfluousWitnessRecord
+  assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 }
 
 pub fn decode_segwit_tx_allows_empty_stack_when_another_stack_has_item_test() {
@@ -1542,11 +1545,11 @@ pub fn decode_witness_item_length_exceeds_remaining_bytes_test() {
 
   // The compact_size encoding of 100 takes 3 bytes (0xFD + 2 bytes),
   // so remaining = 10 data bytes + 4 bytes overhead = 14
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 14)
 
   // Verify the error context indicates we're in witness item length parsing
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [
       InTransaction,
       AtWitnessStack(0),
@@ -1585,10 +1588,11 @@ pub fn decode_witness_invalid_compact_size_in_item_count_test() {
 
   let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert transaction.parse_error_kind(parse_err) == NonMinimalCompactSize(3, 1)
+  assert transaction.get_parse_error_kind(parse_err)
+    == NonMinimalCompactSize(3, 1)
 
   // Verify the error context indicates we're in witness item count parsing
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtWitnessStack(0), AtField(WitnessItemCount)]
 }
 
@@ -1626,8 +1630,9 @@ pub fn decode_witness_invalid_compact_size_in_item_length_test() {
 
   let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert transaction.parse_error_kind(parse_err) == NonMinimalCompactSize(3, 1)
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
+    == NonMinimalCompactSize(3, 1)
+  assert transaction.get_parse_error_context(parse_err)
     == [
       InTransaction,
       AtWitnessStack(0),
@@ -1697,14 +1702,14 @@ pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode_with_policy(tx_bytes, policy)
 
-  assert transaction.parse_error_offset(parse_err) == 58
+  assert transaction.get_parse_error_offset(parse_err) == 58
 
   // Verify the error kind indicates the count exceeded max_items_per_input
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(max_items_per_input + 1, max_items_per_input)
 
   // Verify the error context indicates witness item count validation
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtWitnessStack(0), AtField(WitnessItemCount)]
 }
 
@@ -1786,11 +1791,11 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
     transaction.decode_with_policy(tx_bytes, policy)
 
   // Verify the error kind indicates policy limit was exceeded
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(51, max_payload_bytes)
 
   // Verify the error context indicates witness stack validation
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [
       InTransaction,
       AtWitnessStack(0),
@@ -1836,7 +1841,7 @@ pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
   // item1 length (1) + item1 bytes (20) + item2 length (1) + item2 bytes (15)
   let expected_offset = 4 + 1 + 1 + 1 + 41 + 1 + 9 + 1 + 1 + 20 + 1 + 15
 
-  assert transaction.parse_error_offset(parse_err) == expected_offset
+  assert transaction.get_parse_error_offset(parse_err) == expected_offset
 }
 
 // ============================================================================
@@ -1857,11 +1862,11 @@ pub fn decode_rejects_legacy_tx_with_trailing_byte_test() {
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<valid_tx:bits, 0x42:size(8)>>)
 
-  assert transaction.parse_error_kind(parse_err) == TrailingBytes(1)
-  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_kind(parse_err) == TrailingBytes(1)
+  assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 
   let expected_offset = bit_array.byte_size(valid_tx)
-  assert transaction.parse_error_offset(parse_err) == expected_offset
+  assert transaction.get_parse_error_offset(parse_err) == expected_offset
 }
 
 pub fn decode_rejects_segwit_tx_with_trailing_byte_test() {
@@ -1874,11 +1879,11 @@ pub fn decode_rejects_segwit_tx_with_trailing_byte_test() {
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<valid_tx:bits, 0xFF:size(8)>>)
 
-  assert transaction.parse_error_kind(parse_err) == TrailingBytes(1)
-  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_kind(parse_err) == TrailingBytes(1)
+  assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 
   let expected_offset = bit_array.byte_size(valid_tx)
-  assert transaction.parse_error_offset(parse_err) == expected_offset
+  assert transaction.get_parse_error_offset(parse_err) == expected_offset
 }
 
 // ============================================================================

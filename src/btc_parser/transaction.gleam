@@ -835,7 +835,7 @@ pub type Field {
 /// The offset is a zero-based position into the input buffer, indicating
 /// where the parser was reading when it encountered the error. This is useful
 /// for debugging and error reporting.
-pub fn parse_error_offset(err: ParseError) -> Int {
+pub fn get_parse_error_offset(err: ParseError) -> Int {
   err.offset
 }
 
@@ -849,14 +849,14 @@ pub fn parse_error_offset(err: ParseError) -> Int {
 ///
 /// ```gleam
 /// fn is_truncated(error: ParseError) -> Bool {
-///   case parse_error_kind(error) {
+///   case get_parse_error_kind(error) {
 ///     UnexpectedEof(_, _) -> True
 ///     InsufficientBytes(_, _) -> True
 ///     _ -> False
 ///   }
 /// }
 /// ```
-pub fn parse_error_kind(err: ParseError) -> ParseErrorKind {
+pub fn get_parse_error_kind(err: ParseError) -> ParseErrorKind {
   err.kind
 }
 
@@ -869,11 +869,11 @@ pub fn parse_error_kind(err: ParseError) -> ParseErrorKind {
 ///
 /// For example, failure at the scriptSig length prefix of the third input can
 /// produce `[InTransaction, InInputs, AtInput(2), AtField(ScriptSigLength)]`.
-pub fn parse_error_ctx(err: ParseError) -> List(ParseContext) {
+pub fn get_parse_error_context(err: ParseError) -> List(ParseContext) {
   err.ctx
 }
 
-fn parse_error(kind: ParseErrorKind, offset: Int) -> ParseError {
+fn new_parse_error(kind: ParseErrorKind, offset: Int) -> ParseError {
   ParseError(offset:, kind:, ctx: [])
 }
 
@@ -894,7 +894,7 @@ fn field_error(
 ) -> fn(ParseErrorKind) -> DecodeError {
   fn(kind) {
     kind
-    |> parse_error(offset)
+    |> new_parse_error(offset)
     |> with_contexts([AtField(field), ..ctx])
     |> ParseFailed
   }
@@ -1133,7 +1133,7 @@ pub fn decode_with_policy(
   use <- bool.guard(
     tx_size > policy.max_tx_size,
     PolicyLimitExceeded(tx_size, policy.max_tx_size)
-      |> parse_error(0)
+      |> new_parse_error(0)
       |> with_contexts([InTransaction])
       |> ParseFailed
       |> Error,
@@ -1673,7 +1673,7 @@ fn witnesses_parser(
     case list.all(witnesses, is_witness_stack_empty) {
       True ->
         SuperfluousWitnessRecord
-        |> parse_error(start_offset)
+        |> new_parse_error(start_offset)
         |> with_contexts(ctx)
         |> ParseFailed
         |> Error
@@ -1778,7 +1778,7 @@ fn witness_item_parser() -> Parser(ParseContext, WitnessItem, DecodeError) {
       |> result.map_error(fn(err) {
         err
         |> reader_error_to_kind
-        |> parse_error(reader.get_offset(reader))
+        |> new_parse_error(reader.get_offset(reader))
         |> with_contexts(ctx)
         |> ParseFailed
       })
@@ -1820,7 +1820,7 @@ fn end_of_input_parser() -> Parser(ParseContext, Nil, DecodeError) {
   parser.end_of_input(fn(bytes_remaining, reader, ctx) {
     bytes_remaining
     |> TrailingBytes
-    |> parse_error(reader.get_offset(reader))
+    |> new_parse_error(reader.get_offset(reader))
     |> with_contexts(ctx)
     |> ParseFailed
   })
