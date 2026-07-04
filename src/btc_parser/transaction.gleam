@@ -738,18 +738,45 @@ pub type ParseErrorKind {
 
   /// A policy limit was exceeded.
   ///
-  /// This occurs when either an individual field value or cumulative metric exceeds
-  /// a policy-defined limit, such as maximum script size, witness item count, or
-  /// total witness payload bytes.
+  /// `limit` identifies which `DecodePolicy` field was violated.
+  /// `max` is the configured limit.
   ///
-  /// `value` is the offending value, and `max` is the policy limit.
-  PolicyLimitExceeded(value: Int, max: Int)
+  /// `value` is the measured quantity that exceeded `max`. For most limits
+  /// this is a directly decoded value such as an input count or script byte
+  /// size. For `MaxWitnessStackPayloadSize`, `value` is the cumulative payload
+  /// total across all items parsed so far for that input's witness stack, not
+  /// the size of the individual item that pushed it over the limit.
+  PolicyLimitExceeded(limit: DecodePolicyLimit, value: Int, max: Int)
 
   /// The transaction was successfully parsed, but extra bytes remain in the input.
   ///
   /// This indicates the input buffer contains more data than a single valid transaction.
   /// The wrapped `Int` is the count of trailing bytes that were not consumed.
   TrailingBytes(Int)
+}
+
+/// Identifies which `DecodePolicy` limit was exceeded.
+///
+/// Carried by `PolicyLimitExceeded` to make the error self-describing without
+/// requiring callers to inspect the context stack.
+pub type DecodePolicyLimit {
+  /// The maximum serialized transaction size was exceeded.
+  MaxTransactionSize
+
+  /// The maximum number of transaction inputs was exceeded.
+  MaxInputCount
+
+  /// The maximum number of transaction outputs was exceeded.
+  MaxOutputCount
+
+  /// The maximum script size (scriptSig or scriptPubKey) was exceeded.
+  MaxScriptSize
+
+  /// The maximum witness stack item count for a single input was exceeded.
+  MaxWitnessStackItemCount
+
+  /// The maximum witness payload size for a single input was exceeded.
+  MaxWitnessStackPayloadSize
 }
 
 /// Contextual information about where in the transaction structure a parsing error occurred.
@@ -794,14 +821,9 @@ pub type ParseContext {
 
 /// A named field within a Bitcoin transaction.
 ///
-/// Most variants correspond directly to a field in the Bitcoin wire format
-/// and are used in error reporting to indicate which field was being parsed
+/// Every variant corresponds directly to a field in the Bitcoin wire format
+/// and is used in error reporting to indicate which field was being parsed
 /// when an error occurred.
-/// 
-/// `WitnessStackPayloadSize` is the exception: it is a
-/// synthetic marker with no corresponding serialized field, used solely to
-/// report when the cumulative witness payload byte limit is exceeded across
-/// all items in a single input's witness stack.
 pub type Field {
   // Top-level transaction fields
   Version
@@ -827,7 +849,6 @@ pub type Field {
   // Witness-related fields
   WitnessItemCount
   WitnessItemLength
-  WitnessStackPayloadSize
 }
 
 /// Get the byte offset where a parsing error occurred.
@@ -1132,7 +1153,7 @@ pub fn decode_with_policy(
   let tx_size = bit_array.byte_size(bytes)
   use <- bool.guard(
     tx_size > policy.max_tx_size,
-    PolicyLimitExceeded(tx_size, policy.max_tx_size)
+    PolicyLimitExceeded(MaxTransactionSize, tx_size, policy.max_tx_size)
       |> new_parse_error(0)
       |> with_contexts([InTransaction])
       |> ParseFailed
@@ -1396,7 +1417,7 @@ fn validate_input_count(
 
     // Policy limit: count exceeds configured maximum
     _, True ->
-      PolicyLimitExceeded(input_count, max_input_count_policy)
+      PolicyLimitExceeded(MaxInputCount, input_count, max_input_count_policy)
       |> on_invalid
 
     _, _ -> Ok(input_count)
@@ -1510,7 +1531,7 @@ fn validate_output_count(
 
     // Policy limit: count exceeds configured maximum
     _, True ->
-      PolicyLimitExceeded(output_count, max_output_count_policy)
+      PolicyLimitExceeded(MaxOutputCount, output_count, max_output_count_policy)
       |> on_invalid
 
     _, _ -> Ok(output_count)
@@ -1634,7 +1655,7 @@ fn validate_script_length(
 
     // Policy limit: length exceeds configured maximum
     _, True ->
-      PolicyLimitExceeded(script_length, max_script_size_policy)
+      PolicyLimitExceeded(MaxScriptSize, script_length, max_script_size_policy)
       |> on_invalid
 
     _, _ -> Ok(script_length)
@@ -1718,7 +1739,7 @@ fn witness_item_count_parser(
   |> parser.try_with_start_offset(fn(item_count, start_offset, _reader, ctx) {
     case max_witness_stack_item_count_policy {
       Some(max_items) if item_count > max_items ->
-        PolicyLimitExceeded(item_count, max_items)
+        PolicyLimitExceeded(MaxWitnessStackItemCount, item_count, max_items)
         |> field_error(WitnessItemCount, start_offset, ctx)
         |> Error
 
@@ -1746,8 +1767,14 @@ fn tracked_witness_items_parser(
     AtWitnessItem,
     max_total_bytes,
     fn(exceeded_val, start_offset, ctx) {
-      PolicyLimitExceeded(exceeded_val, max_total_bytes)
-      |> field_error(WitnessStackPayloadSize, start_offset, ctx)
+      PolicyLimitExceeded(
+        MaxWitnessStackPayloadSize,
+        exceeded_val,
+        max_total_bytes,
+      )
+      |> new_parse_error(start_offset)
+      |> with_contexts(ctx)
+      |> ParseFailed
     },
   )
 }
