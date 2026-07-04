@@ -772,10 +772,10 @@ fn preflight_validate_context_free_consensus(
 
     ExpectLateDuplicate(input_count) -> {
       let assert [first_input, ..] = transaction.get_inputs(parsed_tx)
-      let dup_prev_out = transaction.get_input_prev_out(first_input)
+      let duplicate_outpoint = transaction.get_input_outpoint(first_input)
 
       assert transaction.validate_context_free_consensus(parsed_tx)
-        == Error([DuplicateInput(dup_prev_out, 0, input_count - 1)])
+        == Error([DuplicateInput(duplicate_outpoint, 0, input_count - 1)])
     }
 
     ExpectOutputOverflow(output_count) -> {
