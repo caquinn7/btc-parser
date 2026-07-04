@@ -107,7 +107,7 @@ pub fn has_coinbase_shape(tx: Transaction(ContextFreeValidated)) -> Bool {
 
 /// Return whether any input has the coinbase marker (null previous outpoint).
 fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
-  list.any(tx.inputs, fn(txin) { prev_out_is_null_outpoint(txin.prev_out) })
+  list.any(tx.inputs, fn(txin) { outpoint_is_null(txin.prev_out) })
 }
 
 /// Get the transaction inputs.
@@ -229,7 +229,7 @@ pub fn get_prev_out_vout(prev_out: PrevOut) -> Int {
 ///
 /// The null outpoint is the special previous output reference used as the
 /// coinbase input marker: an all-zero txid with vout `0xFFFFFFFF`.
-pub fn prev_out_is_null_outpoint(prev_out: PrevOut) -> Bool {
+pub fn outpoint_is_null(prev_out: PrevOut) -> Bool {
   case prev_out {
     NullOutPoint -> True
     OutPoint(..) -> False
@@ -258,7 +258,7 @@ pub fn get_witness_items(stack: WitnessStack) -> List(WitnessItem) {
 ///
 /// A stack containing a zero-length item is not empty. Emptiness refers to the
 /// number of items, not the number of bytes contained in those items.
-pub fn witness_stack_is_empty(stack: WitnessStack) -> Bool {
+pub fn is_witness_stack_empty(stack: WitnessStack) -> Bool {
   case get_witness_items(stack) {
     [] -> True
     _ -> False
@@ -1665,7 +1665,7 @@ fn witnesses_parser(
     AtWitnessStack,
   )
   |> parser.try_with_start_offset(fn(witnesses, start_offset, _reader, ctx) {
-    case list.all(witnesses, witness_stack_is_empty) {
+    case list.all(witnesses, is_witness_stack_empty) {
       True ->
         SuperfluousWitnessRecord
         |> parse_error(start_offset)

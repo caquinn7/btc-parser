@@ -540,26 +540,26 @@ pub fn decode_parses_coinbase_marker_input_test() {
   let assert [input] = transaction.get_inputs(tx)
   assert input
     |> transaction.get_input_prev_out
-    |> transaction.prev_out_is_null_outpoint
+    |> transaction.outpoint_is_null
 }
 
-pub fn prev_out_is_null_outpoint_returns_true_for_coinbase_marker_test() {
+pub fn outpoint_is_null_returns_true_for_coinbase_marker_test() {
   let prev_out = decode_single_input_prev_out(<<0:size(256)>>, 0xFFFFFFFF)
-  assert transaction.prev_out_is_null_outpoint(prev_out)
+  assert transaction.outpoint_is_null(prev_out)
 }
 
-pub fn prev_out_is_null_outpoint_returns_false_for_regular_outpoint_test() {
+pub fn outpoint_is_null_returns_false_for_regular_outpoint_test() {
   let prev_out = decode_single_input_prev_out(repeat_byte(1, 32), 0)
-  assert !transaction.prev_out_is_null_outpoint(prev_out)
+  assert !transaction.outpoint_is_null(prev_out)
 }
 
-pub fn prev_out_is_null_outpoint_requires_null_hash_and_max_vout_test() {
+pub fn outpoint_is_null_requires_null_hash_and_max_vout_test() {
   let zero_hash_regular_vout = decode_single_input_prev_out(<<0:size(256)>>, 0)
   let nonzero_hash_max_vout =
     decode_single_input_prev_out(repeat_byte(1, 32), 0xFFFFFFFF)
 
-  assert !transaction.prev_out_is_null_outpoint(zero_hash_regular_vout)
-  assert !transaction.prev_out_is_null_outpoint(nonzero_hash_max_vout)
+  assert !transaction.outpoint_is_null(zero_hash_regular_vout)
+  assert !transaction.outpoint_is_null(nonzero_hash_max_vout)
 }
 
 pub fn decode_parses_empty_scriptsig_test() {
