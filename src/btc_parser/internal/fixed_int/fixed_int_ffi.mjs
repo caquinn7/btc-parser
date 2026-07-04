@@ -1,4 +1,4 @@
-import { Result$Ok, Result$Error, BitArray } from '../../gleam.mjs';
+import { Result$Ok, Result$Error, BitArray } from '../../../gleam.mjs';
 
 export function uint64LeToInt(bytes_le) {
   /*

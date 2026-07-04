@@ -3,11 +3,11 @@ import gleam/io
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import perf/internal/perf.{type PerfResult}
-import perf/internal/report
+import perf/transaction/report
+import perf/transaction/suite.{type PerfResult}
 import simplifile.{type FileError}
 
-pub opaque type PerfCommand {
+pub opaque type Command {
   PrintPerfReport
   WritePerfReport(path: String, format: PerfReportFormat)
 }
@@ -17,37 +17,37 @@ type PerfReportFormat {
   Csv
 }
 
-type PerfArgs {
-  PerfArgs(output_path: Option(String), format: Option(PerfReportFormat))
+type Args {
+  Args(output_path: Option(String), format: Option(PerfReportFormat))
 }
 
-pub fn parse(args: List(String)) -> Result(PerfCommand, Nil) {
+pub fn parse(args: List(String)) -> Result(Command, Nil) {
   args
-  |> parse_flags(PerfArgs(None, None))
+  |> parse_flags(Args(None, None))
   |> result.try(fn(args) {
     case args {
-      PerfArgs(None, None) -> Ok(PrintPerfReport)
-      PerfArgs(Some(path), None) -> Ok(WritePerfReport(path, Csv))
-      PerfArgs(Some(path), Some(format)) -> Ok(WritePerfReport(path, format))
-      PerfArgs(None, Some(_)) -> Error(Nil)
+      Args(None, None) -> Ok(PrintPerfReport)
+      Args(Some(path), None) -> Ok(WritePerfReport(path, Csv))
+      Args(Some(path), Some(format)) -> Ok(WritePerfReport(path, format))
+      Args(None, Some(_)) -> Error(Nil)
     }
   })
 }
 
-fn parse_flags(args: List(String), parsed: PerfArgs) -> Result(PerfArgs, Nil) {
+fn parse_flags(args: List(String), parsed: Args) -> Result(Args, Nil) {
   case args {
     [] -> Ok(parsed)
 
     ["--out", path, ..rest] ->
       case parsed.output_path, is_flag_value(path) {
-        None, True -> parse_flags(rest, PerfArgs(Some(path), parsed.format))
+        None, True -> parse_flags(rest, Args(Some(path), parsed.format))
         _, _ -> Error(Nil)
       }
 
     ["--format", format, ..rest] ->
       case parsed.format, parse_perf_report_format(format) {
         None, Ok(format) ->
-          parse_flags(rest, PerfArgs(parsed.output_path, Some(format)))
+          parse_flags(rest, Args(parsed.output_path, Some(format)))
 
         _, _ -> Error(Nil)
       }
@@ -70,10 +70,10 @@ fn parse_perf_report_format(format: String) -> Result(PerfReportFormat, Nil) {
 
 /// Runs the performance suite, returning an error when a requested report
 /// cannot be written.
-pub fn run(command: PerfCommand) -> Result(Nil, FileError) {
+pub fn run(command: Command) -> Result(Nil, FileError) {
   io.println("Executing performance tests...\n")
 
-  let perf_result = perf.run()
+  let perf_result = suite.run()
 
   case command {
     PrintPerfReport -> {

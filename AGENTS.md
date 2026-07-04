@@ -2,11 +2,12 @@
 
 ## Project Purpose
 
-`btc_tx` is a Gleam library for working with Bitcoin transactions: parsing wire
-bytes, inspecting transaction fields, classifying output scripts, serializing
-transactions, and running context-free consensus checks. It aims to mirror
-Bitcoin's wire format closely, expose malformed encodings as structured errors,
-and remain portable across Erlang and JavaScript targets.
+`btc_parser` is a Gleam library for working with Bitcoin data structures. Its
+current transaction domain parses wire bytes, inspects transaction fields,
+classifies output scripts, serializes transactions, and runs context-free
+consensus checks. It aims to mirror Bitcoin's wire format closely, expose
+malformed encodings as structured errors, and remain portable across Erlang and
+JavaScript targets.
 
 This library does not perform full transaction validation. Do not add behavior
 that requires UTXO lookup, script execution, signature verification, block
@@ -14,23 +15,24 @@ context, mempool policy, or network/RPC access unless the project scope changes.
 
 ## Architecture
 
-- `src/btc_tx.gleam` is the public API and main domain model. It contains opaque
-  transaction/input/output/script types, decode policy, parse errors, output
-  script classification, context-free consensus validation, serialization, and
-  txid/wtxid computation.
-- `src/internal/reader.gleam` is the byte reader. It owns offset tracking and
-  byte-aligned reads.
-- `src/internal/parser.gleam` is a small parser combinator layer used to attach
-  parse contexts and indexed locations to errors.
-- `src/internal/compact_size.gleam` handles Bitcoin CompactSize read/write,
-  including minimal-encoding checks.
-- `src/internal/fixed_int/*.gleam` stores signed/unsigned 64-bit values as
-  little-endian bytes so values remain exact on JavaScript.
-- `src/internal/hash32.gleam` stores 32-byte transaction hashes in wire-order
-  little-endian bytes.
-- `dev/fuzz/` contains the mutation-based fuzz harness and seed corpus.
-- `dev/perf/` contains the `gleam dev perf` benchmark harness and docs for
-  interpreting benchmark groups.
+- `src/btc_parser/transaction.gleam` defines the public transaction API and
+  transaction data model. It contains opaque transaction/input/output/script types,
+  decode policy, parse errors, output script classification, context-free consensus
+  validation, serialization, and txid/wtxid computation.
+- `src/btc_parser/internal/reader.gleam` is the byte reader. It owns offset
+  tracking and byte-aligned reads.
+- `src/btc_parser/internal/parser.gleam` is a small parser combinator layer
+  used to attach parse contexts and indexed locations to errors.
+- `src/btc_parser/internal/compact_size.gleam` handles Bitcoin CompactSize
+  read/write, including minimal-encoding checks.
+- `src/btc_parser/internal/fixed_int/*.gleam` stores signed/unsigned 64-bit
+  values as little-endian bytes so values remain exact on JavaScript.
+- `src/btc_parser/internal/hash32.gleam` stores 32-byte transaction hashes in
+  wire-order little-endian bytes.
+- `dev/fuzz/transaction/` contains the transaction fuzz suite, report, and seed
+  corpus; `dev/fuzz/internal/` contains shared fuzz utilities.
+- `dev/perf/transaction/` contains the transaction benchmark suite and report;
+  `dev/perf/internal/` contains shared runtime metadata.
 - `docs/` documents API behavior and output script classification.
 
 ## Build And Test Commands
@@ -46,19 +48,10 @@ context, mempool policy, or network/RPC access unless the project scope changes.
   using Deno.
 - `gleam test -t javascript --runtime bun` - run the test suite on JavaScript
   using Bun.
-- `gleam dev --target erlang fuzz <iterations> [seed]` - fuzz parser behavior.
-- `gleam dev --target javascript --runtime node fuzz <iterations> [seed]` - fuzz
-  JavaScript behavior using Node. Also run with `--runtime deno` or
-  `--runtime bun` when a change touches JavaScript FFI, runtime-sensitive
-  `BitArray` or integer behavior, runtime config, file/timer/CLI behavior, or a
-  runtime-specific bug.
-- `gleam dev --target erlang perf` - run the performance benchmark suite on
-  Erlang.
-- `gleam dev --target javascript --runtime node perf` - run the performance
-  benchmark suite on JavaScript using Node. Use `--runtime deno` or
-  `--runtime bun` when a change touches JavaScript FFI, runtime-sensitive
-  `BitArray` or integer behavior, runtime config, file/timer/CLI behavior, or a
-  runtime-specific bug.
+- See `dev/fuzz/README.md` for fuzz commands, seed replay, scope, and
+  target/runtime guidance.
+- See `dev/perf/README.md` for performance commands, report formats, benchmark
+  coverage, and target/runtime guidance.
 
 Run unit tests on both Erlang and at least one JavaScript runtime for meaningful
 library code changes; the number of target-specific tests is small, but almost
@@ -69,6 +62,10 @@ change also touches library code or shared behavior covered by those tests.
 Run all JavaScript runtimes before publishing a package release, changing public
 API behavior, or touching runtime-sensitive code such as `BitArray`, fixed-width
 integers, CompactSize, serialization, hashing, or FFI.
+Use Node as the default JavaScript runtime for fuzz and performance validation.
+Also use Deno and Bun when a harness change touches JavaScript FFI,
+runtime-sensitive `BitArray` or integer behavior, runtime configuration,
+file/timer/CLI behavior, or a runtime-specific bug.
 
 ## Important Invariants
 
@@ -139,9 +136,9 @@ integers, CompactSize, serialization, hashing, or FFI.
 
 ## Testing Strategy
 
-- Add focused unit tests near the behavior changed, usually in
-  `test/btc_tx_test.gleam` for public API behavior or `test/internal/...` for
-  internal helpers.
+- Add focused unit tests near the behavior changed. Mirror source module paths
+  under `test/`, adding the `_test` suffix for test modules; for example,
+  `src/btc_parser/transaction.gleam` maps to `test/btc_parser/transaction_test.gleam`.
 - Test both success and exact failure shape for parser changes: error kind,
   offset, and context stack.
 - Include boundary tests for limits: exactly at limit, one over limit, truncated

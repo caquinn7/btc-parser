@@ -1,121 +1,79 @@
-# btc_tx
+# btc_parser
 
-<!-- [![Package Version](https://img.shields.io/hexpm/v/btc_tx)](https://hex.pm/packages/btc_tx)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/btc_tx/) -->
+<!-- [![Package Version](https://img.shields.io/hexpm/v/btc_parser)](https://hex.pm/packages/btc_parser)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/btc_parser/) -->
 
-A reference-oriented library for parsing and modeling Bitcoin transactions.
+A reference-oriented Gleam library for parsing and modeling Bitcoin data
+structures.
 
-Designed to closely reflect Bitcoin's wire format and protocol structure.
+`btc_parser` is designed to reflect Bitcoin's wire formats and protocol
+structures closely, expose malformed encodings as structured errors, and remain
+portable across Erlang and JavaScript targets.
 
-This library is intended for educational and infrastructure use.
-It parses and models Bitcoin transaction data, including basic serialization
-and format checks, but does not perform full transaction validation such as
-script evaluation, signature verification, or UTXO-contextual consensus rules.
-No security guarantees are provided.
+## Project Status
 
-## Key Features
+Transactions are the only data structure currently implemented:
 
-- **Safe parsing**: Configurable resource limits constrain work and allocation
-  when parsing untrusted inputs
+- [`btc_parser/transaction`](docs/transaction/transaction.md) parses, inspects, validates,
+  and serializes legacy and SegWit transactions.
 
-- **Rich error context**: Detailed parse errors with byte offsets and context stacks
-
-- **Format detection**: Distinguish legacy and SegWit transactions
-
-- **Transaction inspection**: Access versions, lock times, inputs, outputs, prevouts,
-  script bytes, output values, and SegWit witness stacks
-
-- **Script classification**: Identify P2PKH, P2SH, P2WPKH, P2WSH, P2TR, and other
-  standard output script templates (structural only; no blockchain or UTXO context required)
-
-- **Context-free consensus validation**: Check transaction-local consensus rules
-  such as input/output presence, output value ranges, coinbase structure, and duplicate inputs
-
-- **Validation-aware API**: Phantom types distinguish parsed transactions from
-  transactions that have passed context-free consensus validation
-
-- **Serialization**: Serialize decoded transactions in stripped or full wire
-  form, and compute their txid and wtxid
-
-- **Cross-runtime**: Supports both Erlang and JavaScript targets
+Future sibling modules, such as `btc_parser/block`, are planned as the library
+expands to additional Bitcoin data structures. These modules are not implemented
+yet, and their APIs have not been defined.
 
 <!-- ## Installation
 ```sh
-gleam add btc_tx@1
+gleam add btc_parser@1
 ``` -->
 
-## Quick Start
-
-```gleam
-import btc_tx
-import gleam/result
-
-pub fn txid_from_bytes(
-  bytes: BitArray,
-) -> Result(BitArray, btc_tx.DecodeError) {
-  bytes
-  |> btc_tx.decode
-  |> result.map(btc_tx.compute_txid)
-}
-```
-
-## Goals & Philosophy
-
-This library is guided by a small set of principles:
+## Goals and Philosophy
 
 ### Correctness over convenience
 
-  > Malformed or ambiguous transaction encodings are surfaced explicitly rather than being silently normalized or partially parsed.
+> Malformed or ambiguous encodings are surfaced explicitly rather than being
+> silently normalized or partially parsed.
 
 ### Reference-grade intent
-  
-  > The library is structured so it can be read alongside Bitcoin documentation as a reliable guide to how transactions are laid out on the wire.
 
-### Faithful modeling of the protocol
+> The library is structured so it can be read alongside Bitcoin documentation
+> as a reliable guide to wire formats and protocol data structures.
 
-  > Protocol distinctions and transaction forms are preserved rather than collapsed into convenience abstractions.
+### Faithful protocol modeling
 
-## Use Cases
+> Protocol distinctions and encoded forms are preserved rather than collapsed
+> into convenience abstractions.
 
-- **Explorers and blockchain indexers**:
-  Turn externally obtained raw transactions into structured data for display,
-  search, and downstream analysis.
+### Cross-runtime portability
 
-- **Monitoring and research**:
-  Examine caller-provided mempool feeds or datasets for transaction shapes,
-  output types, and witness usage.
+> Public behavior remains consistent across Erlang and JavaScript targets
 
-- **Wallet and protocol tooling**:
-  Add a transaction decoding layer ahead of application-specific
-  transaction processing.
+## Scope
 
-- **Testing and education**:
-  Study Bitcoin transaction encoding and test software against
-  malformed transaction data.
+This project parses and models caller-provided Bitcoin data. It is not a wallet,
+full node, RPC client, or networking library. Domain-specific documentation
+describes the exact parsing, validation, and policy boundaries for each
+implemented module.
+
+No security guarantees are provided.
 
 ## Development
 
-### Unit Tests
+Run the unit tests on Erlang and the supported JavaScript runtimes:
 
 ```sh
-# Run tests on the Erlang target
 gleam test -t erlang
-# Run tests on the JS target
 gleam test -t javascript --runtime node
 gleam test -t javascript --runtime deno
 gleam test -t javascript --runtime bun
 ```
 
-### Fuzz Testing
+## Development Tools
 
-The fuzz harness mutates real transactions to stress parser safety against
-arbitrary bytes. See [dev/fuzz/README.md](dev/fuzz/README.md)
-for commands, seed replay, and scope.
+The [fuzz harness](dev/fuzz/README.md) exercises parser safety against malformed
+and mutated wire-format inputs. Domain suites can provide their own seed inputs
+and structural mutations while sharing the project-level command workflow.
 
-### Performance Testing
-
-The perf harness benchmarks public transaction workflows to detect performance
-slowdowns in decoding, inspection, validation, hashing, and serialization.
-Compare results only between runs on the same machine, target, and runtime. See
-[dev/perf/README.md](dev/perf/README.md) for commands, benchmark coverage, and
-result interpretation.
+The [performance harness](dev/perf/README.md) measures public parsing and
+inspection workflows across representative inputs, scaling dimensions, and
+fail-fast paths. Domain-specific benchmark suites can be added as the library
+grows.

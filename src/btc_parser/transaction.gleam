@@ -1,5 +1,11 @@
-//// Parse, inspect, and validate Bitcoin transactions.
+//// Parse, inspect, validate, and serialize Bitcoin transactions.
 
+import btc_parser/internal/compact_size
+import btc_parser/internal/fixed_int/int64
+import btc_parser/internal/fixed_int/uint64.{type Uint64}
+import btc_parser/internal/hash32.{type Hash32}
+import btc_parser/internal/parser.{type Parser}
+import btc_parser/internal/reader.{type Reader}
 import gleam/bit_array
 import gleam/bool
 import gleam/crypto.{Sha256}
@@ -9,12 +15,6 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/pair
 import gleam/result
-import internal/compact_size
-import internal/fixed_int/int64
-import internal/fixed_int/uint64.{type Uint64}
-import internal/hash32.{type Hash32}
-import internal/parser.{type Parser}
-import internal/reader.{type Reader}
 
 // ==============================================================================
 // Transaction types

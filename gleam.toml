@@ -1,17 +1,18 @@
-name = "btc_tx"
+name = "btc_parser"
 version = "1.0.0"
 
-description = "A reference-oriented library for parsing and modeling ₿itcoin transactions."
+description = "Parse and inspect Bitcoin wire-format data structures."
 licences = ["MIT"]
 
 [repository]
 type = "github"
 user = "caquinn7"
-repo = "btc-tx"
+repo = "btc-parser"
 
 gleam = ">= 1.16.0"
 
 target = "erlang"
+internal_modules = ["btc_parser/internal/*"]
 
 [javascript]
 runtime = "node"

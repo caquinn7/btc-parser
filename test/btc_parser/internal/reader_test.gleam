@@ -1,4 +1,4 @@
-import internal/reader.{InvalidReadCount, UnexpectedEof}
+import btc_parser/internal/reader.{InvalidReadCount, UnexpectedEof}
 
 // new
 

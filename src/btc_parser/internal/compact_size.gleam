@@ -1,8 +1,8 @@
+import btc_parser/internal/fixed_int/uint64.{type Uint64}
+import btc_parser/internal/reader.{type Reader}
 import gleam/result
-import internal/fixed_int/uint64.{type Uint64}
-import internal/reader.{type Reader}
 
-/// An error that occured while reading a CompactSize-encoded integer.
+/// An error that occurred while reading a CompactSize-encoded integer.
 pub type ReadError {
   /// Indicates insufficient bytes were available in the reader to decode the CompactSize value.
   ///

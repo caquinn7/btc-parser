@@ -1,7 +1,7 @@
-import internal/fixed_int/int64.{
+import btc_parser/internal/fixed_int/int64.{
   BelowMinInt64, ExceedsInt64, InvalidByteCount, UnsafeInteger,
 }
-import internal/fixed_int/shared_inputs
+import btc_parser/internal/fixed_int/shared_inputs
 import support/target
 
 /// 2^63 - 1

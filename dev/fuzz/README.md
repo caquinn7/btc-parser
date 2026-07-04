@@ -1,8 +1,9 @@
-# Fuzz Testing Purpose - btc_tx Library
+# Fuzz Testing Purpose - `btc_parser/transaction`
 
 ## Overview
 
-The purpose of fuzz testing in the `btc_tx` library is to check that the
+The purpose of fuzz testing in the `btc_parser/transaction` module is to check
+that the
 transaction parser and immediately related inspection APIs handle mutated
 transaction bytes without unhandled exceptions.
 
@@ -96,7 +97,8 @@ selects one mutation, and applies that mutation to the selected transaction.
 
 Fuzz testing checks that:
 
-- `btc_tx.decode` handles mutated transaction bytes without unhandled exceptions
+- `transaction.decode` handles mutated transaction bytes without unhandled
+  exceptions
 - Successfully decoded transactions can flow through context-free consensus
   validation, output script classification, serialization, txid, and wtxid APIs
   without unhandled exceptions, regardless of the validation result
@@ -130,8 +132,8 @@ Clean failure behavior is just as important as successful parsing.
 
 For each mutated input, the harness:
 
-- Calls `btc_tx.decode`
-- If decoding succeeds, calls `btc_tx.validate_context_free_consensus`
+- Calls `transaction.decode`
+- If decoding succeeds, calls `transaction.validate_context_free_consensus`
 - Regardless of the validation result, classifies every output script
 - Serializes both stripped and full wire forms
 - Checks that the full wire serialization exactly matches the mutated input
@@ -173,19 +175,20 @@ The current harness is not a performance or resource-usage test. It does not
 measure allocations, detect slow parsing paths, enforce timeouts, or fail based
 on elapsed time.
 
-The harness still runs through `btc_tx.decode`, so the library's default decode
-policy is active during fuzzing. The harness does not assert the exact errors
-returned when policy limits or structural limits are hit. Use focused unit tests
-for policy-limit behavior and `gleam dev perf` for benchmark-style performance
-analysis.
+The harness still runs through `transaction.decode`, so the library's default
+decode policy is active during fuzzing. The harness does not assert the exact
+errors returned when policy limits or structural limits are hit. Use focused
+unit tests for policy-limit behavior and `gleam dev perf` for benchmark-style
+performance analysis.
 
 ---
 
 ## Role of the Seed Corpus
 
 The fuzzing strategy uses a **seed corpus of real Bitcoin transactions** stored
-in `dev/fuzz/corpus/seed_txs.txt`. Each record contains `txid|codes|raw_hex`.
-Corpus-code labels are documented in `dev/fuzz/corpus/seed_txs_codes.txt`.
+in `dev/fuzz/transaction/corpus/seed_txs.txt`. Each record contains
+`txid|codes|raw_hex`. Corpus-code labels are documented in
+`dev/fuzz/transaction/corpus/seed_txs_codes.txt`.
 
 ### Why this matters
 
@@ -201,10 +204,11 @@ Higher-quality fuzzing with better coverage of meaningful scenarios.
 
 ## Summary
 
-Fuzz testing exercises the `btc_tx` parser and related transaction inspection
+Fuzz testing exercises the `btc_parser/transaction` parser and related
+transaction inspection
 APIs by:
 
-- Feeding mutated transaction bytes into `btc_tx.decode`
+- Feeding mutated transaction bytes into `transaction.decode`
 - Treating `decode` and `validate_context_free_consensus` `Error(_)` results as
   clean outcomes
 - Continuing every successful decode through context-free consensus validation,

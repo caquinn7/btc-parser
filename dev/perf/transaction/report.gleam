@@ -3,7 +3,7 @@ import gleam/int
 import gleam/list
 import gleam/string
 import perf/internal/metadata.{type PerfMetadata}
-import perf/internal/perf.{
+import perf/transaction/suite.{
   type PerfCaseResult, type PerfResult, type PerfSection,
 }
 

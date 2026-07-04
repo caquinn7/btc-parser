@@ -1,4 +1,4 @@
-////  Fuzz testing harness for the `btc_tx` transaction parser.
+////  Fuzz testing harness for the `btc_parser/transaction` transaction parser.
 ////
 ////  The goal is to guarantee that *any* byte input results in either a correct
 ////  parse or a well-defined error — never an unhandled exception. Each run
@@ -9,7 +9,7 @@
 ////  plausible, so mutations are more likely to reach deep parser paths rather
 ////  than being rejected at early boundary checks.
 
-import btc_tx
+import btc_parser/transaction
 import exception.{type Exception}
 import fuzz/internal/rng.{type Rng}
 import fuzz/internal/trace.{type Trace}
@@ -189,23 +189,23 @@ fn run_iterations(
 }
 
 fn run_decode(mutated_tx_bytes: BitArray) -> Nil {
-  case btc_tx.decode(mutated_tx_bytes) {
+  case transaction.decode(mutated_tx_bytes) {
     Ok(decoded_tx) -> {
-      let _ = btc_tx.validate_context_free_consensus(decoded_tx)
+      let _ = transaction.validate_context_free_consensus(decoded_tx)
 
       decoded_tx
-      |> btc_tx.get_outputs
+      |> transaction.get_outputs
       |> list.each(fn(txout) {
         txout
-        |> btc_tx.get_output_script_pubkey
-        |> btc_tx.classify_output_script
+        |> transaction.get_output_script_pubkey
+        |> transaction.classify_output_script
       })
 
-      let _ = btc_tx.to_stripped_bytes(decoded_tx)
-      assert btc_tx.to_wire_bytes(decoded_tx) == mutated_tx_bytes
+      let _ = transaction.to_stripped_bytes(decoded_tx)
+      assert transaction.to_wire_bytes(decoded_tx) == mutated_tx_bytes
 
-      let _ = btc_tx.compute_txid(decoded_tx)
-      let _ = btc_tx.compute_wtxid(decoded_tx)
+      let _ = transaction.compute_txid(decoded_tx)
+      let _ = transaction.compute_wtxid(decoded_tx)
 
       Nil
     }
