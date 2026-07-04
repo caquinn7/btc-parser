@@ -48,19 +48,10 @@ context, mempool policy, or network/RPC access unless the project scope changes.
   using Deno.
 - `gleam test -t javascript --runtime bun` - run the test suite on JavaScript
   using Bun.
-- `gleam dev --target erlang fuzz <iterations> [seed]` - fuzz parser behavior.
-- `gleam dev --target javascript --runtime node fuzz <iterations> [seed]` - fuzz
-  JavaScript behavior using Node. Also run with `--runtime deno` or
-  `--runtime bun` when a change touches JavaScript FFI, runtime-sensitive
-  `BitArray` or integer behavior, runtime config, file/timer/CLI behavior, or a
-  runtime-specific bug.
-- `gleam dev --target erlang perf` - run the performance benchmark suite on
-  Erlang.
-- `gleam dev --target javascript --runtime node perf` - run the performance
-  benchmark suite on JavaScript using Node. Use `--runtime deno` or
-  `--runtime bun` when a change touches JavaScript FFI, runtime-sensitive
-  `BitArray` or integer behavior, runtime config, file/timer/CLI behavior, or a
-  runtime-specific bug.
+- See `dev/fuzz/README.md` for fuzz commands, seed replay, scope, and
+  target/runtime guidance.
+- See `dev/perf/README.md` for performance commands, report formats, benchmark
+  coverage, and target/runtime guidance.
 
 Run unit tests on both Erlang and at least one JavaScript runtime for meaningful
 library code changes; the number of target-specific tests is small, but almost
@@ -71,6 +62,10 @@ change also touches library code or shared behavior covered by those tests.
 Run all JavaScript runtimes before publishing a package release, changing public
 API behavior, or touching runtime-sensitive code such as `BitArray`, fixed-width
 integers, CompactSize, serialization, hashing, or FFI.
+Use Node as the default JavaScript runtime for fuzz and performance validation.
+Also use Deno and Bun when a harness change touches JavaScript FFI,
+runtime-sensitive `BitArray` or integer behavior, runtime configuration,
+file/timer/CLI behavior, or a runtime-specific bug.
 
 ## Important Invariants
 
