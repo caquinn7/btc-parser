@@ -1164,7 +1164,7 @@ fn tx_parser(
     policy,
   ))
   use lock_time <- parser.then(field_parser(LockTime, reader.read_u32_le))
-  use _ <- parser.then(end_of_input_parser())
+  use _ <- parser.then(end_of_tx_parser())
 
   parser.return(case witnesses {
     Some(witnesses) ->
@@ -1816,7 +1816,7 @@ fn validate_witness_item_length(
   }
 }
 
-fn end_of_input_parser() -> Parser(ParseContext, Nil, DecodeError) {
+fn end_of_tx_parser() -> Parser(ParseContext, Nil, DecodeError) {
   parser.end_of_input(fn(bytes_remaining, reader, ctx) {
     bytes_remaining
     |> TrailingBytes
