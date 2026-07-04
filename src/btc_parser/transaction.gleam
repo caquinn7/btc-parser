@@ -387,7 +387,7 @@ pub type OutputScriptType {
   /// Structurally matches 1–3 key payloads and 1–3 required signatures. The
   /// classifier validates the template layout and counts, not public key
   /// encoding.
-  Multisig
+  BareMultisig
 
   /// Standard null-data output as defined by Bitcoin Core relay policy.
   ///
@@ -411,7 +411,7 @@ pub type OutputScriptType {
   /// appears here.
   ///
   /// Forward-compatible. Do not treat this the same as `NonStandard`.
-  UnknownWitness(version: Int)
+  UnknownWitnessProgram(version: Int)
 
   /// Does not match any recognized standard output template.
   NonStandard
@@ -506,11 +506,11 @@ fn do_classify_non_template(script_bytes: BitArray) -> OutputScriptType {
       && version <= 0x60
       && push_length >= 2
       && push_length <= 40
-    -> UnknownWitness(version: decode_small_int_opcode(version))
+    -> UnknownWitnessProgram(version: decode_small_int_opcode(version))
 
     _ ->
       case do_is_standard_multisig(script_bytes) {
-        True -> Multisig
+        True -> BareMultisig
         False -> NonStandard
       }
   }
