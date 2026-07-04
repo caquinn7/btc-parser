@@ -441,9 +441,9 @@ pub type OutputScriptType {
 /// │   ├─ total ≤ 83 bytes AND push-only    → NullData
 /// │   └─ otherwise                         → NonStandard
 /// └─ (none matched)
-///     ├─ [51–60] [02–28] [×push_length]    → UnknownWitness(version)
+///     ├─ [51–60] [02–28] [×push_length]    → UnknownWitnessProgram(version)
 ///     └─ structural m-of-n (1≤m≤n≤3)
-///         ├─ AND key-payload count = n     → Multisig
+///         ├─ AND key-payload count = n     → BareMultisig
 ///         └─ otherwise                     → NonStandard
 /// ```
 ///
@@ -498,7 +498,7 @@ pub fn classify_output_script(
 /// Checks for future witness versions and bare multisig.
 fn do_classify_non_template(script_bytes: BitArray) -> OutputScriptType {
   case script_bytes {
-    // UnknownWitness: OP_1–OP_16 followed by a 2–40 byte witness program.
+    // UnknownWitnessProgram: OP_1–OP_16 followed by a 2–40 byte witness program.
     // OP_0 (P2WPKH/P2WSH) is already handled above.
     // OP_1 with a 32-byte program is already handled above as P2TR.
     <<version, push_length, _:bytes-size(push_length)>>
