@@ -1,6 +1,7 @@
 import argv
 import fuzz/command.{InvalidNumberOfArgs, InvalidValue} as fuzz_command
 import gleam/io
+import gleam/string
 import perf/command as perf_command
 
 const usage_msg = "usage:
@@ -22,15 +23,13 @@ fn fuzz(args: List(String)) -> Nil {
     Ok(command) ->
       case fuzz_command.run(command) {
         Ok(Nil) -> Nil
-        Error(Nil) -> exit_failure()
+        Error(Nil) -> exit_failure("")
       }
     Error(InvalidNumberOfArgs) -> {
-      io.println(usage_msg)
-      exit_failure()
+      exit_failure(usage_msg)
     }
     Error(InvalidValue(msg)) -> {
-      io.println(msg)
-      exit_failure()
+      exit_failure(msg)
     }
   }
 }
@@ -40,15 +39,21 @@ fn perf(args: List(String)) -> Nil {
     Ok(command) ->
       case perf_command.run(command) {
         Ok(Nil) -> Nil
-        Error(_) -> exit_failure()
+        Error(_) -> exit_failure("")
       }
-    Error(Nil) -> {
-      io.println(usage_msg)
-      exit_failure()
-    }
+    Error(Nil) -> exit_failure(usage_msg)
   }
+}
+
+fn exit_failure(exit_msg) {
+  case string.trim(exit_msg) {
+    "" -> Nil
+    _ -> io.println(exit_msg)
+  }
+
+  do_exit_failure()
 }
 
 @external(erlang, "btc_parser_dev_ffi", "exit_failure")
 @external(javascript, "./btc_parser_dev_ffi.mjs", "exitFailure")
-fn exit_failure() -> Nil
+fn do_exit_failure() -> Nil
