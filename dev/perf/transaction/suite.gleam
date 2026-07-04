@@ -397,7 +397,7 @@ fn synthetic_tx_spec_to_bytes(
   case synthetic_spec {
     Legacy(label, input_count, output_count) -> #(
       label,
-      build_synthetic_legacy_tx(input_count, output_count, UniquePrevouts),
+      build_synthetic_legacy_tx(input_count, output_count, UniqueOutPoints),
     )
 
     Segwit(
@@ -544,7 +544,7 @@ fn measure_coinbase_shape(
 fn coinbase_shape_case(
   input_count: Int,
 ) -> PerfCaseInput(Transaction(ContextFreeValidated)) {
-  let tx_bytes = build_synthetic_legacy_tx(input_count, 1, UniquePrevouts)
+  let tx_bytes = build_synthetic_legacy_tx(input_count, 1, UniqueOutPoints)
 
   let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
   let assert Ok(validated_tx) =
@@ -566,7 +566,7 @@ fn coinbase_shape_case(
 /// Measures `transaction.validate_context_free_consensus` on already-parsed
 /// synthetic transactions.
 /// The valid cases exercise full success-path input-count and output-count
-/// scanning. The late-duplicate cases place the duplicate prevout at the end so
+/// scanning. The late-duplicate cases place the duplicate outpoint at the end so
 /// rejection still walks nearly the whole input list.
 fn measure_context_free_consensus_validation() -> List(PerfSection) {
   [
@@ -682,7 +682,7 @@ fn valid_input_count_consensus_case(
 ) -> PerfCaseInput(Transaction(Parsed)) {
   context_free_consensus_validation_case(
     "valid inputs=" <> int.to_string(input_count),
-    build_synthetic_legacy_tx(input_count, 1, UniquePrevouts),
+    build_synthetic_legacy_tx(input_count, 1, UniqueOutPoints),
     ExpectValid,
   )
 }
@@ -692,7 +692,7 @@ fn valid_output_count_consensus_case(
 ) -> PerfCaseInput(Transaction(Parsed)) {
   context_free_consensus_validation_case(
     "valid outputs=" <> int.to_string(output_count),
-    build_synthetic_legacy_tx(1, output_count, UniquePrevouts),
+    build_synthetic_legacy_tx(1, output_count, UniqueOutPoints),
     ExpectValid,
   )
 }
@@ -702,7 +702,7 @@ fn late_duplicate_input_count_consensus_case(
 ) -> PerfCaseInput(Transaction(Parsed)) {
   context_free_consensus_validation_case(
     "late duplicate inputs=" <> int.to_string(input_count),
-    build_synthetic_legacy_tx(input_count, 1, LastPrevoutDuplicatesFirst),
+    build_synthetic_legacy_tx(input_count, 1, LastOutPointDuplicatesFirst),
     ExpectLateDuplicate(input_count:),
   )
 }
@@ -718,7 +718,7 @@ fn output_overflow_count_consensus_case(
       1,
       outputs,
       output_count,
-      UniquePrevouts,
+      UniqueOutPoints,
     ),
     ExpectOutputOverflow(output_count:),
   )
@@ -1331,15 +1331,15 @@ fn find_input_size_bytes(
 // Transaction builders
 // ==============================================================================
 
-type SyntheticPrevoutPattern {
-  UniquePrevouts
-  LastPrevoutDuplicatesFirst
+type SyntheticOutPointPattern {
+  UniqueOutPoints
+  LastOutPointDuplicatesFirst
 }
 
 fn build_synthetic_legacy_tx(
   input_count: Int,
   output_count: Int,
-  prevout_pattern: SyntheticPrevoutPattern,
+  outpoint_pattern: SyntheticOutPointPattern,
 ) -> BitArray {
   let outputs = build_synthetic_legacy_outputs(output_count)
 
@@ -1347,7 +1347,7 @@ fn build_synthetic_legacy_tx(
     input_count,
     outputs,
     output_count,
-    prevout_pattern,
+    outpoint_pattern,
   )
 }
 
@@ -1355,9 +1355,9 @@ fn build_synthetic_legacy_tx_with_outputs(
   input_count: Int,
   outputs: BitArray,
   output_count: Int,
-  prevout_pattern: SyntheticPrevoutPattern,
+  outpoint_pattern: SyntheticOutPointPattern,
 ) -> BitArray {
-  let inputs = build_synthetic_legacy_inputs(input_count, prevout_pattern)
+  let inputs = build_synthetic_legacy_inputs(input_count, outpoint_pattern)
 
   <<
     1:little-size(32),
@@ -1375,7 +1375,7 @@ fn build_synthetic_segwit_tx(
   witness_items_per_input: Int,
   witness_item_size: Int,
 ) -> BitArray {
-  let inputs = build_synthetic_legacy_inputs(input_count, UniquePrevouts)
+  let inputs = build_synthetic_legacy_inputs(input_count, UniqueOutPoints)
 
   let outputs = build_synthetic_legacy_outputs(output_count)
 
@@ -1400,7 +1400,7 @@ fn build_synthetic_segwit_tx(
 }
 
 fn build_late_truncated_witness_payload_tx() -> BitArray {
-  let inputs = build_synthetic_legacy_inputs(1, UniquePrevouts)
+  let inputs = build_synthetic_legacy_inputs(1, UniqueOutPoints)
   let outputs = build_synthetic_legacy_outputs(1)
   let complete_items = build_synthetic_witness_items(99, 32)
   let truncated_payload = <<0:size({ 31 * 8 })>>
@@ -1422,27 +1422,27 @@ fn build_late_truncated_witness_payload_tx() -> BitArray {
 
 fn build_synthetic_legacy_inputs(
   input_count: Int,
-  prevout_pattern: SyntheticPrevoutPattern,
+  outpoint_pattern: SyntheticOutPointPattern,
 ) -> BitArray {
-  build_synthetic_legacy_inputs_loop(0, input_count, prevout_pattern, [])
+  build_synthetic_legacy_inputs_loop(0, input_count, outpoint_pattern, [])
 }
 
 fn build_synthetic_legacy_inputs_loop(
   index: Int,
   input_count: Int,
-  prevout_pattern: SyntheticPrevoutPattern,
+  outpoint_pattern: SyntheticOutPointPattern,
   acc: List(BitArray),
 ) -> BitArray {
   case index >= input_count {
     True -> concat_reversed(acc)
     False -> {
       let input =
-        build_synthetic_legacy_input(index, input_count, prevout_pattern)
+        build_synthetic_legacy_input(index, input_count, outpoint_pattern)
 
       build_synthetic_legacy_inputs_loop(
         index + 1,
         input_count,
-        prevout_pattern,
+        outpoint_pattern,
         [input, ..acc],
       )
     }
@@ -1452,15 +1452,15 @@ fn build_synthetic_legacy_inputs_loop(
 fn build_synthetic_legacy_input(
   index: Int,
   input_count: Int,
-  prevout_pattern: SyntheticPrevoutPattern,
+  outpoint_pattern: SyntheticOutPointPattern,
 ) -> BitArray {
-  let prev_txid_seed =
-    synthetic_prev_txid_seed(index, input_count, prevout_pattern)
+  let outpoint_txid_seed =
+    synthetic_outpoint_txid_seed(index, input_count, outpoint_pattern)
 
-  let prev_txid = <<prev_txid_seed:little-size(32), 0:size(224)>>
+  let outpoint_txid = <<outpoint_txid_seed:little-size(32), 0:size(224)>>
 
   <<
-    prev_txid:bits,
+    outpoint_txid:bits,
     0:little-size(32),
     compact_size(0):bits,
     0xFFFFFFFF:little-size(32),
@@ -1582,14 +1582,14 @@ fn build_synthetic_witness_item(item_size: Int) -> BitArray {
   >>
 }
 
-fn synthetic_prev_txid_seed(
+fn synthetic_outpoint_txid_seed(
   index: Int,
   input_count: Int,
-  prevout_pattern: SyntheticPrevoutPattern,
+  outpoint_pattern: SyntheticOutPointPattern,
 ) -> Int {
-  case prevout_pattern {
-    UniquePrevouts -> index
-    LastPrevoutDuplicatesFirst ->
+  case outpoint_pattern {
+    UniqueOutPoints -> index
+    LastOutPointDuplicatesFirst ->
       case index == input_count - 1 {
         True -> 0
         False -> index
