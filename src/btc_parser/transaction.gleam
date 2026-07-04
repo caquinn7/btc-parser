@@ -44,9 +44,9 @@ pub opaque type Transaction(validation_state) {
     /// The signed 32-bit transaction version.
     version: Int,
     /// The transaction inputs in wire order.
-    inputs: List(TxIn),
+    inputs: List(Input),
     /// The transaction outputs in wire order.
-    outputs: List(TxOut),
+    outputs: List(Output),
     /// The unsigned 32-bit lock-time value.
     lock_time: Int,
   )
@@ -54,9 +54,9 @@ pub opaque type Transaction(validation_state) {
     /// The signed 32-bit transaction version.
     version: Int,
     /// The transaction inputs in wire order.
-    inputs: List(TxIn),
+    inputs: List(Input),
     /// The transaction outputs in wire order.
-    outputs: List(TxOut),
+    outputs: List(Output),
     /// The unsigned 32-bit lock-time value.
     lock_time: Int,
     /// One witness stack per input, in input order.
@@ -107,20 +107,20 @@ pub fn has_coinbase_shape(tx: Transaction(ContextFreeValidated)) -> Bool {
 
 /// Return whether any input has the coinbase marker (null previous outpoint).
 fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
-  list.any(tx.inputs, fn(txin) { outpoint_is_null(txin.outpoint) })
+  list.any(tx.inputs, fn(input) { outpoint_is_null(input.outpoint) })
 }
 
 /// Get the transaction inputs.
 ///
 /// Returns the inputs in the same order they appear in the transaction serialization.
-pub fn get_inputs(tx: Transaction(v)) -> List(TxIn) {
+pub fn get_inputs(tx: Transaction(v)) -> List(Input) {
   tx.inputs
 }
 
 /// Get the transaction outputs.
 ///
 /// Returns the outputs in the same order they appear in the transaction serialization.
-pub fn get_outputs(tx: Transaction(v)) -> List(TxOut) {
+pub fn get_outputs(tx: Transaction(v)) -> List(Output) {
   tx.outputs
 }
 
@@ -157,8 +157,8 @@ pub fn get_witnesses(tx: Transaction(v)) -> Result(List(WitnessStack), Nil) {
 ///
 /// An input references a previous transaction output and provides the data
 /// required to satisfy that output’s spending conditions.
-pub opaque type TxIn {
-  TxIn(
+pub opaque type Input {
+  Input(
     /// The outpoint being spent, or the null outpoint for a coinbase input.
     outpoint: OutPoint,
     /// The raw scriptSig bytes for this input.
@@ -169,7 +169,7 @@ pub opaque type TxIn {
 }
 
 /// Get the outpoint from an input.
-pub fn get_input_outpoint(input: TxIn) -> OutPoint {
+pub fn get_input_outpoint(input: Input) -> OutPoint {
   input.outpoint
 }
 
@@ -178,7 +178,7 @@ pub fn get_input_outpoint(input: TxIn) -> OutPoint {
 /// Sequence values can participate in relative lock-time consensus rules and
 /// transaction replacement policy. This library exposes the value without
 /// interpreting those semantics.
-pub fn get_input_sequence(input: TxIn) -> Int {
+pub fn get_input_sequence(input: Input) -> Int {
   input.sequence
 }
 
@@ -186,7 +186,7 @@ pub fn get_input_sequence(input: TxIn) -> Int {
 ///
 /// For non-coinbase inputs, the scriptSig may provide data used during script
 /// execution. This library does not execute or validate scripts.
-pub fn get_input_script_sig(input: TxIn) -> ScriptBytes(InputScript) {
+pub fn get_input_script_sig(input: Input) -> ScriptBytes(InputScript) {
   input.script_sig
 }
 
@@ -285,8 +285,8 @@ pub fn get_witness_item_bytes(item: WitnessItem) -> BitArray {
 /// An output contains an encoded value and a raw scriptPubKey. Decoding alone
 /// does not establish that the value is within the consensus money range or
 /// that the script's spending conditions can be satisfied.
-pub opaque type TxOut {
-  TxOut(
+pub opaque type Output {
+  Output(
     /// The signed output value in satoshis decoded from the wire.
     value: Int,
     /// The raw scriptPubKey bytes for this output.
@@ -299,7 +299,7 @@ pub opaque type TxOut {
 /// For an output from a `Transaction(Parsed)`, this value may be negative or
 /// exceed Bitcoin's consensus money range. Use
 /// `validate_context_free_consensus` to check the transaction's output values.
-pub fn get_output_value(output: TxOut) -> Int {
+pub fn get_output_value(output: Output) -> Int {
   output.value
 }
 
@@ -307,7 +307,7 @@ pub fn get_output_value(output: TxOut) -> Int {
 ///
 /// A scriptPubKey encodes the conditions for spending an output. This library
 /// exposes the script bytes without executing or validating them.
-pub fn get_output_script_pubkey(output: TxOut) -> ScriptBytes(OutputScript) {
+pub fn get_output_script_pubkey(output: Output) -> ScriptBytes(OutputScript) {
   output.script_pubkey
 }
 
@@ -450,7 +450,7 @@ pub type OutputScriptType {
 /// ## Example
 ///
 /// ```gleam
-/// fn wallet_supports_output(output: TxOut) -> Bool {
+/// fn wallet_supports_output(output: Output) -> Bool {
 ///   case classify_output_script(get_output_script_pubkey(output)) {
 ///     P2WPKH | P2TR -> True
 ///     _ -> False
@@ -1351,10 +1351,10 @@ fn segwit_marker_and_flag_parser() -> Parser(ParseContext, Nil, DecodeError) {
 fn inputs_parser(
   max_vin_count_policy: Int,
   max_script_size_policy: Int,
-) -> Parser(ParseContext, List(TxIn), DecodeError) {
+) -> Parser(ParseContext, List(Input), DecodeError) {
   max_vin_count_policy
   |> vin_count_parser
-  |> parser.then(txin_list_parser(_, max_script_size_policy))
+  |> parser.then(input_list_parser(_, max_script_size_policy))
 }
 
 /// Validate and convert the vin_count from Uint64 to Int, checking structural and policy limits.
@@ -1379,10 +1379,10 @@ fn validate_vin_count(
   max_vin_count_policy: Int,
   on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
 ) -> Result(Int, DecodeError) {
-  let min_txin_size = 41
+  let min_input_size = 41
   let remaining = reader.bytes_remaining(reader)
   // Upper bound implied by remaining bytes (each input is at least 41 bytes)
-  let max_inputs_by_bytes = remaining / min_txin_size
+  let max_inputs_by_bytes = remaining / min_input_size
 
   case
     vin_count_int > max_inputs_by_bytes,
@@ -1402,26 +1402,30 @@ fn validate_vin_count(
   }
 }
 
-fn txin_list_parser(
+fn input_list_parser(
   vin_count: Int,
   max_script_size_policy: Int,
-) -> Parser(ParseContext, List(TxIn), DecodeError) {
+) -> Parser(ParseContext, List(Input), DecodeError) {
   // vin_count
-  // ├─ TxIn #0
+  // ├─ Input #0
   // │    ├─ prev_txid (32 bytes)
   // │    ├─ vout (4 bytes)
   // │    ├─ scriptSig length (CompactSize)
   // │    ├─ scriptSig bytes
   // │    └─ sequence (4 bytes)
-  // ├─ TxIn #1
+  // ├─ Input #1
   // │    ├─ ...
-  // └─ TxIn #(vin_count - 1)
-  parser.indexed_repeat(vin_count, txin_parser(max_script_size_policy), AtInput)
+  // └─ Input #(vin_count - 1)
+  parser.indexed_repeat(
+    vin_count,
+    input_parser(max_script_size_policy),
+    AtInput,
+  )
 }
 
-fn txin_parser(
+fn input_parser(
   max_script_size_policy: Int,
-) -> Parser(ParseContext, TxIn, DecodeError) {
+) -> Parser(ParseContext, Input, DecodeError) {
   // │ prev_txid (32 bytes)
   // │ vout (4 bytes)
   // │ scriptSig length (CompactSize)
@@ -1431,7 +1435,7 @@ fn txin_parser(
     outpoint_parser(),
     script_sig_parser(max_script_size_policy),
     field_parser(Sequence, reader.read_u32_le),
-    TxIn,
+    Input,
   )
 }
 
@@ -1456,10 +1460,10 @@ fn outpoint_parser() -> Parser(ParseContext, OutPoint, DecodeError) {
 fn outputs_parser(
   max_vout_count_policy: Int,
   max_script_size_policy: Int,
-) -> Parser(ParseContext, List(TxOut), DecodeError) {
+) -> Parser(ParseContext, List(Output), DecodeError) {
   max_vout_count_policy
   |> vout_count_parser
-  |> parser.then(txout_list_parser(_, max_script_size_policy))
+  |> parser.then(output_list_parser(_, max_script_size_policy))
 }
 
 /// Validate and convert the vout_count from Uint64 to Int, checking structural and policy limits.
@@ -1489,10 +1493,10 @@ fn validate_vout_count(
   max_vout_count_policy: Int,
   on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
 ) -> Result(Int, DecodeError) {
-  let min_txout_size = 9
+  let min_output_size = 9
   let remaining = reader.bytes_remaining(reader)
   // Upper bound implied by remaining bytes (each output is at least 9 bytes)
-  let max_outputs_by_bytes = remaining / min_txout_size
+  let max_outputs_by_bytes = remaining / min_output_size
 
   case
     vout_count_int > max_outputs_by_bytes,
@@ -1512,35 +1516,35 @@ fn validate_vout_count(
   }
 }
 
-fn txout_list_parser(
+fn output_list_parser(
   vout_count: Int,
   max_script_size_policy: Int,
-) -> Parser(ParseContext, List(TxOut), DecodeError) {
+) -> Parser(ParseContext, List(Output), DecodeError) {
   // vout_count
-  // ├─ TxOut #0
+  // ├─ Output #0
   // │    ├─ value (8 bytes)
   // │    ├─ scriptPubKey length (CompactSize)
   // │    └─ scriptPubKey bytes
-  // ├─ TxOut #1
+  // ├─ Output #1
   // │    ├─ ...
-  // └─ TxOut #(vout_count - 1)
+  // └─ Output #(vout_count - 1)
   parser.indexed_repeat(
     vout_count,
-    txout_parser(max_script_size_policy),
+    output_parser(max_script_size_policy),
     AtOutput,
   )
 }
 
-fn txout_parser(
+fn output_parser(
   max_script_size_policy: Int,
-) -> Parser(ParseContext, TxOut, DecodeError) {
+) -> Parser(ParseContext, Output, DecodeError) {
   // | value (8 bytes)
   // | scriptPubKey length (CompactSize)
   // | scriptPubKey bytes
   parser.map2(
     satoshis_parser(),
     script_pubkey_parser(max_script_size_policy),
-    TxOut,
+    Output,
   )
 }
 
@@ -1551,7 +1555,7 @@ fn satoshis_parser() -> Parser(ParseContext, Int, DecodeError) {
     let assert Ok(value_i64) = int64.from_bytes_le(value_bytes)
     value_i64
   })
-  |> parser.try_with_start_offset(fn(value_i64, start_offset, _, ctx) {
+  |> parser.try_with_start_offset(fn(value_i64, start_offset, _reader, ctx) {
     // This should never happen.
     // The max possible amount of satoshis 2_100_000_000_000_000 (2.1 quadrillion)
     // is less than JavaScript's Number.MAX_SAFE_INTEGER
@@ -1977,7 +1981,7 @@ fn validate_output_values(
 const max_satoshis = 2_100_000_000_000_000
 
 fn validate_output_values_loop(
-  outputs: List(TxOut),
+  outputs: List(Output),
   index: Int,
   sum: Int,
 ) -> Result(Nil, ConsensusViolation) {
@@ -2042,15 +2046,15 @@ fn validate_no_duplicate_inputs(
 }
 
 fn validate_no_duplicate_inputs_loop(
-  inputs: List(TxIn),
+  inputs: List(Input),
   index: Int,
   seen: Dict(OutPoint, Int),
 ) -> Result(Nil, ConsensusViolation) {
   case inputs {
     [] -> Ok(Nil)
 
-    [txin, ..rest] -> {
-      let outpoint = txin.outpoint
+    [input, ..rest] -> {
+      let outpoint = input.outpoint
 
       // NullOutPoint is skipped: validate_coinbase_structure already rejects any
       // transaction with multiple NullOutPoint inputs as CoinbaseWithMultipleInputs.
@@ -2179,18 +2183,18 @@ pub fn to_wire_bytes(tx: Transaction(v)) -> BitArray {
   >>
 }
 
-fn serialize_inputs(inputs: List(TxIn)) -> BitArray {
+fn serialize_inputs(inputs: List(Input)) -> BitArray {
   inputs
-  |> list.map(serialize_tx_in)
+  |> list.map(serialize_input)
   |> bit_array.concat
 }
 
-fn serialize_tx_in(txin: TxIn) -> BitArray {
-  let outpoint_bytes = serialize_outpoint(txin.outpoint)
+fn serialize_input(input: Input) -> BitArray {
+  let outpoint_bytes = serialize_outpoint(input.outpoint)
 
   let script_sig_length_bytes = {
     let assert Ok(script_sig_length) =
-      txin.script_sig
+      input.script_sig
       |> get_script_size
       |> uint64.from_int
 
@@ -2200,8 +2204,8 @@ fn serialize_tx_in(txin: TxIn) -> BitArray {
   <<
     outpoint_bytes:bits,
     script_sig_length_bytes:bits,
-    get_raw_script_bytes(txin.script_sig):bits,
-    txin.sequence:32-little,
+    get_raw_script_bytes(input.script_sig):bits,
+    input.sequence:32-little,
   >>
 }
 
@@ -2212,18 +2216,18 @@ fn serialize_outpoint(outpoint: OutPoint) -> BitArray {
   >>
 }
 
-fn serialize_outputs(outputs: List(TxOut)) -> BitArray {
+fn serialize_outputs(outputs: List(Output)) -> BitArray {
   outputs
-  |> list.map(serialize_tx_out)
+  |> list.map(serialize_output)
   |> bit_array.concat
 }
 
-fn serialize_tx_out(txout: TxOut) -> BitArray {
-  let assert Ok(satoshis_bytes) = int64.int_to_bytes_le(txout.value)
+fn serialize_output(output: Output) -> BitArray {
+  let assert Ok(satoshis_bytes) = int64.int_to_bytes_le(output.value)
 
   let script_pubkey_length_bytes = {
     let assert Ok(script_pubkey_length) =
-      txout.script_pubkey
+      output.script_pubkey
       |> get_script_size
       |> uint64.from_int
 
@@ -2233,7 +2237,7 @@ fn serialize_tx_out(txout: TxOut) -> BitArray {
   <<
     satoshis_bytes:bits,
     script_pubkey_length_bytes:bits,
-    get_raw_script_bytes(txout.script_pubkey):bits,
+    get_raw_script_bytes(output.script_pubkey):bits,
   >>
 }
 

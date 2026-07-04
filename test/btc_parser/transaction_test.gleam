@@ -24,9 +24,9 @@ const legacy_v2_tx = "02000000019945a5a440f2d3712ff095cb1efefada1cc52e139defedb9
 
 const version1 = <<1:little-size(32)>>
 
-const min_txin_size_bytes = 41
+const min_input_size_bytes = 41
 
-const min_txout_size_bytes = 9
+const min_output_size_bytes = 9
 
 // ============================================================================
 // decode_hex: invalid hex input
@@ -90,7 +90,7 @@ pub fn decode_with_policy_accepts_tx_at_max_tx_size_test() {
   // Build a minimal valid tx and confirm it decodes when max_tx_size exactly
   // equals its byte length.
   let vin_count = 1
-  let input_padding = <<0:little-size({ min_txin_size_bytes * 8 })>>
+  let input_padding = <<0:little-size({ min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
   let tx_bytes = <<
     version1:bits,
@@ -109,7 +109,7 @@ pub fn decode_with_policy_rejects_tx_exceeding_max_tx_size_test() {
   // Build a minimal valid tx and confirm it is rejected when max_tx_size is
   // one byte less than its actual size.
   let vin_count = 1
-  let input_padding = <<0:little-size({ min_txin_size_bytes * 8 })>>
+  let input_padding = <<0:little-size({ min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
   let tx_bytes = <<
     version1:bits,
@@ -280,7 +280,7 @@ pub fn validate_vin_count_minimum_succeeds_test() {
   // version (4 bytes) + vin_count (CompactSize = 0x01) + 41 bytes padding
 
   let vin_count = 1
-  let input_padding = <<0:little-size({ 1 * min_txin_size_bytes * 8 })>>
+  let input_padding = <<0:little-size({ 1 * min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
@@ -299,7 +299,7 @@ pub fn validate_vin_count_within_limits_succeeds_test() {
   // enforce a policy that permits at least 2 inputs
 
   let vin_count = 2
-  let input_padding = <<0:little-size({ 2 * min_txin_size_bytes * 8 })>>
+  let input_padding = <<0:little-size({ 2 * min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
@@ -321,7 +321,7 @@ pub fn validate_vin_count_equals_policy_succeeds_test() {
   // should succeed when enforcing a policy that allows exactly 3 inputs
 
   let vin_count = 3
-  let input_padding = <<0:little-size({ 3 * min_txin_size_bytes * 8 })>>
+  let input_padding = <<0:little-size({ 3 * min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
@@ -344,7 +344,7 @@ pub fn validate_vin_count_exceeds_policy_error_test() {
   // vin_count == 3 with PolicyLimitExceeded.
 
   let vin_count = 3
-  let input_padding = <<0:little-size({ 3 * min_txin_size_bytes * 8 })>>
+  let input_padding = <<0:little-size({ 3 * min_input_size_bytes * 8 })>>
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode_with_policy(
@@ -367,7 +367,7 @@ pub fn validate_vin_count_exceeds_structural_error_test() {
   // limit is the active cap, then assert vin_count == 3 is rejected.
 
   let vin_count = 3
-  let input_padding = <<0:little-size({ 2 * min_txin_size_bytes * 8 })>>
+  let input_padding = <<0:little-size({ 2 * min_input_size_bytes * 8 })>>
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode_with_policy(
@@ -379,8 +379,8 @@ pub fn validate_vin_count_exceeds_structural_error_test() {
 
   assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(
-      claimed: 2 * min_txin_size_bytes + 1,
-      remaining: 2 * min_txin_size_bytes,
+      claimed: 2 * min_input_size_bytes + 1,
+      remaining: 2 * min_input_size_bytes,
     )
 
   assert transaction.parse_error_ctx(parse_err)
@@ -393,7 +393,9 @@ pub fn validate_vin_count_structural_boundary_succeeds_test() {
   // limit is the active cap, then assert vin_count == 2 succeeds.
 
   let vin_count = 2
-  let input_padding = <<0:little-size({ vin_count * min_txin_size_bytes * 8 })>>
+  let input_padding = <<
+    0:little-size({ vin_count * min_input_size_bytes * 8 }),
+  >>
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
@@ -411,11 +413,13 @@ pub fn validate_vin_count_structural_boundary_succeeds_test() {
 
 pub fn validate_vin_count_insufficient_bytes_for_inputs_test() {
   // Construct: version (4 bytes) + vin_count (CompactSize = 0x01) + 40 bytes
-  // of padding so that `remaining < min_txin_size` and the validator
+  // of padding so that `remaining < min_input_size` and the validator
   // produces a LengthTooLarge error.
 
   let vin_count = 1
-  let input_padding = <<0:little-size({ 1 * { min_txin_size_bytes - 1 } * 8 })>>
+  let input_padding = <<
+    0:little-size({ 1 * { min_input_size_bytes - 1 } * 8 }),
+  >>
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<
@@ -428,8 +432,8 @@ pub fn validate_vin_count_insufficient_bytes_for_inputs_test() {
 
   assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(
-      remaining: min_txin_size_bytes - 1,
-      claimed: min_txin_size_bytes,
+      remaining: min_input_size_bytes - 1,
+      claimed: min_input_size_bytes,
     )
 
   assert transaction.parse_error_ctx(parse_err)
@@ -892,8 +896,8 @@ pub fn validate_vout_count_exceeds_structural_error_test() {
 
   assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(
-      claimed: 2 * min_txout_size_bytes + 1,
-      remaining: 2 * min_txout_size_bytes,
+      claimed: 2 * min_output_size_bytes + 1,
+      remaining: 2 * min_output_size_bytes,
     )
 
   assert transaction.parse_error_ctx(parse_err)
@@ -926,12 +930,12 @@ pub fn validate_vout_count_structural_boundary_succeeds_test() {
 
 pub fn validate_vout_count_insufficient_bytes_for_outputs_test() {
   // Construct: version (4 bytes) + vin_count (1) + input (41 bytes) + vout_count (1) + 8 bytes
-  // of padding so that `remaining < min_txout_size` and the validator
+  // of padding so that `remaining < min_output_size` and the validator
   // produces a InsufficientBytes error.
 
   let vout_count = 1
   let output_padding = <<
-    0:little-size({ 1 * { min_txout_size_bytes - 1 } * 8 }),
+    0:little-size({ 1 * { min_output_size_bytes - 1 } * 8 }),
   >>
 
   let assert Error(ParseFailed(parse_err)) =
@@ -944,8 +948,8 @@ pub fn validate_vout_count_insufficient_bytes_for_outputs_test() {
 
   assert transaction.parse_error_kind(parse_err)
     == InsufficientBytes(
-      remaining: min_txout_size_bytes - 1,
-      claimed: min_txout_size_bytes,
+      remaining: min_output_size_bytes - 1,
+      claimed: min_output_size_bytes,
     )
 
   assert transaction.parse_error_ctx(parse_err)
