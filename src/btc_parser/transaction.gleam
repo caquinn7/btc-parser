@@ -688,23 +688,32 @@ pub opaque type ParseError {
 /// Categorizes parsing failures into distinct variants.
 pub type ParseErrorKind {
   /// The input ended before enough bytes could be read.
-  ///
-  /// `bytes_needed` is the number of bytes the parser required, and `remaining`
-  /// is the number of bytes actually available at that point.
-  UnexpectedEof(bytes_needed: Int, remaining: Int)
+  UnexpectedEof(
+    /// The number of bytes the parser required.
+    bytes_needed: Int,
+    /// The number of bytes available at that point.
+    remaining: Int,
+  )
 
   /// A CompactSize-encoded integer used a non-minimal encoding.
   ///
   /// Bitcoin's serialization rules require CompactSize integers to use the
   /// shortest possible encoding. This error occurs when a value could have
   /// been encoded in fewer bytes than were used.
-  ///
-  /// `encoded_size` is the size of the encoded CompactSize in bytes,
-  /// and `value` is the decoded integer value.
-  NonMinimalCompactSize(encoded_size: Int, value: Int)
+  NonMinimalCompactSize(
+    /// The size of the encoded CompactSize in bytes.
+    encoded_size: Int,
+    /// The decoded integer value.
+    value: Int,
+  )
 
   /// The SegWit marker byte (0x00) was present but the flag byte was not 0x01.
-  InvalidSegwitMarkerFlag(marker: Int, flag: Int)
+  InvalidSegwitMarkerFlag(
+    /// The marker byte.
+    marker: Int,
+    /// The invalid flag byte.
+    flag: Int,
+  )
 
   /// SegWit serialization was used, but every input witness stack was empty.
   ///
@@ -724,12 +733,15 @@ pub type ParseErrorKind {
   /// - A scriptSig length claims a 100-byte script, but only 99 bytes remain.
   /// - An input count claims one input, whose smallest encoding is 41 bytes, but
   ///   only 40 bytes remain.
-  ///
-  /// `claimed` is the number of bytes required and `remaining` is the number
-  /// available. `claimed` may be a conservative estimate, such as
-  /// `remaining + 1`, rather than the exact requirement to avoid integer overflow
-  /// on the JavaScript target.
-  InsufficientBytes(claimed: Int, remaining: Int)
+  InsufficientBytes(
+    /// The number of bytes required.
+    ///
+    /// This may be a conservative estimate, such as `remaining + 1`, rather
+    /// than the exact requirement to avoid integer overflow on JavaScript.
+    claimed: Int,
+    /// The number of bytes available.
+    remaining: Int,
+  )
 
   /// A decoded 64-bit integer value exceeds the range representable by the runtime.
   ///
@@ -737,16 +749,14 @@ pub type ParseErrorKind {
   IntegerOutOfRange(String)
 
   /// A policy limit was exceeded.
-  ///
-  /// `limit` identifies which `DecodePolicy` field was violated.
-  /// `max` is the configured limit.
-  ///
-  /// `value` is the measured quantity that exceeded `max`. For most limits
-  /// this is a directly decoded value such as an input count or script byte
-  /// size. For `MaxWitnessStackPayloadSize`, `value` is the cumulative payload
-  /// total across all items parsed so far for that input's witness stack, not
-  /// the size of the individual item that pushed it over the limit.
-  PolicyLimitExceeded(limit: DecodePolicyLimit, value: Int, max: Int)
+  PolicyLimitExceeded(
+    /// The `DecodePolicy` limit that was violated.
+    limit: DecodePolicyLimit,
+    /// The measured or decoded quantity that exceeded `max`.
+    value: Int,
+    /// The configured maximum.
+    max: Int,
+  )
 
   /// The transaction was successfully parsed, but extra bytes remain in the input.
   ///
@@ -775,7 +785,11 @@ pub type DecodePolicyLimit {
   /// The maximum witness stack item count for a single input was exceeded.
   MaxWitnessStackItemCount
 
-  /// The maximum witness payload size for a single input was exceeded.
+  /// The maximum witness stack payload size for a single input was exceeded.
+  ///
+  /// In `PolicyLimitExceeded`, `value` is the cumulative payload size across
+  /// all items parsed so far for the stack, not the size of the individual item
+  /// that pushed it over the limit.
   MaxWitnessStackPayloadSize
 }
 
