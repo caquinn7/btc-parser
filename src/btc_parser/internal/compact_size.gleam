@@ -13,9 +13,9 @@ pub type ReadError {
   /// A CompactSize was encoded using more bytes than necessary for its value,
   /// violating Bitcoin’s minimal encoding rules
   ///
-  /// `encoded` is the length of the encoded CompactSize in bytes, and `value` is the
-  /// decoded integer value.
-  NonMinimalCompactSize(encoded: Int, value: Int)
+  /// `encoded_size` is the size of the encoded CompactSize in bytes, and
+  /// `value` is the decoded integer value.
+  NonMinimalCompactSize(encoded_size: Int, value: Int)
 }
 
 /// Read a CompactSize-encoded integer from the reader.
@@ -49,7 +49,7 @@ pub fn read(reader: Reader) -> Result(#(Reader, Uint64), ReadError) {
       use #(reader, value) <- result.try(read_from(reader, reader.read_u16_le))
 
       case value < 253 {
-        True -> Error(NonMinimalCompactSize(encoded: 3, value: value))
+        True -> Error(NonMinimalCompactSize(encoded_size: 3, value: value))
         False -> {
           let assert Ok(u) = uint64.from_bytes_le(<<value:64-little>>)
           Ok(#(reader, u))
@@ -61,7 +61,7 @@ pub fn read(reader: Reader) -> Result(#(Reader, Uint64), ReadError) {
       use #(reader, value) <- result.try(read_from(reader, reader.read_u32_le))
 
       case value < 65_536 {
-        True -> Error(NonMinimalCompactSize(encoded: 5, value:))
+        True -> Error(NonMinimalCompactSize(encoded_size: 5, value:))
         False -> {
           let assert Ok(u) = uint64.from_bytes_le(<<value:64-little>>)
           Ok(#(reader, u))
@@ -79,7 +79,7 @@ pub fn read(reader: Reader) -> Result(#(Reader, Uint64), ReadError) {
       // If upper 32 bits are all zeros, the value fits in 32 bits
       // and should have used the 0xFE prefix instead
       case upper == 0 {
-        True -> Error(NonMinimalCompactSize(encoded: 9, value: lower))
+        True -> Error(NonMinimalCompactSize(encoded_size: 9, value: lower))
         False -> {
           let assert Ok(u) = uint64.from_bytes_le(bytes)
           Ok(#(reader, u))

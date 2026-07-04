@@ -699,9 +699,9 @@ pub type ParseErrorKind {
   /// shortest possible encoding. This error occurs when a value could have
   /// been encoded in fewer bytes than were used.
   ///
-  /// `encoded` is the length of the encoded CompactSize in bytes,
+  /// `encoded_size` is the size of the encoded CompactSize in bytes,
   /// and `value` is the decoded integer value.
-  NonMinimalCompactSize(encoded: Int, value: Int)
+  NonMinimalCompactSize(encoded_size: Int, value: Int)
 
   /// The SegWit marker byte (0x00) was present but the flag byte was not 0x01.
   InvalidSegwitMarkerFlag(marker: Int, flag: Int)
@@ -1252,8 +1252,8 @@ fn compact_size_parser(
     |> result.map_error(fn(err) {
       case err {
         compact_size.ReaderError(re) -> reader_error_to_kind(re)
-        compact_size.NonMinimalCompactSize(encoded:, value:) ->
-          NonMinimalCompactSize(encoded:, value:)
+        compact_size.NonMinimalCompactSize(encoded_size:, value:) ->
+          NonMinimalCompactSize(encoded_size:, value:)
       }
       |> field_error(field, reader.get_offset(reader), ctx)
     })
