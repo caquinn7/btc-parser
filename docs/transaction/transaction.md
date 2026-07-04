@@ -58,12 +58,3 @@ signature verification, block context, mempool policy, or network/RPC access.
 
 - [Project overview](../../README.md)
 - [Output script classification](output_script_classification.md)
-
-## Development Tools
-
-The [fuzz harness](../dev/fuzz/README.md) mutates real transactions to
-exercise parser safety against arbitrary bytes.
-
-The [performance harness](../dev/perf/README.md) benchmarks decoding,
-inspection, validation, hashing, serialization, witness handling, and
-policy-limit behavior.

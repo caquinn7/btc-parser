@@ -66,3 +66,14 @@ gleam test -t javascript --runtime node
 gleam test -t javascript --runtime deno
 gleam test -t javascript --runtime bun
 ```
+
+## Development Tools
+
+The [fuzz harness](dev/fuzz/README.md) exercises parser safety against malformed
+and mutated wire-format inputs. Domain suites can provide their own seed inputs
+and structural mutations while sharing the project-level command workflow.
+
+The [performance harness](dev/perf/README.md) measures public parsing and
+inspection workflows across representative inputs, scaling dimensions, and
+fail-fast paths. Domain-specific benchmark suites can be added as the library
+grows.
