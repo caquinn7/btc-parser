@@ -757,8 +757,7 @@ pub type ParseContext {
   /// The error occurred while parsing the top-level transaction structure.
   InTransaction
 
-  /// The error occurred while parsing the transaction’s input vector
-  /// (the `vin_count`, `vin` fields).
+  /// The error occurred while parsing the transaction's input count or inputs.
   InInputs
 
   /// The error occurred while parsing a specific input within the input vector.
@@ -766,8 +765,7 @@ pub type ParseContext {
   /// The wrapped `Int` is the zero-based index of the input being parsed.
   AtInput(Int)
 
-  /// The error occurred while parsing the transaction’s output vector
-  /// (the `vout_count`, `vout` fields).
+  /// The error occurred while parsing the transaction's output count or outputs.
   InOutputs
 
   /// The error occurred while parsing a specific output within the output vector.
@@ -813,7 +811,7 @@ pub type Field {
   SegwitMarkerAndFlag
 
   // Input-related fields
-  VinCount
+  InputCount
   PrevTxId
   Vout
   ScriptSig
@@ -821,7 +819,7 @@ pub type Field {
   Sequence
 
   // Output-related fields
-  VoutCount
+  OutputCount
   Value
   ScriptPubKey
   ScriptPubKeyLength
@@ -948,9 +946,9 @@ pub opaque type DecodePolicy {
     /// Maximum byte size accepted by the decoder, checked before parsing.
     max_tx_size: Int,
     /// Maximum decoded input count.
-    max_vin_count: Int,
+    max_input_count: Int,
     /// Maximum decoded output count.
-    max_vout_count: Int,
+    max_output_count: Int,
     /// Maximum raw byte size of each scriptSig or scriptPubKey, excluding its
     /// CompactSize length prefix.
     max_script_size: Int,
@@ -978,9 +976,9 @@ pub opaque type DecodePolicy {
 ///
 /// - `max_tx_size`: 400,000 bytes - Primary resource constraint, enforced before
 ///   parsing begins.
-/// - `max_vin_count`: 100,000 inputs - Substantially higher than typical transactions
+/// - `max_input_count`: 100,000 inputs - Substantially higher than typical transactions
 ///   but prevents unbounded memory allocation for input lists.
-/// - `max_vout_count`: 100,000 outputs - Similarly generous for outputs.
+/// - `max_output_count`: 100,000 outputs - Similarly generous for outputs.
 /// - `max_script_size`: 10,000 bytes - Accommodates common transaction scripts
 ///   (e.g., P2PKH, P2SH, P2WPKH, P2WSH, P2TR) with significant headroom for
 ///   complex or non-standard scripts.
@@ -989,8 +987,8 @@ pub opaque type DecodePolicy {
 pub fn default_decode_policy() -> DecodePolicy {
   DecodePolicy(
     max_tx_size: 400_000,
-    max_vin_count: 100_000,
-    max_vout_count: 100_000,
+    max_input_count: 100_000,
+    max_output_count: 100_000,
     max_script_size: 10_000,
     max_witness_items_per_input: None,
     max_witness_size_per_input: None,
@@ -1006,19 +1004,19 @@ pub fn decode_policy_with_max_tx_size(
 }
 
 /// Return a policy with a custom maximum transaction input count.
-pub fn decode_policy_with_max_vin_count(
+pub fn decode_policy_with_max_input_count(
   policy: DecodePolicy,
-  max_vin_count: Int,
+  max_input_count: Int,
 ) -> DecodePolicy {
-  DecodePolicy(..policy, max_vin_count:)
+  DecodePolicy(..policy, max_input_count:)
 }
 
 /// Return a policy with a custom maximum transaction output count.
-pub fn decode_policy_with_max_vout_count(
+pub fn decode_policy_with_max_output_count(
   policy: DecodePolicy,
-  max_vout_count: Int,
+  max_output_count: Int,
 ) -> DecodePolicy {
-  DecodePolicy(..policy, max_vout_count:)
+  DecodePolicy(..policy, max_output_count:)
 }
 
 /// Return a policy with a custom maximum script size.
@@ -1058,13 +1056,13 @@ pub fn decode_policy_max_tx_size(policy: DecodePolicy) -> Int {
 }
 
 /// Get the maximum transaction input count.
-pub fn decode_policy_max_vin_count(policy: DecodePolicy) -> Int {
-  policy.max_vin_count
+pub fn decode_policy_max_input_count(policy: DecodePolicy) -> Int {
+  policy.max_input_count
 }
 
 /// Get the maximum transaction output count.
-pub fn decode_policy_max_vout_count(policy: DecodePolicy) -> Int {
-  policy.max_vout_count
+pub fn decode_policy_max_output_count(policy: DecodePolicy) -> Int {
+  policy.max_output_count
 }
 
 /// Get the maximum script size.
@@ -1153,11 +1151,11 @@ fn tx_parser(
   use version <- parser.then(field_parser(Version, reader.read_i32_le))
   use is_segwit <- parser.then(segwit_detection_parser())
   use inputs <- parser.then(parser.with_context(
-    inputs_parser(policy.max_vin_count, policy.max_script_size),
+    inputs_parser(policy.max_input_count, policy.max_script_size),
     InInputs,
   ))
   use outputs <- parser.then(parser.with_context(
-    outputs_parser(policy.max_vout_count, policy.max_script_size),
+    outputs_parser(policy.max_output_count, policy.max_script_size),
     InOutputs,
   ))
   use witnesses <- parser.then(witnesses_if_segwit_parser(
@@ -1349,34 +1347,40 @@ fn segwit_marker_and_flag_parser() -> Parser(ParseContext, Nil, DecodeError) {
 }
 
 fn inputs_parser(
-  max_vin_count_policy: Int,
+  max_input_count_policy: Int,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, List(Input), DecodeError) {
-  max_vin_count_policy
-  |> vin_count_parser
+  max_input_count_policy
+  |> input_count_parser
   |> parser.then(input_list_parser(_, max_script_size_policy))
 }
 
-/// Validate and convert the vin_count from Uint64 to Int, checking structural and policy limits.
-fn vin_count_parser(
-  max_vin_count_policy: Int,
+/// Validate and convert the input count from Uint64 to Int,
+/// checking structural and policy limits.
+fn input_count_parser(
+  max_input_count_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  VinCount
+  InputCount
   |> compact_size_int_parser
-  |> parser.try_with_start_offset(fn(vin_count_int, start_offset, reader, ctx) {
+  |> parser.try_with_start_offset(fn(input_count, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> field_error(VinCount, start_offset, ctx)
+      |> field_error(InputCount, start_offset, ctx)
       |> Error
     }
-    validate_vin_count(vin_count_int, reader, max_vin_count_policy, on_invalid)
+    validate_input_count(
+      input_count,
+      reader,
+      max_input_count_policy,
+      on_invalid,
+    )
   })
 }
 
-fn validate_vin_count(
-  vin_count_int: Int,
+fn validate_input_count(
+  input_count: Int,
   reader: Reader,
-  max_vin_count_policy: Int,
+  max_input_count_policy: Int,
   on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
 ) -> Result(Int, DecodeError) {
   let min_input_size = 41
@@ -1384,10 +1388,7 @@ fn validate_vin_count(
   // Upper bound implied by remaining bytes (each input is at least 41 bytes)
   let max_inputs_by_bytes = remaining / min_input_size
 
-  case
-    vin_count_int > max_inputs_by_bytes,
-    vin_count_int > max_vin_count_policy
-  {
+  case input_count > max_inputs_by_bytes, input_count > max_input_count_policy {
     // Structural limit: count exceeds what remaining bytes can accommodate
     True, _ ->
       InsufficientBytes(claimed: remaining + 1, remaining:)
@@ -1395,18 +1396,18 @@ fn validate_vin_count(
 
     // Policy limit: count exceeds configured maximum
     _, True ->
-      PolicyLimitExceeded(vin_count_int, max_vin_count_policy)
+      PolicyLimitExceeded(input_count, max_input_count_policy)
       |> on_invalid
 
-    _, _ -> Ok(vin_count_int)
+    _, _ -> Ok(input_count)
   }
 }
 
 fn input_list_parser(
-  vin_count: Int,
+  input_count: Int,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, List(Input), DecodeError) {
-  // vin_count
+  // input_count
   // ├─ Input #0
   // │    ├─ prev_txid (32 bytes)
   // │    ├─ vout (4 bytes)
@@ -1415,9 +1416,9 @@ fn input_list_parser(
   // │    └─ sequence (4 bytes)
   // ├─ Input #1
   // │    ├─ ...
-  // └─ Input #(vin_count - 1)
+  // └─ Input #(input_count - 1)
   parser.indexed_repeat(
-    vin_count,
+    input_count,
     input_parser(max_script_size_policy),
     AtInput,
   )
@@ -1458,39 +1459,39 @@ fn outpoint_parser() -> Parser(ParseContext, OutPoint, DecodeError) {
 }
 
 fn outputs_parser(
-  max_vout_count_policy: Int,
+  max_output_count_policy: Int,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, List(Output), DecodeError) {
-  max_vout_count_policy
-  |> vout_count_parser
+  max_output_count_policy
+  |> output_count_parser
   |> parser.then(output_list_parser(_, max_script_size_policy))
 }
 
-/// Validate and convert the vout_count from Uint64 to Int, checking structural and policy limits.
-fn vout_count_parser(
-  max_vout_count_policy: Int,
+/// Validate and convert the output count from Uint64 to Int, checking structural and policy limits.
+fn output_count_parser(
+  max_output_count_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
-  VoutCount
+  OutputCount
   |> compact_size_int_parser
-  |> parser.try_with_start_offset(fn(vout_count_int, start_offset, reader, ctx) {
+  |> parser.try_with_start_offset(fn(output_count, start_offset, reader, ctx) {
     let on_invalid = fn(kind) {
       kind
-      |> field_error(VoutCount, start_offset, ctx)
+      |> field_error(OutputCount, start_offset, ctx)
       |> Error
     }
-    validate_vout_count(
-      vout_count_int,
+    validate_output_count(
+      output_count,
       reader,
-      max_vout_count_policy,
+      max_output_count_policy,
       on_invalid,
     )
   })
 }
 
-fn validate_vout_count(
-  vout_count_int: Int,
+fn validate_output_count(
+  output_count: Int,
   reader: Reader,
-  max_vout_count_policy: Int,
+  max_output_count_policy: Int,
   on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
 ) -> Result(Int, DecodeError) {
   let min_output_size = 9
@@ -1499,8 +1500,8 @@ fn validate_vout_count(
   let max_outputs_by_bytes = remaining / min_output_size
 
   case
-    vout_count_int > max_outputs_by_bytes,
-    vout_count_int > max_vout_count_policy
+    output_count > max_outputs_by_bytes,
+    output_count > max_output_count_policy
   {
     // Structural limit: count exceeds what remaining bytes can accommodate
     True, _ ->
@@ -1509,27 +1510,27 @@ fn validate_vout_count(
 
     // Policy limit: count exceeds configured maximum
     _, True ->
-      PolicyLimitExceeded(vout_count_int, max_vout_count_policy)
+      PolicyLimitExceeded(output_count, max_output_count_policy)
       |> on_invalid
 
-    _, _ -> Ok(vout_count_int)
+    _, _ -> Ok(output_count)
   }
 }
 
 fn output_list_parser(
-  vout_count: Int,
+  output_count: Int,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, List(Output), DecodeError) {
-  // vout_count
+  // output_count
   // ├─ Output #0
   // │    ├─ value (8 bytes)
   // │    ├─ scriptPubKey length (CompactSize)
   // │    └─ scriptPubKey bytes
   // ├─ Output #1
   // │    ├─ ...
-  // └─ Output #(vout_count - 1)
+  // └─ Output #(output_count - 1)
   parser.indexed_repeat(
-    vout_count,
+    output_count,
     output_parser(max_script_size_policy),
     AtOutput,
   )
@@ -1642,12 +1643,12 @@ fn validate_script_length(
 
 fn witnesses_if_segwit_parser(
   is_segwit: Bool,
-  vin_count: Int,
+  input_count: Int,
   policy: DecodePolicy,
 ) -> Parser(ParseContext, Option(List(WitnessStack)), DecodeError) {
   case is_segwit {
     True ->
-      vin_count
+      input_count
       |> witnesses_parser(
         policy.max_witness_items_per_input,
         policy.max_witness_size_per_input,
@@ -1659,11 +1660,11 @@ fn witnesses_if_segwit_parser(
 }
 
 fn witnesses_parser(
-  vin_count: Int,
+  input_count: Int,
   max_items_per_input: Option(Int),
   max_size_per_input: Option(Int),
 ) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
-  vin_count
+  input_count
   |> parser.indexed_repeat(
     witness_parser(max_items_per_input, max_size_per_input),
     AtWitnessStack,
@@ -2125,14 +2126,14 @@ pub fn compute_wtxid(tx: Transaction(v)) -> BitArray {
 pub fn to_stripped_bytes(tx: Transaction(v)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
-  let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
-  let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
+  let assert Ok(input_count) = uint64.from_int(list.length(tx.inputs))
+  let assert Ok(output_count) = uint64.from_int(list.length(tx.outputs))
 
   <<
     tx.version:32-little,
-    compact_size.write(vin_count):bits,
+    compact_size.write(input_count):bits,
     serialize_inputs(tx.inputs):bits,
-    compact_size.write(vout_count):bits,
+    compact_size.write(output_count):bits,
     serialize_outputs(tx.outputs):bits,
     tx.lock_time:32-little,
   >>
@@ -2163,8 +2164,8 @@ pub fn to_stripped_bytes(tx: Transaction(v)) -> BitArray {
 pub fn to_wire_bytes(tx: Transaction(v)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
-  let assert Ok(vin_count) = uint64.from_int(list.length(tx.inputs))
-  let assert Ok(vout_count) = uint64.from_int(list.length(tx.outputs))
+  let assert Ok(input_count) = uint64.from_int(list.length(tx.inputs))
+  let assert Ok(output_count) = uint64.from_int(list.length(tx.outputs))
 
   let #(segwit_marker_and_flag, witnesses) = case tx {
     Legacy(..) -> #(<<>>, <<>>)
@@ -2174,9 +2175,9 @@ pub fn to_wire_bytes(tx: Transaction(v)) -> BitArray {
   <<
     tx.version:32-little,
     segwit_marker_and_flag:bits,
-    compact_size.write(vin_count):bits,
+    compact_size.write(input_count):bits,
     serialize_inputs(tx.inputs):bits,
-    compact_size.write(vout_count):bits,
+    compact_size.write(output_count):bits,
     serialize_outputs(tx.outputs):bits,
     witnesses:bits,
     tx.lock_time:32-little,
