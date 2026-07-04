@@ -1,12 +1,14 @@
 import btc_parser/transaction.{
-  AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack,
-  CoinbaseWithMultipleInputs, DuplicateInput, HexToBytesFailed, InInputs,
-  InOutputs, InTransaction, InsufficientBytes, InvalidCoinbaseScriptSigLength,
+  AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack, BareMultisig,
+  CoinbaseWithMultipleInputs, DuplicateInput, InInputs, InOutputs, InTransaction,
+  InputCount, InsufficientBytes, InvalidCoinbaseScriptSigLength, InvalidHex,
   InvalidSegwitMarkerFlag, NoInputs, NoOutputs, NonMinimalCompactSize,
-  OutputValueOutOfRange, ParseFailed, PolicyLimitExceeded, ScriptPubKeyLength,
+  NonStandard, NullData, OutputCount, OutputValueOutOfRange, P2PK, P2PKH, P2SH,
+  P2TR, P2WPKH, P2WSH, ParseFailed, PolicyLimitExceeded, ScriptPubKeyLength,
   ScriptSigLength, SegwitMarkerAndFlag, SuperfluousWitnessRecord,
-  TotalOutputValueOutOfRange, TrailingBytes, UnexpectedEof, Version, VinCount,
-  VoutCount, WitnessItemCount, WitnessItemLength, WitnessItemsTotalBytes,
+  TotalOutputValueOutOfRange, TrailingBytes, UnexpectedEof,
+  UnknownWitnessProgram, Version, WitnessItemCount, WitnessItemLength,
+  WitnessStackPayloadSize,
 }
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -24,24 +26,24 @@ const legacy_v2_tx = "02000000019945a5a440f2d3712ff095cb1efefada1cc52e139defedb9
 
 const version1 = <<1:little-size(32)>>
 
-const min_txin_size_bytes = 41
+const min_input_size_bytes = 41
 
-const min_txout_size_bytes = 9
+const min_output_size_bytes = 9
 
 // ============================================================================
 // decode_hex: invalid hex input
 // ============================================================================
 
 pub fn decode_hex_errors_on_odd_length_string_test() {
-  assert transaction.decode_hex("010") == Error(HexToBytesFailed)
+  assert transaction.decode_hex("010") == Error(InvalidHex)
 }
 
 pub fn decode_hex_errors_on_invalid_hex_characters_test() {
-  assert transaction.decode_hex("0102zz") == Error(HexToBytesFailed)
+  assert transaction.decode_hex("0102zz") == Error(InvalidHex)
 }
 
 pub fn decode_hex_errors_on_string_with_whitespace_test() {
-  assert transaction.decode_hex("01 02 03 04") == Error(HexToBytesFailed)
+  assert transaction.decode_hex("01 02 03 04") == Error(InvalidHex)
 }
 
 // ============================================================================
@@ -52,34 +54,36 @@ pub fn decode_policy_builder_overrides_default_limits_test() {
   let policy =
     transaction.default_decode_policy()
     |> transaction.decode_policy_with_max_tx_size(123)
-    |> transaction.decode_policy_with_max_vin_count(4)
-    |> transaction.decode_policy_with_max_vout_count(5)
+    |> transaction.decode_policy_with_max_input_count(4)
+    |> transaction.decode_policy_with_max_output_count(5)
     |> transaction.decode_policy_with_max_script_size(6)
-    |> transaction.decode_policy_with_max_witness_items_per_input(Some(7))
-    |> transaction.decode_policy_with_max_witness_size_per_input(Some(8))
+    |> transaction.decode_policy_with_max_witness_stack_item_count(Some(7))
+    |> transaction.decode_policy_with_max_witness_stack_payload_size(Some(8))
 
   assert transaction.decode_policy_max_tx_size(policy) == 123
-  assert transaction.decode_policy_max_vin_count(policy) == 4
-  assert transaction.decode_policy_max_vout_count(policy) == 5
+  assert transaction.decode_policy_max_input_count(policy) == 4
+  assert transaction.decode_policy_max_output_count(policy) == 5
   assert transaction.decode_policy_max_script_size(policy) == 6
-  assert transaction.decode_policy_max_witness_items_per_input(policy)
+  assert transaction.decode_policy_max_witness_stack_item_count(policy)
     == Some(7)
-  assert transaction.decode_policy_max_witness_size_per_input(policy) == Some(8)
+  assert transaction.decode_policy_max_witness_stack_payload_size(policy)
+    == Some(8)
 }
 
 pub fn decode_policy_builder_allows_zero_limits_test() {
   let policy =
     transaction.default_decode_policy()
-    |> transaction.decode_policy_with_max_vin_count(0)
+    |> transaction.decode_policy_with_max_input_count(0)
 
-  assert transaction.decode_policy_max_vin_count(policy) == 0
+  assert transaction.decode_policy_max_input_count(policy) == 0
 }
 
 pub fn default_decode_policy_uses_default_witness_limits_test() {
   let policy = transaction.default_decode_policy()
 
-  assert transaction.decode_policy_max_witness_items_per_input(policy) == None
-  assert transaction.decode_policy_max_witness_size_per_input(policy) == None
+  assert transaction.decode_policy_max_witness_stack_item_count(policy) == None
+  assert transaction.decode_policy_max_witness_stack_payload_size(policy)
+    == None
 }
 
 // ============================================================================
@@ -89,12 +93,12 @@ pub fn default_decode_policy_uses_default_witness_limits_test() {
 pub fn decode_with_policy_accepts_tx_at_max_tx_size_test() {
   // Build a minimal valid tx and confirm it decodes when max_tx_size exactly
   // equals its byte length.
-  let vin_count = 1
-  let input_padding = <<0:little-size({ min_txin_size_bytes * 8 })>>
+  let input_count = 1
+  let input_padding = <<0:little-size({ min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
   let tx_bytes = <<
     version1:bits,
-    compact_size(vin_count):bits,
+    compact_size(input_count):bits,
     input_padding:bits,
     build_minimal_output():bits,
     lock_time:bits,
@@ -108,12 +112,12 @@ pub fn decode_with_policy_accepts_tx_at_max_tx_size_test() {
 pub fn decode_with_policy_rejects_tx_exceeding_max_tx_size_test() {
   // Build a minimal valid tx and confirm it is rejected when max_tx_size is
   // one byte less than its actual size.
-  let vin_count = 1
-  let input_padding = <<0:little-size({ min_txin_size_bytes * 8 })>>
+  let input_count = 1
+  let input_padding = <<0:little-size({ min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
   let tx_bytes = <<
     version1:bits,
-    compact_size(vin_count):bits,
+    compact_size(input_count):bits,
     input_padding:bits,
     build_minimal_output():bits,
     lock_time:bits,
@@ -126,10 +130,10 @@ pub fn decode_with_policy_rejects_tx_exceeding_max_tx_size_test() {
       policy_with_max_tx_size(tx_size - 1),
     )
 
-  assert transaction.parse_error_offset(parse_err) == 0
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_offset(parse_err) == 0
+  assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(tx_size, tx_size - 1)
-  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 }
 
 pub fn decode_with_policy_rejects_tx_well_above_max_tx_size_test() {
@@ -141,9 +145,10 @@ pub fn decode_with_policy_rejects_tx_well_above_max_tx_size_test() {
       policy_with_max_tx_size(10),
     )
 
-  assert transaction.parse_error_offset(parse_err) == 0
-  assert transaction.parse_error_kind(parse_err) == PolicyLimitExceeded(100, 10)
-  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_offset(parse_err) == 0
+  assert transaction.get_parse_error_kind(parse_err)
+    == PolicyLimitExceeded(100, 10)
+  assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 }
 
 // ============================================================================
@@ -184,19 +189,19 @@ pub fn decode_legacy_v2_parses_version_2_test() {
 pub fn decode_errors_on_empty_string_test() {
   let assert Error(ParseFailed(parse_err)) = transaction.decode_hex("")
 
-  assert transaction.parse_error_offset(parse_err) == 0
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_offset(parse_err) == 0
+  assert transaction.get_parse_error_kind(parse_err)
     == UnexpectedEof(bytes_needed: 4, remaining: 0)
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtField(Version)]
 }
 
 pub fn decode_errors_when_input_shorter_than_4_bytes_test() {
   let assert Error(ParseFailed(parse_err)) = transaction.decode_hex("010203")
 
-  assert transaction.parse_error_offset(parse_err) == 0
-  assert transaction.parse_error_kind(parse_err) == UnexpectedEof(4, 3)
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_offset(parse_err) == 0
+  assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(4, 3)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtField(Version)]
 }
 
@@ -213,20 +218,20 @@ pub fn decode_errors_on_non_byte_aligned_input_test() {
   let assert Error(ParseFailed(parse_err)) = transaction.decode(unaligned)
 
   let expected_remaining = bit_array.byte_size(valid_bytes) + 1
-  assert transaction.parse_error_offset(parse_err) == 0
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_offset(parse_err) == 0
+  assert transaction.get_parse_error_kind(parse_err)
     == UnexpectedEof(bytes_needed: 4, remaining: expected_remaining)
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtField(Version)]
 }
 
 pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_missing_test() {
   let assert Error(ParseFailed(parse_err)) = transaction.decode(version1)
 
-  assert transaction.parse_error_offset(parse_err) == 4
-  assert transaction.parse_error_kind(parse_err) == UnexpectedEof(1, 0)
-  assert transaction.parse_error_ctx(parse_err)
-    == [InTransaction, InInputs, AtField(VinCount)]
+  assert transaction.get_parse_error_offset(parse_err) == 4
+  assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(1, 0)
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, InInputs, AtField(InputCount)]
 }
 
 pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_truncated_test() {
@@ -235,10 +240,10 @@ pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_truncated_tes
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<version1:bits, marker:bits>>)
 
-  assert transaction.parse_error_offset(parse_err) == 5
-  assert transaction.parse_error_kind(parse_err) == UnexpectedEof(1, 0)
-  assert transaction.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtField(VoutCount)]
+  assert transaction.get_parse_error_offset(parse_err) == 5
+  assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(1, 0)
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, InOutputs, AtField(OutputCount)]
 }
 
 pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
@@ -248,14 +253,14 @@ pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<version1:bits, marker:bits, flag:bits>>)
 
-  assert transaction.parse_error_offset(parse_err) == 4
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_offset(parse_err) == 4
+  assert transaction.get_parse_error_kind(parse_err)
     == InvalidSegwitMarkerFlag(0, 2)
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtField(SegwitMarkerAndFlag)]
 }
 
-pub fn decode_treats_zero_vin_and_vout_counts_as_empty_legacy_tx_test() {
+pub fn decode_treats_zero_input_and_output_counts_as_empty_legacy_tx_test() {
   let lock_time = 42
   let tx_bytes = <<
     version1:bits,
@@ -273,174 +278,178 @@ pub fn decode_treats_zero_vin_and_vout_counts_as_empty_legacy_tx_test() {
 }
 
 // ============================================================================
-// Input Count (vin_count) Parsing and Validation
+// Input Count Parsing and Validation
 // ============================================================================
 
-pub fn validate_vin_count_minimum_succeeds_test() {
-  // version (4 bytes) + vin_count (CompactSize = 0x01) + 41 bytes padding
+pub fn validate_input_count_minimum_succeeds_test() {
+  // version (4 bytes) + input_count (CompactSize = 0x01) + 41 bytes padding
 
-  let vin_count = 1
-  let input_padding = <<0:little-size({ 1 * min_txin_size_bytes * 8 })>>
+  let input_count = 1
+  let input_padding = <<0:little-size({ 1 * min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
     transaction.decode(<<
       version1:bits,
-      compact_size(vin_count):bits,
+      compact_size(input_count):bits,
       input_padding:bits,
       build_minimal_output():bits,
       lock_time:bits,
     >>)
 }
 
-pub fn validate_vin_count_within_limits_succeeds_test() {
-  // version (4 bytes) + vin_count (CompactSize = 0x02) + padding for >= 2 inputs
+pub fn validate_input_count_within_limits_succeeds_test() {
+  // version (4 bytes) + input_count (CompactSize = 0x02) + padding for >= 2 inputs
   // padding: 2 * 41 = 82 bytes -> 82 * 8 = 656 bits
   // enforce a policy that permits at least 2 inputs
 
-  let vin_count = 2
-  let input_padding = <<0:little-size({ 2 * min_txin_size_bytes * 8 })>>
+  let input_count = 2
+  let input_padding = <<0:little-size({ 2 * min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
     transaction.decode_with_policy(
       <<
         version1:bits,
-        compact_size(vin_count):bits,
+        compact_size(input_count):bits,
         input_padding:bits,
         build_minimal_output():bits,
         lock_time:bits,
       >>,
-      policy_with_max_vin_count(10),
+      policy_with_max_input_count(10),
     )
 }
 
-pub fn validate_vin_count_equals_policy_succeeds_test() {
-  // Pick a small policy (3). Create vin_count == 3 and supply >= 3 * 41 bytes padding
+pub fn validate_input_count_equals_policy_succeeds_test() {
+  // Pick a small policy (3). Create input_count == 3 and supply >= 3 * 41 bytes padding
   // so that max_inputs_by_bytes >= policy and the policy is the active cap.
   // should succeed when enforcing a policy that allows exactly 3 inputs
 
-  let vin_count = 3
-  let input_padding = <<0:little-size({ 3 * min_txin_size_bytes * 8 })>>
+  let input_count = 3
+  let input_padding = <<0:little-size({ 3 * min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
     transaction.decode_with_policy(
       <<
         version1:bits,
-        compact_size(vin_count):bits,
+        compact_size(input_count):bits,
         input_padding:bits,
         build_minimal_output():bits,
         lock_time:bits,
       >>,
-      policy_with_max_vin_count(3),
+      policy_with_max_input_count(3),
     )
 }
 
-pub fn validate_vin_count_exceeds_policy_error_test() {
-  // Use a small policy (2). Set vin_count == 3 and provide padding for
+pub fn validate_input_count_exceeds_policy_error_test() {
+  // Use a small policy (2). Set input_count == 3 and provide padding for
   // 3 inputs (3 * 41 = 123 bytes) so max_inputs_by_bytes == 3 (not the limiting factor).
   // With policy == 2, the policy limit is stricter, so validator should reject
-  // vin_count == 3 with PolicyLimitExceeded.
+  // input_count == 3 with PolicyLimitExceeded.
 
-  let vin_count = 3
-  let input_padding = <<0:little-size({ 3 * min_txin_size_bytes * 8 })>>
+  let input_count = 3
+  let input_padding = <<0:little-size({ 3 * min_input_size_bytes * 8 })>>
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode_with_policy(
-      <<version1:bits, vin_count:size(8), input_padding:bits>>,
-      policy_with_max_vin_count(2),
+      <<version1:bits, input_count:size(8), input_padding:bits>>,
+      policy_with_max_input_count(2),
     )
 
-  assert transaction.parse_error_offset(parse_err) == 4
+  assert transaction.get_parse_error_offset(parse_err) == 4
 
-  assert transaction.parse_error_kind(parse_err)
-    == PolicyLimitExceeded(vin_count, 2)
+  assert transaction.get_parse_error_kind(parse_err)
+    == PolicyLimitExceeded(input_count, 2)
 
-  assert transaction.parse_error_ctx(parse_err)
-    == [InTransaction, InInputs, AtField(VinCount)]
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, InInputs, AtField(InputCount)]
 }
 
-pub fn validate_vin_count_exceeds_structural_error_test() {
+pub fn validate_input_count_exceeds_structural_error_test() {
   // Provide padding for exactly 2 inputs (2 * 41 = 82 bytes) so
   // max_inputs_by_bytes == 2. Use a large policy so the structural
-  // limit is the active cap, then assert vin_count == 3 is rejected.
+  // limit is the active cap, then assert input_count == 3 is rejected.
 
-  let vin_count = 3
-  let input_padding = <<0:little-size({ 2 * min_txin_size_bytes * 8 })>>
+  let input_count = 3
+  let input_padding = <<0:little-size({ 2 * min_input_size_bytes * 8 })>>
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode_with_policy(
-      <<version1:bits, compact_size(vin_count):bits, input_padding:bits>>,
-      policy_with_max_vin_count(100),
+      <<version1:bits, compact_size(input_count):bits, input_padding:bits>>,
+      policy_with_max_input_count(100),
     )
 
-  assert transaction.parse_error_offset(parse_err) == 4
+  assert transaction.get_parse_error_offset(parse_err) == 4
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(
-      claimed: 2 * min_txin_size_bytes + 1,
-      remaining: 2 * min_txin_size_bytes,
+      claimed: 2 * min_input_size_bytes + 1,
+      remaining: 2 * min_input_size_bytes,
     )
 
-  assert transaction.parse_error_ctx(parse_err)
-    == [InTransaction, InInputs, AtField(VinCount)]
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, InInputs, AtField(InputCount)]
 }
 
-pub fn validate_vin_count_structural_boundary_succeeds_test() {
+pub fn validate_input_count_structural_boundary_succeeds_test() {
   // Provide padding for exactly 2 inputs (2 * 41 = 82 bytes) so
   // max_inputs_by_bytes == 2. Use a large policy so the structural
-  // limit is the active cap, then assert vin_count == 2 succeeds.
+  // limit is the active cap, then assert input_count == 2 succeeds.
 
-  let vin_count = 2
-  let input_padding = <<0:little-size({ vin_count * min_txin_size_bytes * 8 })>>
+  let input_count = 2
+  let input_padding = <<
+    0:little-size({ input_count * min_input_size_bytes * 8 }),
+  >>
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
     transaction.decode_with_policy(
       <<
         version1:bits,
-        compact_size(vin_count):bits,
+        compact_size(input_count):bits,
         input_padding:bits,
         build_minimal_output():bits,
         lock_time:bits,
       >>,
-      policy_with_max_vin_count(100),
+      policy_with_max_input_count(100),
     )
 }
 
-pub fn validate_vin_count_insufficient_bytes_for_inputs_test() {
-  // Construct: version (4 bytes) + vin_count (CompactSize = 0x01) + 40 bytes
-  // of padding so that `remaining < min_txin_size` and the validator
+pub fn validate_input_count_insufficient_bytes_for_inputs_test() {
+  // Construct: version (4 bytes) + input_count (CompactSize = 0x01) + 40 bytes
+  // of padding so that `remaining < min_input_size` and the validator
   // produces a LengthTooLarge error.
 
-  let vin_count = 1
-  let input_padding = <<0:little-size({ 1 * { min_txin_size_bytes - 1 } * 8 })>>
+  let input_count = 1
+  let input_padding = <<
+    0:little-size({ 1 * { min_input_size_bytes - 1 } * 8 }),
+  >>
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<
       version1:bits,
-      compact_size(vin_count):bits,
+      compact_size(input_count):bits,
       input_padding:bits,
     >>)
 
-  assert transaction.parse_error_offset(parse_err) == 4
+  assert transaction.get_parse_error_offset(parse_err) == 4
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(
-      remaining: min_txin_size_bytes - 1,
-      claimed: min_txin_size_bytes,
+      remaining: min_input_size_bytes - 1,
+      claimed: min_input_size_bytes,
     )
 
-  assert transaction.parse_error_ctx(parse_err)
-    == [InTransaction, InInputs, AtField(VinCount)]
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, InInputs, AtField(InputCount)]
 }
 
 pub fn decode_rejects_segwit_tx_with_zero_inputs_test() {
   let marker = <<0x00>>
   let flag = <<0x01>>
-  let vin_count = compact_size(0)
-  let vout_count = compact_size(1)
+  let input_count = compact_size(0)
+  let output_count = compact_size(1)
   let output = build_output(<<0:little-size(64)>>, <<>>)
   let lock_time = <<0:little-size(32)>>
   let expected_witness_offset = 4 + 2 + 1 + 1 + bit_array.byte_size(output)
@@ -449,17 +458,18 @@ pub fn decode_rejects_segwit_tx_with_zero_inputs_test() {
     version1:bits,
     marker:bits,
     flag:bits,
-    vin_count:bits,
-    vout_count:bits,
+    input_count:bits,
+    output_count:bits,
     output:bits,
     lock_time:bits,
   >>
 
   let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert transaction.parse_error_offset(parse_err) == expected_witness_offset
-  assert transaction.parse_error_kind(parse_err) == SuperfluousWitnessRecord
-  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_offset(parse_err)
+    == expected_witness_offset
+  assert transaction.get_parse_error_kind(parse_err) == SuperfluousWitnessRecord
+  assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 }
 
 // ============================================================================
@@ -467,9 +477,9 @@ pub fn decode_rejects_segwit_tx_with_zero_inputs_test() {
 // ============================================================================
 
 pub fn decode_parses_single_input_test() {
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
 
-  // Create a transaction with a single input with specific prev_out values
+  // Create a transaction with a single input with specific outpoint values
   let prev_txid_bytes = repeat_byte(1, 32)
   let vout = 5
   let script_sig_bytes = <<0x48, 0x30, 0x45, 0x02, 0x21>>
@@ -483,7 +493,7 @@ pub fn decode_parses_single_input_test() {
   let assert Ok(tx) =
     transaction.decode(<<
       version1:bits,
-      vin_count:bits,
+      input_count:bits,
       input_bytes:bits,
       build_minimal_output():bits,
       lock_time:bits,
@@ -493,11 +503,11 @@ pub fn decode_parses_single_input_test() {
   let inputs = transaction.get_inputs(tx)
   let assert [first_input] = inputs
 
-  // Verify prev_out properties
-  let prev_out = transaction.get_input_prev_out(first_input)
+  // Verify outpoint properties
+  let outpoint = transaction.get_input_outpoint(first_input)
 
-  assert transaction.get_prev_out_txid(prev_out) == prev_txid_bytes
-  assert transaction.get_prev_out_vout(prev_out) == vout
+  assert transaction.get_outpoint_txid(outpoint) == prev_txid_bytes
+  assert transaction.get_outpoint_vout(outpoint) == vout
 
   // Verify sequence
   assert transaction.get_input_sequence(first_input) == sequence
@@ -516,7 +526,7 @@ pub fn decode_parses_single_input_test() {
 }
 
 pub fn decode_parses_coinbase_marker_input_test() {
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
 
   let prev_txid_bytes = <<0:size(256)>>
   let vout = 0xFFFFFFFF
@@ -531,7 +541,7 @@ pub fn decode_parses_coinbase_marker_input_test() {
   let assert Ok(tx) =
     transaction.decode(<<
       version1:bits,
-      vin_count:bits,
+      input_count:bits,
       input_bytes:bits,
       build_minimal_output():bits,
       lock_time:bits,
@@ -539,31 +549,31 @@ pub fn decode_parses_coinbase_marker_input_test() {
 
   let assert [input] = transaction.get_inputs(tx)
   assert input
-    |> transaction.get_input_prev_out
-    |> transaction.prev_out_is_null_outpoint
+    |> transaction.get_input_outpoint
+    |> transaction.outpoint_is_null
 }
 
-pub fn prev_out_is_null_outpoint_returns_true_for_coinbase_marker_test() {
-  let prev_out = decode_single_input_prev_out(<<0:size(256)>>, 0xFFFFFFFF)
-  assert transaction.prev_out_is_null_outpoint(prev_out)
+pub fn outpoint_is_null_returns_true_for_coinbase_marker_test() {
+  let outpoint = decode_single_input_outpoint(<<0:size(256)>>, 0xFFFFFFFF)
+  assert transaction.outpoint_is_null(outpoint)
 }
 
-pub fn prev_out_is_null_outpoint_returns_false_for_regular_outpoint_test() {
-  let prev_out = decode_single_input_prev_out(repeat_byte(1, 32), 0)
-  assert !transaction.prev_out_is_null_outpoint(prev_out)
+pub fn outpoint_is_null_returns_false_for_regular_outpoint_test() {
+  let outpoint = decode_single_input_outpoint(repeat_byte(1, 32), 0)
+  assert !transaction.outpoint_is_null(outpoint)
 }
 
-pub fn prev_out_is_null_outpoint_requires_null_hash_and_max_vout_test() {
-  let zero_hash_regular_vout = decode_single_input_prev_out(<<0:size(256)>>, 0)
+pub fn outpoint_is_null_requires_null_hash_and_max_vout_test() {
+  let zero_hash_regular_vout = decode_single_input_outpoint(<<0:size(256)>>, 0)
   let nonzero_hash_max_vout =
-    decode_single_input_prev_out(repeat_byte(1, 32), 0xFFFFFFFF)
+    decode_single_input_outpoint(repeat_byte(1, 32), 0xFFFFFFFF)
 
-  assert !transaction.prev_out_is_null_outpoint(zero_hash_regular_vout)
-  assert !transaction.prev_out_is_null_outpoint(nonzero_hash_max_vout)
+  assert !transaction.outpoint_is_null(zero_hash_regular_vout)
+  assert !transaction.outpoint_is_null(nonzero_hash_max_vout)
 }
 
 pub fn decode_parses_empty_scriptsig_test() {
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
 
   let prev_txid_bytes = <<0:size(256)>>
   let vout = 0xFFFFFFFF
@@ -578,7 +588,7 @@ pub fn decode_parses_empty_scriptsig_test() {
   let assert Ok(tx) =
     transaction.decode(<<
       version1:bits,
-      vin_count:bits,
+      input_count:bits,
       input_bytes:bits,
       build_minimal_output():bits,
       lock_time:bits,
@@ -596,7 +606,7 @@ pub fn decode_parses_empty_scriptsig_test() {
 }
 
 pub fn decode_parses_multiple_inputs_test() {
-  let vin_count = compact_size(3)
+  let input_count = compact_size(3)
 
   let prev1_txid_bytes = repeat_byte(1, 32)
   let prev2_txid_bytes = repeat_byte(2, 32)
@@ -623,7 +633,7 @@ pub fn decode_parses_multiple_inputs_test() {
   let assert Ok(tx) =
     transaction.decode(<<
       version1:bits,
-      vin_count:bits,
+      input_count:bits,
       in1_bytes:bits,
       in2_bytes:bits,
       in3_bytes:bits,
@@ -635,28 +645,28 @@ pub fn decode_parses_multiple_inputs_test() {
   let assert [i1, i2, i3] = inputs
 
   // input 1
-  let prev_out1 = transaction.get_input_prev_out(i1)
+  let outpoint1 = transaction.get_input_outpoint(i1)
 
-  assert transaction.get_prev_out_txid(prev_out1) == prev1_txid_bytes
-  assert transaction.get_prev_out_vout(prev_out1) == vout1
+  assert transaction.get_outpoint_txid(outpoint1) == prev1_txid_bytes
+  assert transaction.get_outpoint_vout(outpoint1) == vout1
   assert transaction.get_input_sequence(i1) == seq1
   assert transaction.get_raw_script_bytes(transaction.get_input_script_sig(i1))
     == sig1_bytes
 
   // input 2
-  let prev_out2 = transaction.get_input_prev_out(i2)
+  let outpoint2 = transaction.get_input_outpoint(i2)
 
-  assert transaction.get_prev_out_txid(prev_out2) == prev2_txid_bytes
-  assert transaction.get_prev_out_vout(prev_out2) == vout2
+  assert transaction.get_outpoint_txid(outpoint2) == prev2_txid_bytes
+  assert transaction.get_outpoint_vout(outpoint2) == vout2
   assert transaction.get_input_sequence(i2) == seq2
   assert transaction.get_raw_script_bytes(transaction.get_input_script_sig(i2))
     == sig2_bytes
 
   // input 3
-  let prev_out3 = transaction.get_input_prev_out(i3)
+  let outpoint3 = transaction.get_input_outpoint(i3)
 
-  assert transaction.get_prev_out_txid(prev_out3) == prev3_txid_bytes
-  assert transaction.get_prev_out_vout(prev_out3) == vout3
+  assert transaction.get_outpoint_txid(outpoint3) == prev3_txid_bytes
+  assert transaction.get_outpoint_vout(outpoint3) == vout3
   assert transaction.get_input_sequence(i3) == seq3
   assert transaction.get_raw_script_bytes(transaction.get_input_script_sig(i3))
     == sig3_bytes
@@ -670,7 +680,7 @@ pub fn decode_rejects_scriptsig_exceeding_max_size_test() {
   // Build a transaction with scriptSig length 10,001,
   // exceeding the 10,000-byte limit.
 
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
 
   let prev_txid = <<0:size(256)>>
   let vout = 0
@@ -682,16 +692,16 @@ pub fn decode_rejects_scriptsig_exceeding_max_size_test() {
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<
       version1:bits,
-      vin_count:bits,
+      input_count:bits,
       input_bytes:bits,
     >>)
 
-  assert transaction.parse_error_offset(parse_err) == 41
+  assert transaction.get_parse_error_offset(parse_err) == 41
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(10_001, 10_000)
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InInputs, AtInput(0), AtField(ScriptSigLength)]
 }
 
@@ -699,7 +709,7 @@ pub fn decode_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
   // Build a transaction where the scriptSig length claims 100 bytes
   // but only 10 remain.
 
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
 
   let prev_txid = <<0:size(256)>>
   let vout = <<0:little-size(32)>>
@@ -719,16 +729,16 @@ pub fn decode_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<
       version1:bits,
-      vin_count:bits,
+      input_count:bits,
       input_bytes:bits,
     >>)
 
-  assert transaction.parse_error_offset(parse_err) == 41
+  assert transaction.get_parse_error_offset(parse_err) == 41
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 10)
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InInputs, AtInput(0), AtField(ScriptSigLength)]
 }
 
@@ -736,7 +746,7 @@ pub fn decode_returns_error_with_current_input_index_test() {
   // Build a transaction with 2 inputs where the first parses successfully
   // but the second one has an error, verifying that Input(1) appears in the error context.
 
-  let vin_count = compact_size(2)
+  let input_count = compact_size(2)
 
   // First input: valid and complete (41 bytes)
   let input1_bytes = build_input(<<0:size(256)>>, 0, <<>>, 0)
@@ -756,25 +766,25 @@ pub fn decode_returns_error_with_current_input_index_test() {
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<
       version1:bits,
-      vin_count:bits,
+      input_count:bits,
       input1_bytes:bits,
       input2_partial:bits,
       remaining_bytes:bits,
     >>)
 
   // Verify the error occurred in the second input (index 1)
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 4)
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InInputs, AtInput(1), AtField(ScriptSigLength)]
 }
 
 // ============================================================================
-// Output Count (vout_count) Parsing and Validation
+// Output Count Parsing and Validation
 // ============================================================================
 
-pub fn validate_vout_count_minimum_succeeds_test() {
+pub fn validate_output_count_minimum_succeeds_test() {
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(_) =
@@ -786,10 +796,10 @@ pub fn validate_vout_count_minimum_succeeds_test() {
     >>)
 }
 
-pub fn validate_vout_count_within_limits_succeeds_test() {
+pub fn validate_output_count_within_limits_succeeds_test() {
   // enforce a policy that permits at least 2 outputs
 
-  let vout_count = 2
+  let output_count = 2
   let output1 = build_output(<<0:little-size(64)>>, <<>>)
   let output2 = build_output(<<0:little-size(64)>>, <<>>)
   let lock_time = <<0:little-size(32)>>
@@ -799,21 +809,21 @@ pub fn validate_vout_count_within_limits_succeeds_test() {
       <<
         version1:bits,
         build_minimal_input():bits,
-        compact_size(vout_count):bits,
+        compact_size(output_count):bits,
         output1:bits,
         output2:bits,
         lock_time:bits,
       >>,
-      policy_with_max_vout_count(10),
+      policy_with_max_output_count(10),
     )
 }
 
-pub fn validate_vout_count_equals_policy_succeeds_test() {
-  // Pick a small policy (3). Create vout_count == 3 and supply 3 minimal outputs
+pub fn validate_output_count_equals_policy_succeeds_test() {
+  // Pick a small policy (3). Create output_count == 3 and supply 3 minimal outputs
   // so that max_outputs_by_bytes >= policy and the policy is the active cap.
   // should succeed when enforcing a policy that allows exactly 3 outputs
 
-  let vout_count = 3
+  let output_count = 3
   let output1 = build_output(<<0:little-size(64)>>, <<>>)
   let output2 = build_output(<<0:little-size(64)>>, <<>>)
   let output3 = build_output(<<0:little-size(64)>>, <<>>)
@@ -824,23 +834,23 @@ pub fn validate_vout_count_equals_policy_succeeds_test() {
       <<
         version1:bits,
         build_minimal_input():bits,
-        compact_size(vout_count):bits,
+        compact_size(output_count):bits,
         output1:bits,
         output2:bits,
         output3:bits,
         lock_time:bits,
       >>,
-      policy_with_max_vout_count(3),
+      policy_with_max_output_count(3),
     )
 }
 
-pub fn validate_vout_count_exceeds_policy_error_test() {
-  // Use a small policy (2). Set vout_count == 3 and provide 3 outputs
+pub fn validate_output_count_exceeds_policy_error_test() {
+  // Use a small policy (2). Set output_count == 3 and provide 3 outputs
   // (3 * 9 = 27 bytes) so max_outputs_by_bytes == 3 (not the limiting factor).
   // With policy == 2, the policy limit is stricter, so validator should reject
-  // vout_count == 3 with PolicyLimitExceeded.
+  // output_count == 3 with PolicyLimitExceeded.
 
-  let vout_count = 3
+  let output_count = 3
   let output1 = build_output(<<0:little-size(64)>>, <<>>)
   let output2 = build_output(<<0:little-size(64)>>, <<>>)
   let output3 = build_output(<<0:little-size(64)>>, <<>>)
@@ -851,28 +861,28 @@ pub fn validate_vout_count_exceeds_policy_error_test() {
       <<
         version1:bits,
         build_minimal_input():bits,
-        compact_size(vout_count):bits,
+        compact_size(output_count):bits,
         output1:bits,
         output2:bits,
         output3:bits,
         lock_time:bits,
       >>,
-      policy_with_max_vout_count(2),
+      policy_with_max_output_count(2),
     )
 
-  assert transaction.parse_error_kind(parse_err)
-    == PolicyLimitExceeded(vout_count, 2)
+  assert transaction.get_parse_error_kind(parse_err)
+    == PolicyLimitExceeded(output_count, 2)
 
-  assert transaction.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtField(VoutCount)]
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, InOutputs, AtField(OutputCount)]
 }
 
-pub fn validate_vout_count_exceeds_structural_error_test() {
+pub fn validate_output_count_exceeds_structural_error_test() {
   // Provide exactly 2 outputs (2 * 9 = 18 bytes) so max_outputs_by_bytes == 2.
   // Use a large policy (100) so the structural limit is the active cap,
-  // then assert vout_count == 3 is rejected.
+  // then assert output_count == 3 is rejected.
 
-  let vout_count = 3
+  let output_count = 3
   let output1 = build_output(<<0:little-size(64)>>, <<>>)
   let output2 = build_output(<<0:little-size(64)>>, <<>>)
 
@@ -881,31 +891,31 @@ pub fn validate_vout_count_exceeds_structural_error_test() {
       <<
         version1:bits,
         build_minimal_input():bits,
-        compact_size(vout_count):bits,
+        compact_size(output_count):bits,
         output1:bits,
         output2:bits,
       >>,
-      policy_with_max_vout_count(100),
+      policy_with_max_output_count(100),
     )
 
-  assert transaction.parse_error_offset(parse_err) == 46
+  assert transaction.get_parse_error_offset(parse_err) == 46
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(
-      claimed: 2 * min_txout_size_bytes + 1,
-      remaining: 2 * min_txout_size_bytes,
+      claimed: 2 * min_output_size_bytes + 1,
+      remaining: 2 * min_output_size_bytes,
     )
 
-  assert transaction.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtField(VoutCount)]
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, InOutputs, AtField(OutputCount)]
 }
 
-pub fn validate_vout_count_structural_boundary_succeeds_test() {
+pub fn validate_output_count_structural_boundary_succeeds_test() {
   // Provide exactly 2 outputs (2 * 9 = 18 bytes) so max_outputs_by_bytes == 2.
   // Use a large policy (100) so the structural limit is the active cap,
-  // then assert vout_count == 2 succeeds.
+  // then assert output_count == 2 succeeds.
 
-  let vout_count = 2
+  let output_count = 2
   let output1 = build_output(<<0:little-size(64)>>, <<>>)
   let output2 = build_output(<<0:little-size(64)>>, <<>>)
   let lock_time = <<0:little-size(32)>>
@@ -915,54 +925,54 @@ pub fn validate_vout_count_structural_boundary_succeeds_test() {
       <<
         version1:bits,
         build_minimal_input():bits,
-        compact_size(vout_count):bits,
+        compact_size(output_count):bits,
         output1:bits,
         output2:bits,
         lock_time:bits,
       >>,
-      policy_with_max_vout_count(100),
+      policy_with_max_output_count(100),
     )
 }
 
-pub fn validate_vout_count_insufficient_bytes_for_outputs_test() {
-  // Construct: version (4 bytes) + vin_count (1) + input (41 bytes) + vout_count (1) + 8 bytes
-  // of padding so that `remaining < min_txout_size` and the validator
+pub fn validate_output_count_insufficient_bytes_for_outputs_test() {
+  // Construct: version (4 bytes) + input_count (1) + input (41 bytes) + output_count (1) + 8 bytes
+  // of padding so that `remaining < min_output_size` and the validator
   // produces a InsufficientBytes error.
 
-  let vout_count = 1
+  let output_count = 1
   let output_padding = <<
-    0:little-size({ 1 * { min_txout_size_bytes - 1 } * 8 }),
+    0:little-size({ 1 * { min_output_size_bytes - 1 } * 8 }),
   >>
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
-      compact_size(vout_count):bits,
+      compact_size(output_count):bits,
       output_padding:bits,
     >>)
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(
-      remaining: min_txout_size_bytes - 1,
-      claimed: min_txout_size_bytes,
+      remaining: min_output_size_bytes - 1,
+      claimed: min_output_size_bytes,
     )
 
-  assert transaction.parse_error_ctx(parse_err)
-    == [InTransaction, InOutputs, AtField(VoutCount)]
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, InOutputs, AtField(OutputCount)]
 }
 
 pub fn decode_accepts_legacy_tx_with_zero_outputs_test() {
   // Demonstrate that a legacy transaction with 0 outputs can be represented
   // in bytes and successfully decoded (though it would fail context-free
   // consensus validation).
-  let vout_count = compact_size(0)
+  let output_count = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
     build_minimal_input():bits,
-    vout_count:bits,
+    output_count:bits,
     lock_time:bits,
   >>
 
@@ -977,9 +987,9 @@ pub fn decode_accepts_segwit_tx_with_zero_outputs_test() {
   // consensus validation).
   let marker = <<0x00>>
   let flag = <<0x01>>
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
-  let vout_count = compact_size(0)
+  let output_count = compact_size(0)
   // One zero-length item counts as witness data.
   let witness_stack = <<compact_size(1):bits, compact_size(0):bits>>
   let lock_time = <<0:little-size(32)>>
@@ -988,9 +998,9 @@ pub fn decode_accepts_segwit_tx_with_zero_outputs_test() {
     version1:bits,
     marker:bits,
     flag:bits,
-    vin_count:bits,
+    input_count:bits,
     input:bits,
-    vout_count:bits,
+    output_count:bits,
     witness_stack:bits,
     lock_time:bits,
   >>
@@ -1041,7 +1051,7 @@ pub fn decode_parses_single_output_test() {
 }
 
 pub fn decode_parses_multiple_outputs_test() {
-  let vout_count = compact_size(3)
+  let output_count = compact_size(3)
 
   let value1 = <<0:little-size(64)>>
   let value2 = <<100_000_000:little-size(64)>>
@@ -1061,7 +1071,7 @@ pub fn decode_parses_multiple_outputs_test() {
     transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
-      vout_count:bits,
+      output_count:bits,
       out1_bytes:bits,
       out2_bytes:bits,
       out3_bytes:bits,
@@ -1158,7 +1168,7 @@ pub fn decode_handles_output_value_min_i64_for_target_test() {
   // Create an output with value = minimum i64 (-9223372036854775808)
   // This value exceeds JavaScript's MIN_SAFE_INTEGER, so conversion fails.
 
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
 
   // Minimum i64: sign bit set, all other bits clear
   let value_min_i64 = <<0, 0, 0, 0, 0, 0, 0, 0x80>>
@@ -1174,7 +1184,7 @@ pub fn decode_handles_output_value_min_i64_for_target_test() {
   let tx_bytes = <<
     version1:bits,
     build_minimal_input():bits,
-    vout_count:bits,
+    output_count:bits,
     output_bytes:bits,
     lock_time:bits,
   >>
@@ -1183,10 +1193,10 @@ pub fn decode_handles_output_value_min_i64_for_target_test() {
     True -> {
       let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-      assert transaction.parse_error_kind(parse_err)
+      assert transaction.get_parse_error_kind(parse_err)
         == transaction.IntegerOutOfRange("-9223372036854775808")
 
-      assert transaction.parse_error_ctx(parse_err)
+      assert transaction.get_parse_error_context(parse_err)
         == [InTransaction, InOutputs, AtOutput(0), AtField(transaction.Value)]
     }
 
@@ -1212,7 +1222,7 @@ pub fn decode_accepts_outputs_total_value_exactly_at_max_money_test() {
   // output2 = 1_050_000_000_000_000
   // total = 2_100_000_000_000_000 (exactly at limit)
 
-  let vout_count = compact_size(2)
+  let output_count = compact_size(2)
   let value1 = 1_050_000_000_000_000
   let value2 = 1_050_000_000_000_000
   let script_pubkey = <<>>
@@ -1225,7 +1235,7 @@ pub fn decode_accepts_outputs_total_value_exactly_at_max_money_test() {
     transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
-      vout_count:bits,
+      output_count:bits,
       output1:bits,
       output2:bits,
       lock_time:bits,
@@ -1240,7 +1250,7 @@ pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {
   // Build an output with scriptPubKey length 10,001,
   // exceeding the 10,000-byte limit.
 
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
 
   let value = <<0:little-size(64)>>
   let script_pubkey = <<0:size({ 10_001 * 8 })>>
@@ -1251,16 +1261,16 @@ pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {
     transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
-      vout_count:bits,
+      output_count:bits,
       output_bytes:bits,
     >>)
 
-  assert transaction.parse_error_offset(parse_err) == 55
+  assert transaction.get_parse_error_offset(parse_err) == 55
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(10_001, 10_000)
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InOutputs, AtOutput(0), AtField(ScriptPubKeyLength)]
 }
 
@@ -1304,7 +1314,7 @@ pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
   // Build an output where the scriptPubKey length claims 100 bytes
   // but only 10 remain.
 
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
 
   let value = <<0:little-size(64)>>
   let script_pubkey_length = compact_size(100)
@@ -1322,14 +1332,14 @@ pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
     transaction.decode(<<
       version1:bits,
       build_minimal_input():bits,
-      vout_count:bits,
+      output_count:bits,
       output_bytes:bits,
     >>)
 
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 10)
 
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InOutputs, AtOutput(0), AtField(ScriptPubKeyLength)]
 }
 
@@ -1393,9 +1403,10 @@ pub fn decode_rejects_segwit_tx_with_all_empty_witness_stacks_test() {
 
   let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert transaction.parse_error_offset(parse_err) == expected_witness_offset
-  assert transaction.parse_error_kind(parse_err) == SuperfluousWitnessRecord
-  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_offset(parse_err)
+    == expected_witness_offset
+  assert transaction.get_parse_error_kind(parse_err) == SuperfluousWitnessRecord
+  assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 }
 
 pub fn decode_segwit_tx_allows_empty_stack_when_another_stack_has_item_test() {
@@ -1537,11 +1548,11 @@ pub fn decode_witness_item_length_exceeds_remaining_bytes_test() {
 
   // The compact_size encoding of 100 takes 3 bytes (0xFD + 2 bytes),
   // so remaining = 10 data bytes + 4 bytes overhead = 14
-  assert transaction.parse_error_kind(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
     == InsufficientBytes(claimed: 100, remaining: 14)
 
   // Verify the error context indicates we're in witness item length parsing
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [
       InTransaction,
       AtWitnessStack(0),
@@ -1559,8 +1570,8 @@ pub fn decode_witness_invalid_compact_size_in_item_count_test() {
   // CompactSize 0xFD requires 2 bytes following, but provide only 1 (truncated)
   let marker = <<0x00>>
   let flag = <<0x01>>
-  let vin_count = compact_size(1)
-  let vout_count = compact_size(1)
+  let input_count = compact_size(1)
+  let output_count = compact_size(1)
   let lock_time = <<0:little-size(32)>>
 
   // Invalid witness stack: 0xFD followed by only 1 byte (truncated CompactSize)
@@ -1570,9 +1581,9 @@ pub fn decode_witness_invalid_compact_size_in_item_count_test() {
     version1:bits,
     marker:bits,
     flag:bits,
-    vin_count:bits,
+    input_count:bits,
     input:bits,
-    vout_count:bits,
+    output_count:bits,
     output:bits,
     invalid_witness_stack:bits,
     lock_time:bits,
@@ -1580,10 +1591,11 @@ pub fn decode_witness_invalid_compact_size_in_item_count_test() {
 
   let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert transaction.parse_error_kind(parse_err) == NonMinimalCompactSize(3, 1)
+  assert transaction.get_parse_error_kind(parse_err)
+    == NonMinimalCompactSize(3, 1)
 
   // Verify the error context indicates we're in witness item count parsing
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtWitnessStack(0), AtField(WitnessItemCount)]
 }
 
@@ -1595,8 +1607,8 @@ pub fn decode_witness_invalid_compact_size_in_item_length_test() {
   // Manually construct transaction with invalid CompactSize in witness item length
   let marker = <<0x00>>
   let flag = <<0x01>>
-  let vin_count = compact_size(1)
-  let vout_count = compact_size(1)
+  let input_count = compact_size(1)
+  let output_count = compact_size(1)
   let lock_time = <<0:little-size(32)>>
 
   // Valid witness stack count (1 item), but invalid item length CompactSize
@@ -1611,9 +1623,9 @@ pub fn decode_witness_invalid_compact_size_in_item_length_test() {
     version1:bits,
     marker:bits,
     flag:bits,
-    vin_count:bits,
+    input_count:bits,
     input:bits,
-    vout_count:bits,
+    output_count:bits,
     output:bits,
     invalid_witness_stack:bits,
     lock_time:bits,
@@ -1621,8 +1633,9 @@ pub fn decode_witness_invalid_compact_size_in_item_length_test() {
 
   let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
 
-  assert transaction.parse_error_kind(parse_err) == NonMinimalCompactSize(3, 1)
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_kind(parse_err)
+    == NonMinimalCompactSize(3, 1)
+  assert transaction.get_parse_error_context(parse_err)
     == [
       InTransaction,
       AtWitnessStack(0),
@@ -1632,30 +1645,31 @@ pub fn decode_witness_invalid_compact_size_in_item_length_test() {
 }
 
 // ============================================================================
-// Witness Items Per Input (max_items_per_input) Policy Enforcement
+// Witness Stack Item Count Policy Enforcement
 // ============================================================================
 
-pub fn decode_witness_stack_at_max_items_per_input_succeeds_test() {
-  let max_items_per_input = 3
+pub fn decode_witness_stack_at_max_item_count_succeeds_test() {
+  let max_witness_stack_item_count = 3
 
   // Build input and output
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with exactly max_items_per_input items
+  // Build witness stack with exactly max_witness_stack_item_count items
   let witness_items =
-    int.range(0, max_items_per_input, with: <<>>, run: fn(acc, _) {
+    int.range(0, max_witness_stack_item_count, with: <<>>, run: fn(acc, _) {
       <<acc:bits, compact_size(5):bits, 1, 2, 3, 4, 5>>
     })
 
   let witness_stack = <<
-    compact_size(max_items_per_input):bits,
+    compact_size(max_witness_stack_item_count):bits,
     witness_items:bits,
   >>
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy = policy_with_max_witness_items_per_input(max_items_per_input)
+  let policy =
+    policy_with_max_witness_stack_item_count(max_witness_stack_item_count)
 
   let assert Ok(tx) = transaction.decode_with_policy(tx_bytes, policy)
 
@@ -1664,57 +1678,61 @@ pub fn decode_witness_stack_at_max_items_per_input_succeeds_test() {
   let assert [stack] = witnesses
 
   let items = transaction.get_witness_items(stack)
-  assert list.length(items) == max_items_per_input
+  assert list.length(items) == max_witness_stack_item_count
 }
 
-pub fn decode_witness_stack_exceeds_max_items_per_input_fails_test() {
-  let max_items_per_input = 2
+pub fn decode_witness_stack_exceeds_max_item_count_fails_test() {
+  let max_witness_stack_item_count = 2
 
   // Build input and output
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with max_items_per_input + 1 items
+  // Build witness stack with max_witness_stack_item_count + 1 items
   let witness_items =
-    int.range(0, max_items_per_input + 1, with: <<>>, run: fn(acc, _) {
+    int.range(0, max_witness_stack_item_count + 1, with: <<>>, run: fn(acc, _) {
       <<acc:bits, compact_size(5):bits, 1, 2, 3, 4, 5>>
     })
 
   let witness_stack = <<
-    compact_size(max_items_per_input + 1):bits,
+    compact_size(max_witness_stack_item_count + 1):bits,
     witness_items:bits,
   >>
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy = policy_with_max_witness_items_per_input(max_items_per_input)
+  let policy =
+    policy_with_max_witness_stack_item_count(max_witness_stack_item_count)
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode_with_policy(tx_bytes, policy)
 
-  assert transaction.parse_error_offset(parse_err) == 58
+  assert transaction.get_parse_error_offset(parse_err) == 58
 
-  // Verify the error kind indicates the count exceeded max_items_per_input
-  assert transaction.parse_error_kind(parse_err)
-    == PolicyLimitExceeded(max_items_per_input + 1, max_items_per_input)
+  // Verify the error kind indicates the count exceeded max_witness_stack_item_count
+  assert transaction.get_parse_error_kind(parse_err)
+    == PolicyLimitExceeded(
+      max_witness_stack_item_count + 1,
+      max_witness_stack_item_count,
+    )
 
   // Verify the error context indicates witness item count validation
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtWitnessStack(0), AtField(WitnessItemCount)]
 }
 
 // ============================================================================
-// Witness Stack Payload Bytes (max_stack_payload_bytes_per_input) Policy Enforcement
+// Witness Stack Payload Size Policy Enforcement
 // ============================================================================
 
-pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
-  let max_payload_bytes = 50
+pub fn decode_witness_stack_at_max_payload_size_succeeds_test() {
+  let max_witness_stack_payload_size = 50
 
   // Build input and output
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with items totaling exactly max_payload_bytes
+  // Build witness stack with items totaling exactly max_witness_stack_payload_size
   // 3 items: 20 bytes + 15 bytes + 15 bytes = 50 bytes total
   let witness_items = <<
     compact_size(20):bits,
@@ -1729,7 +1747,8 @@ pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy = policy_with_max_witness_size_per_input(max_payload_bytes)
+  let policy =
+    policy_with_max_witness_stack_payload_size(max_witness_stack_payload_size)
 
   let assert Ok(tx) = transaction.decode_with_policy(tx_bytes, policy)
 
@@ -1740,8 +1759,8 @@ pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
   let items = transaction.get_witness_items(stack)
   assert list.length(items) == 3
 
-  // Verify total bytes
-  let total_bytes =
+  // Verify total payload size
+  let total_payload_size =
     items
     |> list.map(fn(item) {
       item
@@ -1750,17 +1769,17 @@ pub fn decode_witness_stack_at_max_payload_bytes_succeeds_test() {
     })
     |> list.fold(0, fn(acc, size) { acc + size })
 
-  assert total_bytes == max_payload_bytes
+  assert total_payload_size == max_witness_stack_payload_size
 }
 
-pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
-  let max_payload_bytes = 50
+pub fn decode_witness_stack_exceeds_max_payload_size_fails_test() {
+  let max_witness_stack_payload_size = 50
 
   // Build input and output
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with items totaling more than max_payload_bytes
+  // Build witness stack exceeding max_witness_stack_payload_size
   // 3 items: 20 bytes + 15 bytes + 16 bytes = 51 bytes total (exceeds 50)
   let witness_items = <<
     compact_size(20):bits,
@@ -1775,22 +1794,23 @@ pub fn decode_witness_stack_exceeds_max_payload_bytes_fails_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy = policy_with_max_witness_size_per_input(max_payload_bytes)
+  let policy =
+    policy_with_max_witness_stack_payload_size(max_witness_stack_payload_size)
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode_with_policy(tx_bytes, policy)
 
   // Verify the error kind indicates policy limit was exceeded
-  assert transaction.parse_error_kind(parse_err)
-    == PolicyLimitExceeded(51, max_payload_bytes)
+  assert transaction.get_parse_error_kind(parse_err)
+    == PolicyLimitExceeded(51, max_witness_stack_payload_size)
 
   // Verify the error context indicates witness stack validation
-  assert transaction.parse_error_ctx(parse_err)
+  assert transaction.get_parse_error_context(parse_err)
     == [
       InTransaction,
       AtWitnessStack(0),
       AtWitnessItem(2),
-      AtField(WitnessItemsTotalBytes),
+      AtField(WitnessStackPayloadSize),
     ]
 }
 
@@ -1799,13 +1819,13 @@ pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
   // third witness item, the error offset points to the start of the third item's
   // length field
 
-  let max_payload_bytes = 50
+  let max_witness_stack_payload_size = 50
 
   // Build input and output
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with items totaling more than max_payload_bytes
+  // Build witness stack exceeding max_witness_stack_payload_size
   // 3 items: 20 bytes + 15 bytes + 16 bytes = 51 bytes total (exceeds 50)
   let witness_items = <<
     compact_size(20):bits,
@@ -1820,18 +1840,19 @@ pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
 
   let tx_bytes = build_segwit_tx([input], [output], [witness_stack])
 
-  let policy = policy_with_max_witness_size_per_input(max_payload_bytes)
+  let policy =
+    policy_with_max_witness_stack_payload_size(max_witness_stack_payload_size)
 
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode_with_policy(tx_bytes, policy)
 
   // Calculate expected offset to start of third witness item's length field:
-  // version (4) + marker (1) + flag (1) + vin_count (1) + input (41) +
-  // vout_count (1) + output (9) + witness item count (1) +
+  // version (4) + marker (1) + flag (1) + input_count (1) + input (41) +
+  // output_count (1) + output (9) + witness item count (1) +
   // item1 length (1) + item1 bytes (20) + item2 length (1) + item2 bytes (15)
   let expected_offset = 4 + 1 + 1 + 1 + 41 + 1 + 9 + 1 + 1 + 20 + 1 + 15
 
-  assert transaction.parse_error_offset(parse_err) == expected_offset
+  assert transaction.get_parse_error_offset(parse_err) == expected_offset
 }
 
 // ============================================================================
@@ -1852,11 +1873,11 @@ pub fn decode_rejects_legacy_tx_with_trailing_byte_test() {
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<valid_tx:bits, 0x42:size(8)>>)
 
-  assert transaction.parse_error_kind(parse_err) == TrailingBytes(1)
-  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_kind(parse_err) == TrailingBytes(1)
+  assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 
   let expected_offset = bit_array.byte_size(valid_tx)
-  assert transaction.parse_error_offset(parse_err) == expected_offset
+  assert transaction.get_parse_error_offset(parse_err) == expected_offset
 }
 
 pub fn decode_rejects_segwit_tx_with_trailing_byte_test() {
@@ -1869,11 +1890,11 @@ pub fn decode_rejects_segwit_tx_with_trailing_byte_test() {
   let assert Error(ParseFailed(parse_err)) =
     transaction.decode(<<valid_tx:bits, 0xFF:size(8)>>)
 
-  assert transaction.parse_error_kind(parse_err) == TrailingBytes(1)
-  assert transaction.parse_error_ctx(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_kind(parse_err) == TrailingBytes(1)
+  assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 
   let expected_offset = bit_array.byte_size(valid_tx)
-  assert transaction.parse_error_offset(parse_err) == expected_offset
+  assert transaction.get_parse_error_offset(parse_err) == expected_offset
 }
 
 // ============================================================================
@@ -1884,75 +1905,75 @@ pub fn classify_output_script_p2pkh_test() {
   let hash = repeat_byte(0xAA, 20)
   let script_bytes = <<0x76, 0xA9, 0x14, hash:bits, 0x88, 0xAC>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.P2PKH
+    == P2PKH
 }
 
 pub fn classify_output_script_p2sh_test() {
   let hash = repeat_byte(0xBB, 20)
   let script_bytes = <<0xA9, 0x14, hash:bits, 0x87>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.P2SH
+    == P2SH
 }
 
 pub fn classify_output_script_p2wpkh_test() {
   let hash = repeat_byte(0xCC, 20)
   let script_bytes = <<0x00, 0x14, hash:bits>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.P2WPKH
+    == P2WPKH
 }
 
 pub fn classify_output_script_p2wsh_test() {
   let hash = repeat_byte(0xDD, 32)
   let script_bytes = <<0x00, 0x20, hash:bits>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.P2WSH
+    == P2WSH
 }
 
 pub fn classify_output_script_p2tr_test() {
   let pubkey = repeat_byte(0xEE, 32)
   let script_bytes = <<0x51, 0x20, pubkey:bits>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.P2TR
+    == P2TR
 }
 
 pub fn classify_output_script_p2pk_compressed_test() {
   let pubkey = repeat_byte(0x02, 33)
   let script_bytes = <<0x21, pubkey:bits, 0xAC>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.P2PK
+    == P2PK
 }
 
 pub fn classify_output_script_p2pk_uncompressed_test() {
   let pubkey = repeat_byte(0x04, 65)
   let script_bytes = <<0x41, pubkey:bits, 0xAC>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.P2PK
+    == P2PK
 }
 
 pub fn classify_output_script_nulldata_with_data_test() {
   let script_bytes = <<0x6A, 0x04, 0xDE, 0xAD, 0xBE, 0xEF>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.NullData
+    == NullData
 }
 
 pub fn classify_output_script_nulldata_empty_test() {
   let script_bytes = <<0x6A>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.NullData
+    == NullData
 }
 
 pub fn classify_output_script_nulldata_non_push_is_non_standard_test() {
   // OP_RETURN OP_ADD — non-push opcode after OP_RETURN is not a standard null-data script
   let script_bytes = <<0x6A, 0x93>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.NonStandard
+    == NonStandard
 }
 
 pub fn classify_output_script_multisig_1of1_test() {
   let pubkey = repeat_byte(0xAA, 33)
   let script_bytes = <<0x51, 0x21, pubkey:bits, 0x51, 0xAE>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.Multisig
+    == BareMultisig
 }
 
 pub fn classify_output_script_multisig_2of3_test() {
@@ -1963,7 +1984,7 @@ pub fn classify_output_script_multisig_2of3_test() {
     0x52, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x21, pubkey3:bits, 0x53, 0xAE,
   >>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.Multisig
+    == BareMultisig
 }
 
 pub fn classify_output_script_unknown_witness_v1_non_taproot_test() {
@@ -1971,34 +1992,34 @@ pub fn classify_output_script_unknown_witness_v1_non_taproot_test() {
   let program = repeat_byte(0xFF, 20)
   let script_bytes = <<0x51, 0x14, program:bits>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.UnknownWitness(version: 1)
+    == UnknownWitnessProgram(version: 1)
 }
 
 pub fn classify_output_script_unknown_witness_v2_test() {
   let program = repeat_byte(0xFF, 32)
   let script_bytes = <<0x52, 0x20, program:bits>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.UnknownWitness(version: 2)
+    == UnknownWitnessProgram(version: 2)
 }
 
 pub fn classify_output_script_unknown_witness_v16_test() {
   let program = repeat_byte(0xFF, 20)
   let script_bytes = <<0x60, 0x14, program:bits>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.UnknownWitness(version: 16)
+    == UnknownWitnessProgram(version: 16)
 }
 
 pub fn classify_output_script_non_standard_test() {
   let script_bytes = <<0x00, 0x01, 0xAA>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.NonStandard
+    == NonStandard
 }
 
 pub fn classify_output_script_empty_test() {
   // Zero-length script — no pattern matches → NonStandard
   let script_bytes = <<>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.NonStandard
+    == NonStandard
 }
 
 pub fn classify_output_script_nulldata_at_max_size_test() {
@@ -2007,7 +2028,7 @@ pub fn classify_output_script_nulldata_at_max_size_test() {
   let script_bytes = <<0x6A, 0x4C, 80, data:bits>>
 
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.NullData
+    == NullData
 }
 
 pub fn classify_output_script_nulldata_over_max_size_test() {
@@ -2016,7 +2037,7 @@ pub fn classify_output_script_nulldata_over_max_size_test() {
   let script_bytes = <<0x6A, 0x4C, 81, data:bits>>
 
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.NonStandard
+    == NonStandard
 }
 
 pub fn classify_output_script_multisig_3of3_test() {
@@ -2027,7 +2048,7 @@ pub fn classify_output_script_multisig_3of3_test() {
     0x53, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x21, pubkey3:bits, 0x53, 0xAE,
   >>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.Multisig
+    == BareMultisig
 }
 
 pub fn classify_output_script_multisig_invalid_m_gt_n_test() {
@@ -2038,7 +2059,7 @@ pub fn classify_output_script_multisig_invalid_m_gt_n_test() {
     0x53, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x52, 0xAE,
   >>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.NonStandard
+    == NonStandard
 }
 
 pub fn classify_output_script_multisig_too_many_keys_test() {
@@ -2052,7 +2073,7 @@ pub fn classify_output_script_multisig_too_many_keys_test() {
     pubkey4:bits, 0x54, 0xAE,
   >>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.NonStandard
+    == NonStandard
 }
 
 pub fn classify_output_script_unknown_witness_v1_min_program_test() {
@@ -2060,7 +2081,7 @@ pub fn classify_output_script_unknown_witness_v1_min_program_test() {
   let program = repeat_byte(0xFF, 2)
   let script_bytes = <<0x51, 0x02, program:bits>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.UnknownWitness(version: 1)
+    == UnknownWitnessProgram(version: 1)
 }
 
 pub fn classify_output_script_unknown_witness_v1_max_program_test() {
@@ -2068,7 +2089,7 @@ pub fn classify_output_script_unknown_witness_v1_max_program_test() {
   let program = repeat_byte(0xFF, 40)
   let script_bytes = <<0x51, 0x28, program:bits>>
   assert transaction.classify_output_script(decode_script_pubkey(script_bytes))
-    == transaction.UnknownWitness(version: 1)
+    == UnknownWitnessProgram(version: 1)
 }
 
 // ============================================================================
@@ -2134,16 +2155,16 @@ pub fn validate_context_free_consensus_collects_no_inputs_and_no_outputs_test() 
 
 pub fn validate_context_free_consensus_rejects_tx_with_no_outputs_test() {
   // Build a legacy transaction with 1 input and 0 outputs
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
-  let vout_count = compact_size(0)
+  let output_count = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     input:bits,
-    vout_count:bits,
+    output_count:bits,
     lock_time:bits,
   >>
 
@@ -2154,9 +2175,9 @@ pub fn validate_context_free_consensus_rejects_tx_with_no_outputs_test() {
 }
 
 pub fn validate_context_free_consensus_rejects_tx_with_negative_output_value_test() {
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   // -1 as signed int64
   let negative_value = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
   let script_pubkey_length = compact_size(0)
@@ -2164,9 +2185,9 @@ pub fn validate_context_free_consensus_rejects_tx_with_negative_output_value_tes
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     input:bits,
-    vout_count:bits,
+    output_count:bits,
     negative_value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2181,18 +2202,18 @@ pub fn validate_context_free_consensus_rejects_tx_with_negative_output_value_tes
 pub fn validate_context_free_consensus_rejects_tx_with_output_exceeding_supply_test() {
   // Build a transaction with single output > max_satoshis (2_100_000_000_000_000)
   // Use 2_100_000_000_000_001 which exceeds the max supply
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let excessive_value = <<2_100_000_000_000_001:little-size(64)>>
   let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     input:bits,
-    vout_count:bits,
+    output_count:bits,
     excessive_value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2207,9 +2228,9 @@ pub fn validate_context_free_consensus_rejects_tx_with_output_exceeding_supply_t
 pub fn validate_context_free_consensus_rejects_tx_with_total_outputs_exceeding_supply_test() {
   // Build a transaction with two outputs that individually are valid but total exceeds max_satoshis
   // Each output: 1_100_000_000_000_000, Total: 2_200_000_000_000_000 > 2_100_000_000_000_000
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
-  let vout_count = compact_size(2)
+  let output_count = compact_size(2)
   let value1 = <<1_100_000_000_000_000:little-size(64)>>
   let value2 = <<1_100_000_000_000_000:little-size(64)>>
   let script_pubkey_length = compact_size(0)
@@ -2217,9 +2238,9 @@ pub fn validate_context_free_consensus_rejects_tx_with_total_outputs_exceeding_s
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     input:bits,
-    vout_count:bits,
+    output_count:bits,
     value1:bits,
     script_pubkey_length:bits,
     value2:bits,
@@ -2236,7 +2257,7 @@ pub fn validate_context_free_consensus_rejects_tx_with_total_outputs_exceeding_s
 pub fn validate_context_free_consensus_rejects_coinbase_with_multiple_inputs_test() {
   // Build a transaction with 1 coinbase input and 1 regular input
   // Coinbase transactions must have exactly 1 input, so this should fail
-  let vin_count = compact_size(2)
+  let input_count = compact_size(2)
 
   // Coinbase input (prev_txid=all zeros, vout=0xFFFFFFFF)
   let coinbase_input = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
@@ -2244,17 +2265,17 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_multiple_inputs_tes
   // Regular input (non-zero prev_txid)
   let regular_input = build_input(<<1:size(256)>>, 0, <<>>, 0)
 
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let value = <<1000:little-size(64)>>
   let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     coinbase_input:bits,
     regular_input:bits,
-    vout_count:bits,
+    output_count:bits,
     value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2269,23 +2290,23 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_multiple_inputs_tes
 pub fn validate_context_free_consensus_rejects_multiple_coinbase_inputs_test() {
   // Build a transaction with 2 coinbase inputs
   // This should be rejected as coinbase transactions must have exactly 1 input
-  let vin_count = compact_size(2)
+  let input_count = compact_size(2)
 
   // Two coinbase inputs (both have prev_txid=all zeros, vout=0xFFFFFFFF)
   let coinbase_input1 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
   let coinbase_input2 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
 
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let value = <<1000:little-size(64)>>
   let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     coinbase_input1:bits,
     coinbase_input2:bits,
-    vout_count:bits,
+    output_count:bits,
     value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2299,19 +2320,19 @@ pub fn validate_context_free_consensus_rejects_multiple_coinbase_inputs_test() {
 
 pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_short_test() {
   // Build a coinbase transaction with scriptSig of 1 byte (minimum is 2 bytes)
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
   // Coinbase input with 1-byte scriptSig (too short)
   let coinbase_input = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0x01>>, 0)
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let value = <<1000:little-size(64)>>
   let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     coinbase_input:bits,
-    vout_count:bits,
+    output_count:bits,
     value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2324,22 +2345,22 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_short
 }
 
 pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_long_test() {
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
 
   // Coinbase input with 101-byte (808-bit) scriptSig
   let coinbase_input =
     build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(808)>>, 0)
 
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let value = <<1000:little-size(64)>>
   let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     coinbase_input:bits,
-    vout_count:bits,
+    output_count:bits,
     value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2352,22 +2373,22 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_long_
 }
 
 pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_min_length_test() {
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
 
   // Coinbase input with 2-byte scriptSig
   let coinbase_input =
     build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(16)>>, 0)
 
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let value = <<1000:little-size(64)>>
   let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     coinbase_input:bits,
-    vout_count:bits,
+    output_count:bits,
     value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2378,22 +2399,22 @@ pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_min_lengt
 }
 
 pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
 
   // Coinbase input with 100-byte scriptSig
   let coinbase_input =
     build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(800)>>, 0)
 
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let value = <<1000:little-size(64)>>
   let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     coinbase_input:bits,
-    vout_count:bits,
+    output_count:bits,
     value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2407,13 +2428,13 @@ pub fn validate_context_free_consensus_returns_multiple_errors_test() {
   // Build a transaction that violates multiple consensus rules:
   // 1. Coinbase with multiple inputs (should trigger CoinbaseWithMultipleInputs)
   // 2. Negative output value (should trigger OutputValueOutOfRange)
-  let vin_count = compact_size(2)
+  let input_count = compact_size(2)
 
   // Coinbase input + regular input (violates "exactly one input" rule)
   let coinbase_input1 = build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
   let regular_input = build_input(<<1:size(256)>>, 0, <<0, 0>>, 0)
 
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   // Negative value: 0xFFFFFFFFFFFFFFFF = -1 as signed int64
   let negative_value = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
   let script_pubkey_length = compact_size(0)
@@ -2421,10 +2442,10 @@ pub fn validate_context_free_consensus_returns_multiple_errors_test() {
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     coinbase_input1:bits,
     regular_input:bits,
-    vout_count:bits,
+    output_count:bits,
     negative_value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2444,21 +2465,21 @@ pub fn validate_context_free_consensus_returns_multiple_errors_test() {
 
 pub fn validate_context_free_consensus_rejects_tx_with_duplicate_inputs_test() {
   // Two inputs referencing the same previous output (txid + vout)
-  let vin_count = compact_size(2)
+  let input_count = compact_size(2)
   let shared_txid = repeat_byte(0xAB, 32)
   let input0 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
   let input1 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let value = <<1000:little-size(64)>>
   let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     input0:bits,
     input1:bits,
-    vout_count:bits,
+    output_count:bits,
     value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2466,32 +2487,32 @@ pub fn validate_context_free_consensus_rejects_tx_with_duplicate_inputs_test() {
 
   let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
   let assert [in0, ..] = transaction.get_inputs(parsed_tx)
-  let dup_prev_out = transaction.get_input_prev_out(in0)
+  let duplicate_outpoint = transaction.get_input_outpoint(in0)
 
   assert transaction.validate_context_free_consensus(parsed_tx)
-    == Error([DuplicateInput(dup_prev_out, 0, 1)])
+    == Error([DuplicateInput(duplicate_outpoint, 0, 1)])
 }
 
 pub fn validate_context_free_consensus_rejects_duplicate_input_at_non_adjacent_indices_test() {
   // Inputs at index 0 and 2 share the same previous output; input 1 is distinct
-  let vin_count = compact_size(3)
+  let input_count = compact_size(3)
   let shared_txid = repeat_byte(0xAB, 32)
   let other_txid = repeat_byte(0xCD, 32)
   let input0 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
   let input1 = build_input(other_txid, 1, <<>>, 0xFFFFFFFF)
   let input2 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let value = <<1000:little-size(64)>>
   let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     input0:bits,
     input1:bits,
     input2:bits,
-    vout_count:bits,
+    output_count:bits,
     value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2499,29 +2520,29 @@ pub fn validate_context_free_consensus_rejects_duplicate_input_at_non_adjacent_i
 
   let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
   let assert [in0, ..] = transaction.get_inputs(parsed_tx)
-  let dup_prev_out = transaction.get_input_prev_out(in0)
+  let duplicate_outpoint = transaction.get_input_outpoint(in0)
 
   assert transaction.validate_context_free_consensus(parsed_tx)
-    == Error([DuplicateInput(dup_prev_out, 0, 2)])
+    == Error([DuplicateInput(duplicate_outpoint, 0, 2)])
 }
 
 pub fn validate_context_free_consensus_accepts_inputs_with_same_txid_but_different_vout_test() {
-  // Same txid but different output indices are distinct prev_outs — not a duplicate
-  let vin_count = compact_size(2)
+  // Same txid but different output indices are distinct outpoints — not a duplicate
+  let input_count = compact_size(2)
   let txid = repeat_byte(0xAB, 32)
   let input0 = build_input(txid, 0, <<>>, 0xFFFFFFFF)
   let input1 = build_input(txid, 1, <<>>, 0xFFFFFFFF)
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let value = <<1000:little-size(64)>>
   let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     input0:bits,
     input1:bits,
-    vout_count:bits,
+    output_count:bits,
     value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2533,11 +2554,11 @@ pub fn validate_context_free_consensus_accepts_inputs_with_same_txid_but_differe
 
 pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_errors_test() {
   // Duplicate inputs combined with a negative output value: both errors reported
-  let vin_count = compact_size(2)
+  let input_count = compact_size(2)
   let shared_txid = repeat_byte(0xAB, 32)
   let input0 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
   let input1 = build_input(shared_txid, 0, <<>>, 0xFFFFFFFF)
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   // -1 as signed int64
   let negative_value = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
   let script_pubkey_length = compact_size(0)
@@ -2545,10 +2566,10 @@ pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     input0:bits,
     input1:bits,
-    vout_count:bits,
+    output_count:bits,
     negative_value:bits,
     script_pubkey_length:bits,
     lock_time:bits,
@@ -2556,12 +2577,12 @@ pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_
 
   let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
   let assert [in0, ..] = transaction.get_inputs(parsed_tx)
-  let dup_prev_out = transaction.get_input_prev_out(in0)
+  let duplicate_outpoint = transaction.get_input_outpoint(in0)
 
   let assert Error(errors) =
     transaction.validate_context_free_consensus(parsed_tx)
   assert list.contains(errors, OutputValueOutOfRange(0, -1))
-  assert list.contains(errors, DuplicateInput(dup_prev_out, 0, 1))
+  assert list.contains(errors, DuplicateInput(duplicate_outpoint, 0, 1))
   assert list.length(errors) == 2
 }
 
@@ -2630,18 +2651,18 @@ pub fn hashing_and_serialization_accept_context_free_invalid_segwit_tx_test() {
 
 pub fn has_coinbase_shape_regular_transaction_returns_false_test() {
   // Regular (non-coinbase) transaction with valid inputs and outputs
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
   let regular_input =
     build_input(repeat_byte(1, 32), 42, <<0, 1, 2>>, 0xFFFFFFFE)
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let output = build_output(<<50_000_000:little-size(64)>>, <<>>)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     regular_input:bits,
-    vout_count:bits,
+    output_count:bits,
     output:bits,
     lock_time:bits,
   >>
@@ -2654,18 +2675,18 @@ pub fn has_coinbase_shape_regular_transaction_returns_false_test() {
 
 pub fn has_coinbase_shape_coinbase_transaction_test() {
   // Valid coinbase: exactly 1 input with coinbase marker and 50-byte scriptSig
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
   let coinbase_input =
     build_input(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(400)>>, 0)
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let output = build_output(<<5_000_000_000:little-size(64)>>, <<>>)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     coinbase_input:bits,
-    vout_count:bits,
+    output_count:bits,
     output:bits,
     lock_time:bits,
   >>
@@ -2713,17 +2734,17 @@ fn compare_compute_txid_against_known_vector(
 
 pub fn compute_txid_matches_manual_dsha256_test() {
   // Construct a known minimal legacy transaction from scratch
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
   let input = build_input(repeat_byte(1, 32), 0, <<>>, 0xFFFFFFFF)
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let output = build_output(<<1000:little-size(64)>>, <<>>)
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
     version1:bits,
-    vin_count:bits,
+    input_count:bits,
     input:bits,
-    vout_count:bits,
+    output_count:bits,
     output:bits,
     lock_time:bits,
   >>
@@ -2838,12 +2859,12 @@ fn build_input(
 
 /// Build a minimal valid input (for use in output tests)
 fn build_minimal_input() -> BitArray {
-  let vin_count = compact_size(1)
+  let input_count = compact_size(1)
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
-  <<vin_count:bits, input:bits>>
+  <<input_count:bits, input:bits>>
 }
 
-fn decode_single_input_prev_out(prev_txid: BitArray, vout: Int) {
+fn decode_single_input_outpoint(prev_txid: BitArray, vout: Int) {
   let input = build_input(prev_txid, vout, <<>>, 0)
   let lock_time = <<0:little-size(32)>>
 
@@ -2857,7 +2878,7 @@ fn decode_single_input_prev_out(prev_txid: BitArray, vout: Int) {
     >>)
 
   let assert [first_input] = transaction.get_inputs(tx)
-  transaction.get_input_prev_out(first_input)
+  transaction.get_input_outpoint(first_input)
 }
 
 /// Build an output with specific values
@@ -2874,14 +2895,14 @@ fn build_output(value: BitArray, script_pubkey: BitArray) -> BitArray {
   >>
 }
 
-/// Build a minimal valid output section with vout_count, value, and empty scriptPubKey
+/// Build a minimal valid output section with output_count, value, and empty scriptPubKey
 fn build_minimal_output() -> BitArray {
-  let vout_count = compact_size(1)
+  let output_count = compact_size(1)
   let value = <<0:little-size(64)>>
   let script_pubkey_length = compact_size(0)
 
   <<
-    vout_count:bits,
+    output_count:bits,
     value:bits,
     script_pubkey_length:bits,
   >>
@@ -2898,17 +2919,17 @@ fn build_segwit_tx(
 ) -> BitArray {
   let marker = <<0x00>>
   let flag = <<0x01>>
-  let vin_count = compact_size(list.length(inputs))
-  let vout_count = compact_size(list.length(outputs))
+  let input_count = compact_size(list.length(inputs))
+  let output_count = compact_size(list.length(outputs))
   let lock_time = <<0:little-size(32)>>
 
   <<
     version1:bits,
     marker:bits,
     flag:bits,
-    vin_count:bits,
+    input_count:bits,
     bit_array.concat(inputs):bits,
-    vout_count:bits,
+    output_count:bits,
     bit_array.concat(outputs):bits,
     bit_array.concat(witness_stacks):bits,
     lock_time:bits,
@@ -2981,26 +3002,28 @@ fn policy_with_max_tx_size(max_tx_size: Int) {
   |> transaction.decode_policy_with_max_tx_size(max_tx_size)
 }
 
-fn policy_with_max_vin_count(max_vin_count: Int) {
+fn policy_with_max_input_count(max_input_count: Int) {
   transaction.default_decode_policy()
-  |> transaction.decode_policy_with_max_vin_count(max_vin_count)
+  |> transaction.decode_policy_with_max_input_count(max_input_count)
 }
 
-fn policy_with_max_vout_count(max_vout_count: Int) {
+fn policy_with_max_output_count(max_output_count: Int) {
   transaction.default_decode_policy()
-  |> transaction.decode_policy_with_max_vout_count(max_vout_count)
+  |> transaction.decode_policy_with_max_output_count(max_output_count)
 }
 
-fn policy_with_max_witness_items_per_input(max_items_per_input: Int) {
+fn policy_with_max_witness_stack_item_count(max_witness_stack_item_count: Int) {
   transaction.default_decode_policy()
-  |> transaction.decode_policy_with_max_witness_items_per_input(Some(
-    max_items_per_input,
+  |> transaction.decode_policy_with_max_witness_stack_item_count(Some(
+    max_witness_stack_item_count,
   ))
 }
 
-fn policy_with_max_witness_size_per_input(max_payload_bytes: Int) {
+fn policy_with_max_witness_stack_payload_size(
+  max_witness_stack_payload_size: Int,
+) {
   transaction.default_decode_policy()
-  |> transaction.decode_policy_with_max_witness_size_per_input(Some(
-    max_payload_bytes,
+  |> transaction.decode_policy_with_max_witness_stack_payload_size(Some(
+    max_witness_stack_payload_size,
   ))
 }

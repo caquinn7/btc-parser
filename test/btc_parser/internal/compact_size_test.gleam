@@ -46,7 +46,7 @@ pub fn read_errors_on_non_minimal_fd_encoding_test() {
   let initial_reader = reader.new(<<0xFD, 0xFC, 0x00>>)
 
   assert compact_size.read(initial_reader)
-    == Error(NonMinimalCompactSize(encoded: 3, value: 252))
+    == Error(NonMinimalCompactSize(encoded_size: 3, value: 252))
 }
 
 pub fn read_errors_on_partial_fd_read_test() {
@@ -92,7 +92,7 @@ pub fn read_errors_on_non_minimal_fe_encoding_test() {
   let initial_reader = reader.new(<<0xFE, 0xFF, 0xFF, 0x00, 0x00>>)
 
   assert compact_size.read(initial_reader)
-    == Error(NonMinimalCompactSize(encoded: 5, value: 65_535))
+    == Error(NonMinimalCompactSize(encoded_size: 5, value: 65_535))
 }
 
 pub fn read_errors_on_partial_fe_read_test() {
@@ -138,7 +138,7 @@ pub fn read_errors_on_non_minimal_ff_encoding_test() {
     reader.new(<<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00>>)
 
   assert compact_size.read(initial_reader)
-    == Error(NonMinimalCompactSize(encoded: 9, value: 4_294_967_295))
+    == Error(NonMinimalCompactSize(encoded_size: 9, value: 4_294_967_295))
 }
 
 pub fn read_errors_on_partial_ff_read_test() {

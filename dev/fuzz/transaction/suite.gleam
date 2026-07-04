@@ -195,8 +195,8 @@ fn run_decode(mutated_tx_bytes: BitArray) -> Nil {
 
       decoded_tx
       |> transaction.get_outputs
-      |> list.each(fn(txout) {
-        txout
+      |> list.each(fn(output) {
+        output
         |> transaction.get_output_script_pubkey
         |> transaction.classify_output_script
       })
