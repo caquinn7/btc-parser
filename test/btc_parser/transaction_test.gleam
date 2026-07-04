@@ -2,13 +2,14 @@ import btc_parser/transaction.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack, BareMultisig,
   CoinbaseWithMultipleInputs, DuplicateInput, InInputs, InOutputs, InTransaction,
   InputCount, InsufficientBytes, InvalidCoinbaseScriptSigLength, InvalidHex,
-  InvalidSegwitMarkerFlag, NoInputs, NoOutputs, NonMinimalCompactSize,
-  NonStandard, NullData, OutputCount, OutputValueOutOfRange, P2PK, P2PKH, P2SH,
-  P2TR, P2WPKH, P2WSH, ParseFailed, PolicyLimitExceeded, ScriptPubKeyLength,
-  ScriptSigLength, SegwitMarkerAndFlag, SuperfluousWitnessRecord,
-  TotalOutputValueOutOfRange, TrailingBytes, UnexpectedEof,
-  UnknownWitnessProgram, Version, WitnessItemCount, WitnessItemLength,
-  WitnessStackPayloadSize,
+  InvalidSegwitMarkerFlag, MaxInputCount, MaxOutputCount, MaxScriptSize,
+  MaxTransactionSize, MaxWitnessStackItemCount, MaxWitnessStackPayloadSize,
+  NoInputs, NoOutputs, NonMinimalCompactSize, NonStandard, NullData, OutputCount,
+  OutputValueOutOfRange, P2PK, P2PKH, P2SH, P2TR, P2WPKH, P2WSH, ParseFailed,
+  PolicyLimitExceeded, ScriptPubKeyLength, ScriptSigLength, SegwitMarkerAndFlag,
+  SuperfluousWitnessRecord, TotalOutputValueOutOfRange, TrailingBytes,
+  UnexpectedEof, UnknownWitnessProgram, Version, WitnessItemCount,
+  WitnessItemLength,
 }
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -132,7 +133,7 @@ pub fn decode_with_policy_rejects_tx_exceeding_max_tx_size_test() {
 
   assert transaction.get_parse_error_offset(parse_err) == 0
   assert transaction.get_parse_error_kind(parse_err)
-    == PolicyLimitExceeded(tx_size, tx_size - 1)
+    == PolicyLimitExceeded(MaxTransactionSize, tx_size, tx_size - 1)
   assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 }
 
@@ -147,7 +148,7 @@ pub fn decode_with_policy_rejects_tx_well_above_max_tx_size_test() {
 
   assert transaction.get_parse_error_offset(parse_err) == 0
   assert transaction.get_parse_error_kind(parse_err)
-    == PolicyLimitExceeded(100, 10)
+    == PolicyLimitExceeded(MaxTransactionSize, 100, 10)
   assert transaction.get_parse_error_context(parse_err) == [InTransaction]
 }
 
@@ -360,7 +361,7 @@ pub fn validate_input_count_exceeds_policy_error_test() {
   assert transaction.get_parse_error_offset(parse_err) == 4
 
   assert transaction.get_parse_error_kind(parse_err)
-    == PolicyLimitExceeded(input_count, 2)
+    == PolicyLimitExceeded(MaxInputCount, input_count, 2)
 
   assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InInputs, AtField(InputCount)]
@@ -699,7 +700,7 @@ pub fn decode_rejects_scriptsig_exceeding_max_size_test() {
   assert transaction.get_parse_error_offset(parse_err) == 41
 
   assert transaction.get_parse_error_kind(parse_err)
-    == PolicyLimitExceeded(10_001, 10_000)
+    == PolicyLimitExceeded(MaxScriptSize, 10_001, 10_000)
 
   assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InInputs, AtInput(0), AtField(ScriptSigLength)]
@@ -871,7 +872,7 @@ pub fn validate_output_count_exceeds_policy_error_test() {
     )
 
   assert transaction.get_parse_error_kind(parse_err)
-    == PolicyLimitExceeded(output_count, 2)
+    == PolicyLimitExceeded(MaxOutputCount, output_count, 2)
 
   assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InOutputs, AtField(OutputCount)]
@@ -1268,7 +1269,7 @@ pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {
   assert transaction.get_parse_error_offset(parse_err) == 55
 
   assert transaction.get_parse_error_kind(parse_err)
-    == PolicyLimitExceeded(10_001, 10_000)
+    == PolicyLimitExceeded(MaxScriptSize, 10_001, 10_000)
 
   assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, InOutputs, AtOutput(0), AtField(ScriptPubKeyLength)]
@@ -1712,6 +1713,7 @@ pub fn decode_witness_stack_exceeds_max_item_count_fails_test() {
   // Verify the error kind indicates the count exceeded max_witness_stack_item_count
   assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(
+      MaxWitnessStackItemCount,
       max_witness_stack_item_count + 1,
       max_witness_stack_item_count,
     )
@@ -1802,16 +1804,15 @@ pub fn decode_witness_stack_exceeds_max_payload_size_fails_test() {
 
   // Verify the error kind indicates policy limit was exceeded
   assert transaction.get_parse_error_kind(parse_err)
-    == PolicyLimitExceeded(51, max_witness_stack_payload_size)
+    == PolicyLimitExceeded(
+      MaxWitnessStackPayloadSize,
+      51,
+      max_witness_stack_payload_size,
+    )
 
   // Verify the error context indicates witness stack validation
   assert transaction.get_parse_error_context(parse_err)
-    == [
-      InTransaction,
-      AtWitnessStack(0),
-      AtWitnessItem(2),
-      AtField(WitnessStackPayloadSize),
-    ]
+    == [InTransaction, AtWitnessStack(0), AtWitnessItem(2)]
 }
 
 pub fn decode_witness_stack_error_offset_points_to_third_item_test() {

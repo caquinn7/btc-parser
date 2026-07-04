@@ -14,7 +14,7 @@
 
 import btc_parser/transaction.{
   type ContextFreeValidated, type Parsed, type Transaction, DuplicateInput,
-  InsufficientBytes, ParseFailed, PolicyLimitExceeded,
+  InsufficientBytes, MaxScriptSize, ParseFailed, PolicyLimitExceeded,
   TotalOutputValueOutOfRange, UnexpectedEof,
 }
 import gleam/bit_array
@@ -484,7 +484,7 @@ fn oversized_scriptsig_policy_decode_case(
 
   let assert Error(ParseFailed(parse_err)) = transaction.decode(tx_bytes)
   assert transaction.get_parse_error_kind(parse_err)
-    == PolicyLimitExceeded(script_sig_size, max_script_size)
+    == PolicyLimitExceeded(MaxScriptSize, script_sig_size, max_script_size)
 
   PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
