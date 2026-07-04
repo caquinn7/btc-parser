@@ -666,7 +666,7 @@ pub type DecodeError {
   ///
   /// This occurs before any transaction parsing begins, typically due to an
   /// odd-length hex string or the presence of invalid hexadecimal characters.
-  HexToBytesFailed
+  InvalidHex
 
   /// The byte sequence could not be parsed as a Bitcoin transaction.
   ///
@@ -1104,7 +1104,7 @@ pub fn decode_policy_max_witness_size_per_input(
 /// - `Ok(Transaction(Parsed))`: Successfully decoded within the default policy limits.
 /// - `Error(ParseFailed(error))`: The bytes were not a well-formed transaction
 ///   encoding within the default policy limits.
-/// - `Error(HexToBytesFailed)`: Never returned by this function; used only by
+/// - `Error(InvalidHex)`: Never returned by this function; used only by
 ///   the hexadecimal decoding functions.
 pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), DecodeError) {
   decode_with_policy(bytes, default_decode_policy())
@@ -1123,7 +1123,7 @@ pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), DecodeError) {
 /// - `Ok(Transaction(Parsed))`: Successfully decoded within the supplied policy limits.
 /// - `Error(ParseFailed(error))`: The bytes were not a well-formed transaction
 ///   encoding within the supplied policy limits.
-/// - `Error(HexToBytesFailed)`: Never returned by this function; used only by
+/// - `Error(InvalidHex)`: Never returned by this function; used only by
 ///   the hexadecimal decoding functions.
 pub fn decode_with_policy(
   bytes: BitArray,
@@ -1187,7 +1187,7 @@ fn tx_parser(
 /// ## Returns
 ///
 /// - `Ok(Transaction(Parsed))`: Successfully decoded within the default policy limits.
-/// - `Error(HexToBytesFailed)`: The hex string was invalid (odd length or
+/// - `Error(InvalidHex)`: The hex string was invalid (odd length or
 ///   invalid characters).
 /// - `Error(ParseFailed(error))`: The decoded bytes were not a well-formed
 ///   transaction encoding within the default policy limits.
@@ -1207,7 +1207,7 @@ pub fn decode_hex(hex: String) -> Result(Transaction(Parsed), DecodeError) {
 /// ## Returns
 ///
 /// - `Ok(Transaction(Parsed))`: Successfully decoded within the supplied policy limits.
-/// - `Error(HexToBytesFailed)`: The hex string was invalid (odd length or
+/// - `Error(InvalidHex)`: The hex string was invalid (odd length or
 ///   invalid characters).
 /// - `Error(ParseFailed(error))`: The decoded bytes were not a well-formed
 ///   transaction encoding within the supplied policy limits.
@@ -1223,7 +1223,7 @@ pub fn decode_hex_with_policy(
 fn hex_to_bytes(hex: String) -> Result(BitArray, DecodeError) {
   hex
   |> bit_array.base16_decode
-  |> result.replace_error(HexToBytesFailed)
+  |> result.replace_error(InvalidHex)
 }
 
 /// Construct a parser for a field, adding error mapping and context wrapping.

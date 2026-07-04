@@ -1,10 +1,10 @@
 import btc_parser/transaction.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack,
-  CoinbaseWithMultipleInputs, DuplicateInput, HexToBytesFailed, InInputs,
-  InOutputs, InTransaction, InputCount, InsufficientBytes,
-  InvalidCoinbaseScriptSigLength, InvalidSegwitMarkerFlag, NoInputs, NoOutputs,
-  NonMinimalCompactSize, OutputCount, OutputValueOutOfRange, ParseFailed,
-  PolicyLimitExceeded, ScriptPubKeyLength, ScriptSigLength, SegwitMarkerAndFlag,
+  CoinbaseWithMultipleInputs, DuplicateInput, InInputs, InOutputs, InTransaction,
+  InputCount, InsufficientBytes, InvalidCoinbaseScriptSigLength, InvalidHex,
+  InvalidSegwitMarkerFlag, NoInputs, NoOutputs, NonMinimalCompactSize,
+  OutputCount, OutputValueOutOfRange, ParseFailed, PolicyLimitExceeded,
+  ScriptPubKeyLength, ScriptSigLength, SegwitMarkerAndFlag,
   SuperfluousWitnessRecord, TotalOutputValueOutOfRange, TrailingBytes,
   UnexpectedEof, Version, WitnessItemCount, WitnessItemLength,
   WitnessItemsTotalBytes,
@@ -34,15 +34,15 @@ const min_output_size_bytes = 9
 // ============================================================================
 
 pub fn decode_hex_errors_on_odd_length_string_test() {
-  assert transaction.decode_hex("010") == Error(HexToBytesFailed)
+  assert transaction.decode_hex("010") == Error(InvalidHex)
 }
 
 pub fn decode_hex_errors_on_invalid_hex_characters_test() {
-  assert transaction.decode_hex("0102zz") == Error(HexToBytesFailed)
+  assert transaction.decode_hex("0102zz") == Error(InvalidHex)
 }
 
 pub fn decode_hex_errors_on_string_with_whitespace_test() {
-  assert transaction.decode_hex("01 02 03 04") == Error(HexToBytesFailed)
+  assert transaction.decode_hex("01 02 03 04") == Error(InvalidHex)
 }
 
 // ============================================================================
