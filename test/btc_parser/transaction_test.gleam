@@ -579,6 +579,16 @@ pub fn decode_parses_coinbase_marker_input_test() {
     |> transaction.is_null_outpoint
 }
 
+pub fn input_has_null_outpoint_returns_true_for_coinbase_marker_test() {
+  let input = decode_single_input(<<0:size(256)>>, 0xFFFFFFFF)
+  assert transaction.input_has_null_outpoint(input)
+}
+
+pub fn input_has_null_outpoint_returns_false_for_regular_input_test() {
+  let input = decode_single_input(repeat_byte(1, 32), 0)
+  assert !transaction.input_has_null_outpoint(input)
+}
+
 pub fn is_null_outpoint_returns_true_for_coinbase_marker_test() {
   let outpoint = decode_single_input_outpoint(<<0:size(256)>>, 0xFFFFFFFF)
   assert transaction.is_null_outpoint(outpoint)
@@ -2985,7 +2995,7 @@ fn build_minimal_input() -> BitArray {
   <<input_count:bits, input:bits>>
 }
 
-fn decode_single_input_outpoint(prev_txid: BitArray, vout: Int) {
+fn decode_single_input(prev_txid: BitArray, vout: Int) {
   let input = build_input(prev_txid, vout, <<>>, 0)
   let lock_time = <<0:little-size(32)>>
 
@@ -2999,7 +3009,12 @@ fn decode_single_input_outpoint(prev_txid: BitArray, vout: Int) {
     >>)
 
   let assert [first_input] = transaction.get_inputs(tx)
-  transaction.get_input_outpoint(first_input)
+  first_input
+}
+
+fn decode_single_input_outpoint(prev_txid: BitArray, vout: Int) {
+  decode_single_input(prev_txid, vout)
+  |> transaction.get_input_outpoint
 }
 
 /// Build an output with specific values
