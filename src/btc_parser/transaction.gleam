@@ -107,7 +107,7 @@ pub fn has_coinbase_shape(tx: Transaction(ContextFreeValidated)) -> Bool {
 
 /// Return whether any input has the coinbase marker (null previous outpoint).
 fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
-  list.any(tx.inputs, fn(input) { outpoint_is_null(input.outpoint) })
+  list.any(tx.inputs, input_has_null_outpoint)
 }
 
 /// Get the transaction inputs.
@@ -174,6 +174,16 @@ pub fn get_input_outpoint(input: Input) -> OutPoint {
   input.outpoint
 }
 
+/// Check whether an input contains the null outpoint.
+///
+/// The null outpoint is the structural coinbase input marker. This function
+/// does not establish that the containing transaction has valid coinbase shape.
+/// Use `validate_context_free_consensus` followed by `has_coinbase_shape` for
+/// that guarantee.
+pub fn input_has_null_outpoint(input: Input) -> Bool {
+  is_null_outpoint(input.outpoint)
+}
+
 /// Get the sequence number from an input.
 ///
 /// Sequence values can participate in relative lock-time consensus rules and
@@ -230,7 +240,7 @@ pub fn get_outpoint_vout(outpoint: OutPoint) -> Int {
 ///
 /// The null outpoint is the special previous output reference used as the
 /// coinbase input marker: an all-zero txid with vout `0xFFFFFFFF`.
-pub fn outpoint_is_null(outpoint: OutPoint) -> Bool {
+pub fn is_null_outpoint(outpoint: OutPoint) -> Bool {
   case outpoint {
     NullOutPoint -> True
     OutPoint(..) -> False
