@@ -902,6 +902,52 @@ pub fn get_parse_error_context(err: ParseError) -> List(ParseContext) {
   err.ctx
 }
 
+/// Get the structural path for a parsing error.
+///
+/// The path is derived from the error's context stack and uses a stable,
+/// machine-friendly format rooted at `transaction`. Collection indices are
+/// zero-based and written in brackets.
+///
+/// For example, an error at the scriptSig length prefix of the third input
+/// produces `transaction.inputs[2].script_sig.length`.
+///
+/// The path identifies where the error occurred but does not include the byte
+/// offset or error kind. Use `get_parse_error_offset` and
+/// `get_parse_error_kind` for those details.
+pub fn get_parse_error_path(err: ParseError) -> String {
+  list.fold(err.context, "", fn(path, ctx) {
+    case ctx {
+      InTransaction -> "transaction"
+      AtInput(index) -> path <> ".inputs[" <> int.to_string(index) <> "]"
+      AtOutput(index) -> path <> ".outputs[" <> int.to_string(index) <> "]"
+      AtWitnessStack(index) ->
+        path <> ".witnesses[" <> int.to_string(index) <> "]"
+      AtWitnessItem(index) -> path <> ".items[" <> int.to_string(index) <> "]"
+      AtField(field) -> path <> field_path_suffix(field)
+    }
+  })
+}
+
+fn field_path_suffix(field: Field) -> String {
+  case field {
+    Version -> ".version"
+    LockTime -> ".lock_time"
+    SegwitMarkerAndFlag -> ".segwit.marker_and_flag"
+    InputCount -> ".inputs.count"
+    OutPointTxid -> ".outpoint.txid"
+    OutPointVout -> ".outpoint.vout"
+    ScriptSig -> ".script_sig"
+    ScriptSigLength -> ".script_sig.length"
+    Sequence -> ".sequence"
+    OutputCount -> ".outputs.count"
+    Value -> ".value"
+    ScriptPubKey -> ".script_pubkey"
+    ScriptPubKeyLength -> ".script_pubkey.length"
+    WitnessItemCount -> ".items.count"
+    WitnessItemLength -> ".length"
+  }
+}
+
 fn new_parse_error(kind: ParseErrorKind, offset: Int) -> ParseError {
   ParseError(offset:, kind:, ctx: [])
 }
