@@ -69,11 +69,11 @@ pub opaque type Transaction(validation_state) {
 /// The version may affect which consensus rules or transaction semantics apply.
 ///
 /// The version field is encoded as 4 little-endian bytes in the transaction
-/// wire format. This function returns the unsigned 32-bit interpretation.
+/// wire format. This function returns those bytes interpreted as an unsigned
+/// 32-bit integer in the range `0` through `4_294_967_295`.
 ///
-/// Some older Bitcoin documentation and historical Bitcoin Core code treated
-/// this field as a signed 32-bit integer. This library exposes the unsigned
-/// interpretation used by modern Bitcoin Core transaction primitives.
+/// Some Bitcoin documentation and APIs have represented this field as a signed
+/// 32-bit integer. This function does not use that convention.
 ///
 /// For example, raw version bytes `ff ff ff ff` are returned as
 /// `4_294_967_295`, not `-1`.
