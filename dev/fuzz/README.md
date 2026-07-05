@@ -3,9 +3,8 @@
 ## Overview
 
 The purpose of fuzz testing in the `btc_parser/transaction` module is to check
-that the
-transaction parser and immediately related inspection APIs handle mutated
-transaction bytes without unhandled exceptions.
+that the transaction parser and immediately related inspection APIs handle
+mutated transaction bytes without unhandled exceptions.
 
 This includes malformed, adversarial, and edge-case data, not just valid Bitcoin
 transactions.
@@ -115,7 +114,7 @@ as:
 
 - Unusual script lengths
 - Unexpected witness stack shapes
-- Edge-case varint encodings
+- Edge-case CompactSize encodings
 - Boundary conditions near policy limits
 
 These are often combinations that are:
@@ -205,8 +204,7 @@ Higher-quality fuzzing with better coverage of meaningful scenarios.
 ## Summary
 
 Fuzz testing exercises the `btc_parser/transaction` parser and related
-transaction inspection
-APIs by:
+transaction inspection APIs by:
 
 - Feeding mutated transaction bytes into `transaction.decode`
 - Treating `decode` and `validate_context_free_consensus` `Error(_)` results as

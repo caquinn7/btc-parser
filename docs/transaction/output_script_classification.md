@@ -104,16 +104,18 @@ Total: **34 bytes**.
 51  20  <32 bytes>
 ```
 
-| Byte(s) | Meaning                    |
-| ------- | -------------------------- |
-| `51`    | Witness version 1 (`OP_1`) |
-| `20`    | Push 32 bytes (0x20 = 32)  |
-| ×32     | 32-byte x-only public key  |
+| Byte(s) | Meaning                                      |
+| ------- | -------------------------------------------- |
+| `51`    | Witness version 1 (`OP_1`)                   |
+| `20`    | Push 32 bytes (0x20 = 32)                    |
+| ×32     | 32-byte witness program (Taproot output key) |
 
-Total: **34 bytes**. Supports both key-path and script-path spends (Taproot/Tapscript).
+Total: **34 bytes**. Supports both key-path and script-path spends
+(Taproot/Tapscript). Classification does not validate the output key.
 
-> Note: OP_1 with a 32-byte program is always `P2TR`. OP_1 with any other program
-> length falls through to `UnknownWitness`.
+> Note: OP_1 with a 32-byte program is always `P2TR`. OP_1 with any other valid
+> witness-program length (2–40 bytes) falls through to
+> `UnknownWitnessProgram`; malformed lengths are `NonStandard`.
 
 ---
 
@@ -149,8 +151,8 @@ encoding.
 A script beginning with `OP_RETURN` (`6A`) is a candidate for `NullData`, but two
 additional conditions must both hold:
 
-1. **Total script size ≤ 83 bytes** — Bitcoin Core's relay policy limit (1 byte for
-   `OP_RETURN` + up to 82 bytes of data).
+1. **Total script size ≤ 83 bytes** — Bitcoin Core's relay policy limit,
+   including `OP_RETURN`, push opcodes, and payload bytes.
 2. **All bytes after `OP_RETURN` are push-only** — validated by `do_is_push_only`
    (see [Push-only validation](#push-only-validation-do_is_push_only) below).
 
@@ -164,7 +166,7 @@ cap is a *relay policy* constraint, not a consensus rule.
 Scripts that did not match any fixed template are passed to this function, which
 checks two further cases.
 
-### UnknownWitness — future SegWit versions
+### UnknownWitnessProgram — future SegWit versions
 
 ```text
 <version byte>  <push_length byte>  <push_length bytes>
@@ -181,17 +183,18 @@ gives version 2, `OP_16` gives version 16).
 
 Cases already handled before reaching this fallback:
 
-- `OP_0` — matched as `P2WPKH` or `P2WSH` in pass 1
+- `OP_0` with a 20- or 32-byte program — matched as `P2WPKH` or `P2WSH` in
+  pass 1
 - `OP_1` with a 32-byte program — matched as `P2TR` in pass 1
 
-`UnknownWitness` should be treated as forward-compatible, not as an error or as
-`NonStandard`.
+`UnknownWitnessProgram` should be treated as forward-compatible, not as an error
+or as `NonStandard`.
 
 ---
 
-### Multisig — standard bare multisig
+### BareMultisig — standard bare multisig
 
-A script matches `Multisig` when `do_is_standard_multisig` returns `True`.
+A script matches `BareMultisig` when `do_is_standard_multisig` returns `True`.
 This check is broken into three sub-steps:
 
 #### Step 1 — Minimum size guard
@@ -237,8 +240,9 @@ This recursive function scans the section one push at a time:
 - Anything else — return `-1` (invalid)
 
 At the end the counted value is compared against `n` from the header. If they
-agree, the script is `Multisig`; otherwise it is `NonStandard`. The classifier
-does not validate the public key encoding within either payload shape.
+agree, the script is `BareMultisig`; otherwise it is `NonStandard`. The
+classifier does not validate the public key encoding within either payload
+shape.
 
 ---
 
@@ -280,10 +284,10 @@ classify_output_script(script)
 │   └─ otherwise                         → NonStandard
 └─ (none matched) → do_classify_non_template
     │
-    ├─ [51–60] [02–28] [×push_length]    → UnknownWitness(version)
+    ├─ [51–60] [02–28] [×push_length]    → UnknownWitnessProgram(version)
     └─ (none matched) → do_is_standard_multisig
         ├─ structural m-of-n (1≤m≤n≤3)
-        │   AND key-payload count = n    → Multisig
+        │   AND key-payload count = n    → BareMultisig
         └─ otherwise                     → NonStandard
 ```
 
@@ -293,7 +297,7 @@ classify_output_script(script)
 
 | Opcode             | Hex       | Notes                                                           |
 | ------------------ | --------- | --------------------------------------------------------------- |
-| `OP_0`             | `00`      | Witness version 0 in segwit outputs                             |
+| `OP_0`             | `00`      | Witness version 0 in SegWit outputs                             |
 | `OP_1NEGATE`       | `4F`      | Pushes –1                                                       |
 | `OP_DATA_20`       | `14`      | Direct push of 20 bytes (decimal 20 = 0x14)                     |
 | `OP_DATA_32`       | `20`      | Direct push of 32 bytes (decimal 32 = 0x20)                     |

@@ -70,7 +70,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
 ## Important Invariants
 
 - Preserve transaction wire order and little-endian byte order. Public hash bytes
-  and prevout txids are exposed in the same little-endian order used on the wire.
+  and outpoint txids are exposed in the same little-endian order used on the wire.
 - Preserve the phantom-type validation boundary. `decode` produces
   `Transaction(Parsed)`, `validate_context_free_consensus` is the only public
   upgrade path to `Transaction(ContextFreeValidated)`, and APIs whose documented
@@ -105,7 +105,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
   `classify_output_script` docs and tests; do not turn it into script execution,
   key validation, or consensus validation. NullData classification remains relay
   policy, not consensus validation.
-- Unknown witness outputs should remain forward-compatible and distinct from
+- Unknown witness programs should remain forward-compatible and distinct from
   `NonStandard`.
 
 ## Coding Conventions
@@ -147,7 +147,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - For serialization or hashing changes, include known vectors or manual double
   SHA-256 comparisons and round-trip checks.
 - For script classification, test exact byte templates plus near misses that
-  should be `NonStandard` or `UnknownWitness`.
+  should be `NonStandard` or `UnknownWitnessProgram`.
 - Run the fuzz harness after changes to byte-level parsing, CompactSize handling,
   length/count validation, SegWit detection, witness parsing, reader/parser
   internals, or decode policy enforcement. Run with an explicit seed, or record

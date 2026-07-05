@@ -3,8 +3,7 @@
 <!-- [![Package Version](https://img.shields.io/hexpm/v/btc_parser)](https://hex.pm/packages/btc_parser)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/btc_parser/) -->
 
-A reference-oriented Gleam library for parsing and modeling Bitcoin data
-structures.
+A Gleam library for parsing and inspecting Bitcoin data structures.
 
 `btc_parser` is designed to reflect Bitcoin's wire formats and protocol
 structures closely, expose malformed encodings as structured errors, and remain
@@ -67,11 +66,13 @@ gleam test -t javascript --runtime deno
 gleam test -t javascript --runtime bun
 ```
 
-## Development Tools
+### Fuzz Testing
 
 The [fuzz harness](dev/fuzz/README.md) exercises parser safety against malformed
 and mutated wire-format inputs. Domain suites can provide their own seed inputs
 and structural mutations while sharing the project-level command workflow.
+
+### Benchmarking
 
 The [performance harness](dev/perf/README.md) measures public parsing and
 inspection workflows across representative inputs, scaling dimensions, and
