@@ -765,12 +765,15 @@ pub type ParseErrorKind {
   TrailingBytes(Int)
 }
 
-/// Identifies which `DecodePolicy` limit was exceeded.
+/// Identifies the configured `DecodePolicy` limit that was exceeded.
 ///
-/// Carried by `PolicyLimitExceeded` to make the error self-describing without
-/// requiring callers to inspect the context stack.
+/// Carried by `PolicyLimitExceeded`. The error context identifies where the
+/// violation occurred.
 pub type DecodePolicyLimit {
-  /// The maximum serialized transaction size was exceeded.
+  /// The maximum input buffer size was exceeded.
+  ///
+  /// In `PolicyLimitExceeded`, `value` is the total byte size of the supplied
+  /// buffer. This limit is checked before parsing begins.
   MaxTransactionSize
 
   /// The maximum number of transaction inputs was exceeded.
@@ -779,7 +782,9 @@ pub type DecodePolicyLimit {
   /// The maximum number of transaction outputs was exceeded.
   MaxOutputCount
 
-  /// The maximum script size (scriptSig or scriptPubKey) was exceeded.
+  /// The maximum raw byte size of a scriptSig or scriptPubKey was exceeded.
+  ///
+  /// The size excludes the script's CompactSize length prefix.
   MaxScriptSize
 
   /// The maximum witness stack item count for a single input was exceeded.
@@ -789,7 +794,8 @@ pub type DecodePolicyLimit {
   ///
   /// In `PolicyLimitExceeded`, `value` is the cumulative payload size across
   /// all items parsed so far for the stack, not the size of the individual item
-  /// that pushed it over the limit.
+  /// that pushed it over the limit. The payload size excludes each item's
+  /// CompactSize length prefix.
   MaxWitnessStackPayloadSize
 }
 
@@ -2193,9 +2199,9 @@ pub fn compute_wtxid(tx: Transaction(v)) -> BitArray {
 
 /// Serialize a transaction without witness data (the "stripped" form).
 ///
-/// Returns the canonical serialization used when computing the `txid`:
-/// version, inputs, outputs, and lock_time — with no SegWit marker, flag,
-/// or witness stacks, regardless of whether the transaction is SegWit.
+/// Returns the stripped transaction serialization used when computing the
+/// `txid`: version, inputs, outputs, and lock_time — with no SegWit marker,
+/// flag, or witness stacks, regardless of whether the transaction is SegWit.
 ///
 /// The byte size of the returned value is the `base_size` used in BIP 141
 /// weight and virtual size calculations.
