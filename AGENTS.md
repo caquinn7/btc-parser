@@ -79,8 +79,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
   `TrailingBytes`, not be ignored.
 - CompactSize integers must reject non-minimal encodings.
 - Parse errors must include accurate byte offsets and context stacks from outer
-  to inner context, such as `InTransaction`, `InInputs`, `AtInput(n)`,
-  `AtField(...)`.
+  to inner context, such as `InTransaction`, `AtInput(n)`, `AtField(...)`.
 - Resource limits are policy, not consensus. Exceeding `DecodePolicy` limits
   should report `PolicyLimitExceeded`; structurally impossible lengths/counts
   should report `InsufficientBytes` or `UnexpectedEof`.

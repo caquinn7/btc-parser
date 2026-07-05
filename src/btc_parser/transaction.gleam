@@ -798,16 +798,10 @@ pub type ParseContext {
   /// The error occurred while parsing the top-level transaction structure.
   InTransaction
 
-  /// The error occurred while parsing the transaction's input count or inputs.
-  InInputs
-
   /// The error occurred while parsing a specific input within the input vector.
   ///
   /// The wrapped `Int` is the zero-based index of the input being parsed.
   AtInput(Int)
-
-  /// The error occurred while parsing the transaction's output count or outputs.
-  InOutputs
 
   /// The error occurred while parsing a specific output within the output vector.
   ///
@@ -903,7 +897,7 @@ pub fn get_parse_error_kind(err: ParseError) -> ParseErrorKind {
 /// process.
 ///
 /// For example, failure at the scriptSig length prefix of the third input can
-/// produce `[InTransaction, InInputs, AtInput(2), AtField(ScriptSigLength)]`.
+/// produce `[InTransaction, AtInput(2), AtField(ScriptSigLength)]`.
 pub fn get_parse_error_context(err: ParseError) -> List(ParseContext) {
   err.ctx
 }
@@ -1185,13 +1179,13 @@ fn tx_parser(
 ) -> Parser(ParseContext, Transaction(Parsed), DecodeError) {
   use version <- parser.then(field_parser(Version, reader.read_i32_le))
   use is_segwit <- parser.then(segwit_detection_parser())
-  use inputs <- parser.then(parser.with_context(
-    inputs_parser(policy.max_input_count, policy.max_script_size),
-    InInputs,
+  use inputs <- parser.then(inputs_parser(
+    policy.max_input_count,
+    policy.max_script_size,
   ))
-  use outputs <- parser.then(parser.with_context(
-    outputs_parser(policy.max_output_count, policy.max_script_size),
-    InOutputs,
+  use outputs <- parser.then(outputs_parser(
+    policy.max_output_count,
+    policy.max_script_size,
   ))
   use witnesses <- parser.then(witnesses_if_segwit_parser(
     is_segwit,
