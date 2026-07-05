@@ -107,7 +107,7 @@ pub fn has_coinbase_shape(tx: Transaction(ContextFreeValidated)) -> Bool {
 
 /// Return whether any input has the coinbase marker (null previous outpoint).
 fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
-  list.any(tx.inputs, fn(input) { outpoint_is_null(input.outpoint) })
+  list.any(tx.inputs, fn(input) { is_null_outpoint(input.outpoint) })
 }
 
 /// Get the transaction inputs.
@@ -230,7 +230,7 @@ pub fn get_outpoint_vout(outpoint: OutPoint) -> Int {
 ///
 /// The null outpoint is the special previous output reference used as the
 /// coinbase input marker: an all-zero txid with vout `0xFFFFFFFF`.
-pub fn outpoint_is_null(outpoint: OutPoint) -> Bool {
+pub fn is_null_outpoint(outpoint: OutPoint) -> Bool {
   case outpoint {
     NullOutPoint -> True
     OutPoint(..) -> False
