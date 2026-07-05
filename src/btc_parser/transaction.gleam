@@ -680,7 +680,7 @@ pub type DecodeError {
 /// Carries the byte offset where the error occurred, the kind of error, and the
 /// parsing context identifying which fields or structures were being parsed.
 pub opaque type ParseError {
-  ParseError(offset: Int, kind: ParseErrorKind, ctx: List(ParseContext))
+  ParseError(offset: Int, kind: ParseErrorKind, context: List(ParseContext))
 }
 
 /// The specific kind of error that occurred during parsing.
@@ -905,7 +905,7 @@ pub fn get_parse_error_kind(err: ParseError) -> ParseErrorKind {
 /// For example, failure at the scriptSig length prefix of the third input can
 /// produce `[InTransaction, AtInput(2), AtField(ScriptSigLength)]`.
 pub fn get_parse_error_context(err: ParseError) -> List(ParseContext) {
-  err.ctx
+  err.context
 }
 
 /// Get the structural path for a parsing error.
@@ -955,11 +955,13 @@ fn field_path_suffix(field: Field) -> String {
 }
 
 fn new_parse_error(kind: ParseErrorKind, offset: Int) -> ParseError {
-  ParseError(offset:, kind:, ctx: [])
+  ParseError(offset:, kind:, context: [])
 }
 
-fn with_contexts(err: ParseError, ctxs: List(ParseContext)) -> ParseError {
-  list.fold(ctxs, err, fn(err, ctx) { ParseError(..err, ctx: [ctx, ..err.ctx]) })
+fn with_context(err: ParseError, context: List(ParseContext)) -> ParseError {
+  list.fold(context, err, fn(err, ctx) {
+    ParseError(..err, context: [ctx, ..err.context])
+  })
 }
 
 /// Build a DecodeError factory function for a specific field at a given offset.
@@ -971,12 +973,12 @@ fn with_contexts(err: ParseError, ctxs: List(ParseContext)) -> ParseError {
 fn field_error(
   field: Field,
   offset: Int,
-  ctx: List(ParseContext),
+  context: List(ParseContext),
 ) -> fn(ParseErrorKind) -> DecodeError {
   fn(kind) {
     kind
     |> new_parse_error(offset)
-    |> with_contexts([AtField(field), ..ctx])
+    |> with_context([AtField(field), ..context])
     |> ParseFailed
   }
 }
@@ -1215,7 +1217,7 @@ pub fn decode_with_policy(
     tx_size > policy.max_tx_size,
     PolicyLimitExceeded(MaxTransactionSize, tx_size, policy.max_tx_size)
       |> new_parse_error(0)
-      |> with_contexts([InTransaction])
+      |> with_context([InTransaction])
       |> ParseFailed
       |> Error,
   )
@@ -1755,7 +1757,7 @@ fn witnesses_parser(
       True ->
         SuperfluousWitnessRecord
         |> new_parse_error(start_offset)
-        |> with_contexts(ctx)
+        |> with_context(ctx)
         |> ParseFailed
         |> Error
 
@@ -1833,7 +1835,7 @@ fn tracked_witness_items_parser(
         max_total_bytes,
       )
       |> new_parse_error(start_offset)
-      |> with_contexts(ctx)
+      |> with_context(ctx)
       |> ParseFailed
     },
   )
@@ -1866,7 +1868,7 @@ fn witness_item_parser() -> Parser(ParseContext, WitnessItem, DecodeError) {
         err
         |> reader_error_to_kind
         |> new_parse_error(reader.get_offset(reader))
-        |> with_contexts(ctx)
+        |> with_context(ctx)
         |> ParseFailed
       })
     })
@@ -1908,7 +1910,7 @@ fn end_of_tx_parser() -> Parser(ParseContext, Nil, DecodeError) {
     bytes_remaining
     |> TrailingBytes
     |> new_parse_error(reader.get_offset(reader))
-    |> with_contexts(ctx)
+    |> with_context(ctx)
     |> ParseFailed
   })
 }
