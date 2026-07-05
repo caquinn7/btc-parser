@@ -238,7 +238,8 @@ fn mutate(seed_tx: SeedTx, rng: Rng) -> #(MutatedTx, Rng) {
 ///
 /// Intended behavior:
 /// - Return a prefix of the original bytes
-/// - May remove part of a field, part of a varint, or the tail of the tx entirely
+/// - May remove part of a field, part of a CompactSize value, or the tail of the
+///   transaction entirely
 ///
 /// Fuzzing purpose:
 /// - Exercise truncated-input handling
@@ -509,7 +510,8 @@ type CompactSizeCandidate {
 /// random, and apply a targeted mutation to it.
 ///
 /// Fuzzing purpose:
-/// - Targets length-prefixed fields (vin/vout counts, script lengths, witness item lengths)
+/// - Targets length-prefixed fields (input/output counts, script lengths, and
+///   witness item lengths)
 ///   throughout the transaction without requiring structural knowledge of the format
 /// - Non-minimal encoding directly targets a protocol rule the parser must enforce
 /// - Preserves enough surrounding structure that malformed inputs are likely to reach

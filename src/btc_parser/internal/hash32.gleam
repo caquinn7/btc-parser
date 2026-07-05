@@ -8,7 +8,7 @@ pub opaque type Hash32 {
   Hash32(bytes_le: BitArray)
 }
 
-/// An error that occured while constructing a `Hash32`.
+/// An error that occurred while constructing a `Hash32`.
 pub type Hash32Error {
   /// The provided byte sequence does not contain exactly 32 bytes.
   InvalidByteCount(Int)
@@ -21,7 +21,7 @@ pub type Hash32Error {
 /// ## Examples
 ///
 /// ```gleam
-/// from_bytes_le(<<0:size(32)>>)
+/// from_bytes_le(<<0:size(256)>>)
 /// // -> Ok(Hash32) representing an all-zero hash
 ///
 /// from_bytes_le(<<1, 2, 3>>)

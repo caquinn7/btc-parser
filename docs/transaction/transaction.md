@@ -11,7 +11,7 @@ transactions while preserving Bitcoin's wire representation.
   stable structural paths.
 - **Format detection**: Legacy and SegWit transaction encodings remain distinct.
 - **Transaction inspection**: Access versions, lock times, inputs, outputs,
-  prevouts, script bytes, output values, and SegWit witness stacks.
+  outpoints, script bytes, output values, and SegWit witness stacks.
 - **Script classification**: Structurally identify P2PKH, P2SH, P2WPKH, P2WSH,
   P2TR, and other output script templates.
 - **Context-free consensus validation**: Check transaction-local rules such as

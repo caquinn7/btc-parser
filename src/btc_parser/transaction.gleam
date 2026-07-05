@@ -93,7 +93,7 @@ pub fn is_segwit(tx: Transaction(v)) -> Bool {
 /// transaction has the context-free coinbase structure:
 ///
 /// - exactly one input
-/// - the input uses the null previous outpoint
+/// - the input uses the null outpoint
 /// - the coinbase scriptSig length is within the consensus range
 ///
 /// This does not prove that the transaction is valid as the coinbase
@@ -105,7 +105,7 @@ pub fn has_coinbase_shape(tx: Transaction(ContextFreeValidated)) -> Bool {
   has_coinbase_marker(tx)
 }
 
-/// Return whether any input has the coinbase marker (null previous outpoint).
+/// Return whether any input has the coinbase marker (null outpoint).
 fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
   list.any(tx.inputs, input_has_null_outpoint)
 }
@@ -400,14 +400,14 @@ pub type OutputScriptType {
   /// encoding.
   BareMultisig
 
-  /// Standard null-data output as defined by Bitcoin Core relay policy.
+  /// A structurally recognized null-data output.
   ///
   /// This variant represents the standard null-data template, not every script
   /// that begins with `OP_RETURN`.
   ///
-  /// Matches scripts that begin with `OP_RETURN`, are followed only by push
-  /// opcodes, and have a total size of at most 83 bytes. The size limit is a
-  /// relay policy constraint, not a consensus rule.
+  /// Matches scripts that begin with `OP_RETURN`, are followed only by the push
+  /// opcodes recognized by this classifier, and have a total size of at most 83
+  /// bytes. The size limit comes from relay policy; it is not a consensus rule.
   ///
   /// An `OP_RETURN` script that is push-only but exceeds 83 bytes, or that
   /// contains non-push opcodes after `OP_RETURN`, will classify as
@@ -485,7 +485,7 @@ pub fn classify_output_script(
     // P2WSH: OP_0 OP_DATA_32 <32-byte witness program>
     <<0x00, 0x20, _:bytes-size(32)>> -> P2WSH
 
-    // P2TR: OP_1 OP_DATA_32 <32-byte x-only pubkey>
+    // P2TR: OP_1 OP_DATA_32 <32-byte witness program>
     <<0x51, 0x20, _:bytes-size(32)>> -> P2TR
 
     // P2PK: OP_DATA_33 <compressed pubkey> OP_CHECKSIG
@@ -494,7 +494,7 @@ pub fn classify_output_script(
     // P2PK: OP_DATA_65 <uncompressed pubkey> OP_CHECKSIG
     <<0x41, _:bytes-size(65), 0xAC>> -> P2PK
 
-    // NullData: OP_RETURN + push-only data, total ≤ 83 bytes (Bitcoin Core standard template).
+    // NullData: OP_RETURN + recognized push-only data, total ≤ 83 bytes.
     <<0x6A, rest:bits>> ->
       case bit_array.byte_size(script_bytes) <= 83 && do_is_push_only(rest) {
         True -> NullData
@@ -1503,7 +1503,7 @@ fn input_list_parser(
 ) -> Parser(ParseContext, List(Input), DecodeError) {
   // input_count
   // ├─ Input #0
-  // │    ├─ prev_txid (32 bytes)
+  // │    ├─ outpoint txid (32 bytes)
   // │    ├─ vout (4 bytes)
   // │    ├─ scriptSig length (CompactSize)
   // │    ├─ scriptSig bytes
@@ -1521,7 +1521,7 @@ fn input_list_parser(
 fn input_parser(
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, Input, DecodeError) {
-  // │ prev_txid (32 bytes)
+  // │ outpoint txid (32 bytes)
   // │ vout (4 bytes)
   // │ scriptSig length (CompactSize)
   // │ scriptSig bytes
@@ -1538,13 +1538,13 @@ fn outpoint_parser() -> Parser(ParseContext, OutPoint, DecodeError) {
   parser.map2(
     field_parser(OutPointTxid, reader.read_bytes(_, 32)),
     field_parser(OutPointVout, reader.read_u32_le),
-    fn(prev_txid_bytes, vout) {
-      case prev_txid_bytes, vout {
+    fn(outpoint_txid_bytes, vout) {
+      case outpoint_txid_bytes, vout {
         <<0:256>>, 0xFFFFFFFF -> NullOutPoint
 
         _, _ -> {
           // Safe: read_bytes(_, 32) guarantees exactly 32 bytes on success
-          let assert Ok(hash32) = hash32.from_bytes_le(prev_txid_bytes)
+          let assert Ok(hash32) = hash32.from_bytes_le(outpoint_txid_bytes)
           OutPoint(hash32, vout)
         }
       }
@@ -1983,7 +1983,7 @@ pub type ConsensusViolation {
   /// Coinbase scriptSig must be between 2 and 100 bytes (inclusive).
   InvalidCoinbaseScriptSigLength
 
-  /// The transaction contains duplicate inputs referencing the same prevout.
+  /// The transaction contains duplicate inputs referencing the same outpoint.
   ///
   /// Each input in a transaction must reference a unique previous output.
   ///
