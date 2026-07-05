@@ -41,7 +41,7 @@ pub type ContextFreeValidated
 /// in the serialized structure.
 pub opaque type Transaction(validation_state) {
   Legacy(
-    /// The signed 32-bit transaction version.
+    /// The unsigned 32-bit transaction version.
     version: Int,
     /// The transaction inputs in wire order.
     inputs: List(Input),
@@ -51,7 +51,7 @@ pub opaque type Transaction(validation_state) {
     lock_time: Int,
   )
   Segwit(
-    /// The signed 32-bit transaction version.
+    /// The unsigned 32-bit transaction version.
     version: Int,
     /// The transaction inputs in wire order.
     inputs: List(Input),
@@ -64,9 +64,19 @@ pub opaque type Transaction(validation_state) {
   )
 }
 
-/// Get the version number from a transaction.
+/// Get the transaction version.
 ///
-/// The version number indicates the transaction format and rules that apply.
+/// The version may affect which consensus rules or transaction semantics apply.
+///
+/// The version field is encoded as 4 little-endian bytes in the transaction
+/// wire format. This function returns those bytes interpreted as an unsigned
+/// 32-bit integer in the range `0` through `4_294_967_295`.
+///
+/// Some Bitcoin documentation and APIs have represented this field as a signed
+/// 32-bit integer. This function does not use that convention.
+///
+/// For example, raw version bytes `ff ff ff ff` are returned as
+/// `4_294_967_295`, not `-1`.
 pub fn get_version(tx: Transaction(v)) -> Int {
   tx.version
 }
@@ -75,8 +85,7 @@ pub fn get_version(tx: Transaction(v)) -> Int {
 ///
 /// SegWit (Segregated Witness) transactions separate witness data from the main
 /// transaction structure, enabling features like improved scalability and
-/// transaction malleability fixes. This function distinguishes between legacy
-/// (pre-SegWit) transactions and SegWit transactions.
+/// transaction malleability fixes.
 ///
 /// Returns `True` for SegWit transactions, `False` for legacy transactions.
 pub fn is_segwit(tx: Transaction(v)) -> Bool {
@@ -1242,7 +1251,7 @@ pub fn decode_with_policy(
 fn tx_parser(
   policy: DecodePolicy,
 ) -> Parser(ParseContext, Transaction(Parsed), DecodeError) {
-  use version <- parser.then(field_parser(Version, reader.read_i32_le))
+  use version <- parser.then(field_parser(Version, reader.read_u32_le))
   use is_segwit <- parser.then(segwit_detection_parser())
   use inputs <- parser.then(inputs_parser(
     policy.max_input_count,
