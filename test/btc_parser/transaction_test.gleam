@@ -189,6 +189,35 @@ pub fn decode_legacy_v2_parses_version_2_test() {
   assert !transaction.is_segwit(result)
 }
 
+pub fn decode_version_at_signed_max_as_unsigned_test() {
+  let assert Ok(result) =
+    transaction.decode(build_minimal_tx_with_version(0x7FFFFFFF))
+
+  assert transaction.get_version(result) == 2_147_483_647
+}
+
+pub fn decode_version_above_signed_max_as_unsigned_test() {
+  let assert Ok(result) =
+    transaction.decode(build_minimal_tx_with_version(0x80000000))
+
+  assert transaction.get_version(result) == 2_147_483_648
+}
+
+pub fn decode_max_unsigned_version_as_unsigned_test() {
+  let assert Ok(result) =
+    transaction.decode(build_minimal_tx_with_version(0xFFFFFFFF))
+
+  assert transaction.get_version(result) == 4_294_967_295
+}
+
+pub fn high_bit_version_round_trips_wire_bytes_test() {
+  let original_bytes = build_minimal_tx_with_version(0x80000000)
+  let assert Ok(result) = transaction.decode(original_bytes)
+
+  assert transaction.to_stripped_bytes(result) == original_bytes
+  assert transaction.to_wire_bytes(result) == original_bytes
+}
+
 pub fn decode_errors_on_empty_string_test() {
   let assert Error(ParseFailed(parse_err)) = transaction.decode_hex("")
 
@@ -3052,6 +3081,15 @@ fn build_minimal_output() -> BitArray {
     output_count:bits,
     value:bits,
     script_pubkey_length:bits,
+  >>
+}
+
+fn build_minimal_tx_with_version(version: Int) -> BitArray {
+  <<
+    version:little-size(32),
+    build_minimal_input():bits,
+    build_minimal_output():bits,
+    0:little-size(32),
   >>
 }
 
