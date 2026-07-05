@@ -2,14 +2,15 @@ import btc_parser/transaction.{
   AtField, AtInput, AtOutput, AtWitnessItem, AtWitnessStack, BareMultisig,
   CoinbaseWithMultipleInputs, DuplicateInput, InTransaction, InputCount,
   InsufficientBytes, IntegerOutOfRange, InvalidCoinbaseScriptSigLength,
-  InvalidHex, InvalidSegwitMarkerFlag, MaxInputCount, MaxOutputCount,
+  InvalidHex, InvalidSegwitMarkerFlag, LockTime, MaxInputCount, MaxOutputCount,
   MaxScriptSize, MaxTransactionSize, MaxWitnessStackItemCount,
   MaxWitnessStackPayloadSize, NoInputs, NoOutputs, NonMinimalCompactSize,
-  NonStandard, NullData, OutputCount, OutputValueOutOfRange, P2PK, P2PKH, P2SH,
-  P2TR, P2WPKH, P2WSH, ParseFailed, PolicyLimitExceeded, ScriptPubKeyLength,
-  ScriptSigLength, SegwitMarkerAndFlag, SuperfluousWitnessRecord,
-  TotalOutputValueOutOfRange, TrailingBytes, UnexpectedEof,
-  UnknownWitnessProgram, Value, Version, WitnessItemCount, WitnessItemLength,
+  NonStandard, NullData, OutPointTxid, OutPointVout, OutputCount,
+  OutputValueOutOfRange, P2PK, P2PKH, P2SH, P2TR, P2WPKH, P2WSH, ParseFailed,
+  PolicyLimitExceeded, ScriptPubKeyLength, ScriptSigLength, SegwitMarkerAndFlag,
+  Sequence, SuperfluousWitnessRecord, TotalOutputValueOutOfRange, TrailingBytes,
+  UnexpectedEof, UnknownWitnessProgram, Value, Version, WitnessItemCount,
+  WitnessItemLength,
 }
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -135,6 +136,7 @@ pub fn decode_with_policy_rejects_tx_exceeding_max_tx_size_test() {
   assert transaction.get_parse_error_kind(parse_err)
     == PolicyLimitExceeded(MaxTransactionSize, tx_size, tx_size - 1)
   assert transaction.get_parse_error_context(parse_err) == [InTransaction]
+  assert transaction.get_parse_error_path(parse_err) == "transaction"
 }
 
 pub fn decode_with_policy_rejects_tx_well_above_max_tx_size_test() {
@@ -195,6 +197,7 @@ pub fn decode_errors_on_empty_string_test() {
     == UnexpectedEof(bytes_needed: 4, remaining: 0)
   assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtField(Version)]
+  assert transaction.get_parse_error_path(parse_err) == "transaction.version"
 }
 
 pub fn decode_errors_when_input_shorter_than_4_bytes_test() {
@@ -233,6 +236,8 @@ pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_missing_test(
   assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(1, 0)
   assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtField(InputCount)]
+  assert transaction.get_parse_error_path(parse_err)
+    == "transaction.inputs.count"
 }
 
 pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_truncated_test() {
@@ -245,6 +250,8 @@ pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_truncated_tes
   assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(1, 0)
   assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtField(OutputCount)]
+  assert transaction.get_parse_error_path(parse_err)
+    == "transaction.outputs.count"
 }
 
 pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
@@ -259,6 +266,8 @@ pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
     == InvalidSegwitMarkerFlag(0, 2)
   assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtField(SegwitMarkerAndFlag)]
+  assert transaction.get_parse_error_path(parse_err)
+    == "transaction.segwit.marker_and_flag"
 }
 
 pub fn decode_treats_zero_input_and_output_counts_as_empty_legacy_tx_test() {
@@ -276,6 +285,22 @@ pub fn decode_treats_zero_input_and_output_counts_as_empty_legacy_tx_test() {
   assert list.is_empty(transaction.get_inputs(tx))
   assert list.is_empty(transaction.get_outputs(tx))
   assert transaction.get_lock_time(tx) == lock_time
+}
+
+pub fn decode_reports_lock_time_parse_error_path_test() {
+  let tx_without_lock_time = <<
+    version1:bits,
+    build_minimal_input():bits,
+    build_minimal_output():bits,
+  >>
+
+  let assert Error(ParseFailed(parse_err)) =
+    transaction.decode(tx_without_lock_time)
+
+  assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(4, 0)
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, AtField(LockTime)]
+  assert transaction.get_parse_error_path(parse_err) == "transaction.lock_time"
 }
 
 // ============================================================================
@@ -779,6 +804,66 @@ pub fn decode_returns_error_with_current_input_index_test() {
 
   assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtInput(1), AtField(ScriptSigLength)]
+
+  assert transaction.get_parse_error_path(parse_err)
+    == "transaction.inputs[1].script_sig.length"
+}
+
+pub fn decode_reports_indexed_input_txid_parse_error_path_test() {
+  let first_input = build_input(<<0:size(256)>>, 0, repeat_byte(0, 41), 0)
+  let partial_second_input = repeat_byte(0, 10)
+
+  let assert Error(ParseFailed(parse_err)) =
+    transaction.decode(<<
+      version1:bits,
+      compact_size(2):bits,
+      first_input:bits,
+      partial_second_input:bits,
+    >>)
+
+  assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(32, 10)
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, AtInput(1), AtField(OutPointTxid)]
+  assert transaction.get_parse_error_path(parse_err)
+    == "transaction.inputs[1].outpoint.txid"
+}
+
+pub fn decode_reports_indexed_input_vout_parse_error_path_test() {
+  let first_input = build_input(<<0:size(256)>>, 0, repeat_byte(0, 7), 0)
+  let partial_second_input = <<0:size(256), 0:size(16)>>
+
+  let assert Error(ParseFailed(parse_err)) =
+    transaction.decode(<<
+      version1:bits,
+      compact_size(2):bits,
+      first_input:bits,
+      partial_second_input:bits,
+    >>)
+
+  assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(4, 2)
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, AtInput(1), AtField(OutPointVout)]
+  assert transaction.get_parse_error_path(parse_err)
+    == "transaction.inputs[1].outpoint.vout"
+}
+
+pub fn decode_reports_indexed_input_sequence_parse_error_path_test() {
+  let first_input = build_input(<<0:size(256)>>, 0, repeat_byte(0, 4), 0)
+  let second_input_without_sequence = <<0:size(256), 0:size(32), 0>>
+
+  let assert Error(ParseFailed(parse_err)) =
+    transaction.decode(<<
+      version1:bits,
+      compact_size(2):bits,
+      first_input:bits,
+      second_input_without_sequence:bits,
+    >>)
+
+  assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(4, 0)
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, AtInput(1), AtField(Sequence)]
+  assert transaction.get_parse_error_path(parse_err)
+    == "transaction.inputs[1].sequence"
 }
 
 // ============================================================================
@@ -980,6 +1065,26 @@ pub fn decode_accepts_legacy_tx_with_zero_outputs_test() {
   let assert Ok(tx) = transaction.decode(tx_bytes)
   assert !transaction.is_segwit(tx)
   assert list.is_empty(transaction.get_outputs(tx))
+}
+
+pub fn decode_reports_indexed_output_value_parse_error_path_test() {
+  let first_output = build_output(<<0:little-size(64)>>, repeat_byte(0, 9))
+  let partial_second_output_value = <<0:size(32)>>
+
+  let assert Error(ParseFailed(parse_err)) =
+    transaction.decode(<<
+      version1:bits,
+      build_minimal_input():bits,
+      compact_size(2):bits,
+      first_output:bits,
+      partial_second_output_value:bits,
+    >>)
+
+  assert transaction.get_parse_error_kind(parse_err) == UnexpectedEof(8, 4)
+  assert transaction.get_parse_error_context(parse_err)
+    == [InTransaction, AtOutput(1), AtField(Value)]
+  assert transaction.get_parse_error_path(parse_err)
+    == "transaction.outputs[1].value"
 }
 
 pub fn decode_accepts_segwit_tx_with_zero_outputs_test() {
@@ -1199,6 +1304,9 @@ pub fn decode_handles_output_value_min_i64_for_target_test() {
 
       assert transaction.get_parse_error_context(parse_err)
         == [InTransaction, AtOutput(0), AtField(Value)]
+
+      assert transaction.get_parse_error_path(parse_err)
+        == "transaction.outputs[0].value"
     }
 
     False -> {
@@ -1273,6 +1381,9 @@ pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {
 
   assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtOutput(0), AtField(ScriptPubKeyLength)]
+
+  assert transaction.get_parse_error_path(parse_err)
+    == "transaction.outputs[0].script_pubkey.length"
 }
 
 pub fn decode_parses_scriptpubkey_at_max_size_test() {
@@ -1560,6 +1671,9 @@ pub fn decode_witness_item_length_exceeds_remaining_bytes_test() {
       AtWitnessItem(0),
       AtField(WitnessItemLength),
     ]
+
+  assert transaction.get_parse_error_path(parse_err)
+    == "transaction.witnesses[0].items[0].length"
 }
 
 pub fn decode_witness_invalid_compact_size_in_item_count_test() {
@@ -1598,6 +1712,9 @@ pub fn decode_witness_invalid_compact_size_in_item_count_test() {
   // Verify the error context indicates we're in witness item count parsing
   assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtWitnessStack(0), AtField(WitnessItemCount)]
+
+  assert transaction.get_parse_error_path(parse_err)
+    == "transaction.witnesses[0].items.count"
 }
 
 pub fn decode_witness_invalid_compact_size_in_item_length_test() {
@@ -1813,6 +1930,9 @@ pub fn decode_witness_stack_exceeds_max_payload_size_fails_test() {
   // Verify the error context indicates witness stack validation
   assert transaction.get_parse_error_context(parse_err)
     == [InTransaction, AtWitnessStack(0), AtWitnessItem(2)]
+
+  assert transaction.get_parse_error_path(parse_err)
+    == "transaction.witnesses[0].items[2]"
 }
 
 pub fn decode_witness_stack_error_offset_points_to_third_item_test() {
