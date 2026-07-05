@@ -139,13 +139,14 @@ pub fn get_lock_time(tx: Transaction(v)) -> Int {
 
 /// Get the witness stacks from a SegWit transaction.
 ///
-/// Returns `Ok(witnesses)` if the transaction uses SegWit serialization.
-///
-/// Returns `Error(Nil)` if the transaction uses legacy serialization, because
-/// legacy transactions do not contain witness data.
-///
 /// For SegWit transactions, the witness stacks are returned in order,
 /// corresponding 1-to-1 with the transaction inputs by position.
+///
+/// ## Returns
+///
+/// - `Ok(witnesses)`: The transaction uses SegWit serialization.
+/// - `Error(Nil)`: The transaction uses legacy serialization, which does not
+///   contain witness data.
 pub fn get_witnesses(tx: Transaction(v)) -> Result(List(WitnessStack), Nil) {
   case tx {
     Segwit(witnesses:, ..) -> Ok(witnesses)
@@ -1939,9 +1940,9 @@ pub type ConsensusViolation {
   ///
   /// Consensus requires each output value to satisfy:
   ///
-  ///     0 <= value <= MAX_MONEY
+  ///     0 <= value <= 2,100,000,000,000,000 satoshis
   ///
-  /// where MAX_MONEY is 21,000,000 BTC expressed in satoshis.
+  /// The upper bound is 21,000,000 BTC expressed in satoshis.
   ///
   /// The `index` field indicates the zero-based position of the output,
   /// and `value` is the invalid amount.
@@ -1950,10 +1951,11 @@ pub type ConsensusViolation {
   /// The cumulative sum of output values exceeds the valid money range.
   ///
   /// During validation, Bitcoin nodes maintain a running total of all
-  /// output values and require that the cumulative sum never exceed MAX_MONEY.
+  /// output values and require that the cumulative sum never exceed
+  /// 2,100,000,000,000,000 satoshis.
   ///
   /// The `index` field indicates the zero-based position of the output
-  /// at which the running total first exceeded MAX_MONEY.
+  /// at which the running total first exceeded 2,100,000,000,000,000 satoshis.
   ///
   /// The `total` field is the cumulative output value at that point.
   TotalOutputValueOutOfRange(index: Int, total: Int)
@@ -1962,7 +1964,7 @@ pub type ConsensusViolation {
   /// more than one input.
   ///
   /// A coinbase transaction is defined as a transaction whose single
-  /// input has a null prevout. Under consensus rules, such a transaction
+  /// input has a null outpoint. Under consensus rules, such a transaction
   /// must contain exactly one input.
   CoinbaseWithMultipleInputs
 
@@ -1998,14 +2000,21 @@ pub type ConsensusViolation {
 ///
 ///   - At least one input
 ///   - At least one output
-///   - Output values satisfy MoneyRange (0 <= value <= MAX_MONEY)
-///   - Cumulative output value does not exceed MAX_MONEY
+///   - Output values are between 0 and 2,100,000,000,000,000 satoshis
+///   - Cumulative output value does not exceed 2,100,000,000,000,000 satoshis
 ///   - Coinbase transactions contain exactly one input
 ///   - Coinbase scriptSig length is 2–100 bytes (inclusive)
 ///   - No two inputs reference the same previous output
 ///
 /// Context-dependent checks — script execution, signature verification,
 /// and input-spend validation against the UTXO set — are not performed.
+///
+/// ## Returns
+///
+/// - `Ok(Transaction(ContextFreeValidated))`: The transaction passed all
+///   context-free consensus checks listed above.
+/// - `Error(violations)`: The transaction failed one or more context-free
+///   consensus checks. The list contains the detected violations.
 pub fn validate_context_free_consensus(
   tx: Transaction(Parsed),
 ) -> Result(Transaction(ContextFreeValidated), List(ConsensusViolation)) {
