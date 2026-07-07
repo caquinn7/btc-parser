@@ -7,8 +7,8 @@ transactions while preserving Bitcoin's wire representation.
 
 - **Safe parsing**: Configurable resource limits constrain work and allocation
   when parsing untrusted transaction bytes.
-- **Rich error context**: Parse errors include byte offsets, context stacks, and
-  stable structural paths.
+- **Rich parse diagnostics**: Parse errors include byte offsets and stable
+  structural paths.
 - **Format detection**: Legacy and SegWit transaction encodings remain distinct.
 - **Transaction inspection**: Access versions, lock times, inputs, outputs,
   outpoints, script bytes, output values, and SegWit witness stacks.

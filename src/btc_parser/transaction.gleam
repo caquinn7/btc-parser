@@ -279,8 +279,8 @@ pub fn get_witness_items(stack: WitnessStack) -> List(WitnessItem) {
 /// A stack containing a zero-length item is not empty. Emptiness refers to the
 /// number of items, not the number of bytes contained in those items.
 pub fn is_witness_stack_empty(stack: WitnessStack) -> Bool {
-  case get_witness_items(stack) {
-    [] -> True
+  case stack {
+    WitnessStack([]) -> True
     _ -> False
   }
 }
@@ -697,8 +697,8 @@ pub type DecodeError {
 
 /// An error that occurred while parsing a Bitcoin transaction.
 ///
-/// Carries the byte offset where the error occurred, the kind of error, and the
-/// parsing context identifying which fields or structures were being parsed.
+/// Carries the byte offset where the error occurred, the kind of error, and
+/// internal parse-location details used to build the public structural path.
 pub opaque type ParseError {
   ParseError(offset: Int, kind: ParseErrorKind, context: List(ParseContext))
 }
@@ -787,8 +787,8 @@ pub type ParseErrorKind {
 
 /// Identifies the configured `DecodePolicy` limit that was exceeded.
 ///
-/// Carried by `PolicyLimitExceeded`. The error context identifies where the
-/// violation occurred.
+/// Carried by `PolicyLimitExceeded`. Use `get_parse_error_path` to identify
+/// where the violation occurred.
 pub type DecodePolicyLimit {
   /// The maximum input buffer size was exceeded.
   ///
@@ -819,67 +819,36 @@ pub type DecodePolicyLimit {
   MaxWitnessStackPayloadSize
 }
 
-/// Contextual information about where in the transaction structure a parsing error occurred.
-pub type ParseContext {
-  /// The error occurred while parsing the top-level transaction structure.
+/// Internal breadcrumbs used to build public parse error paths.
+///
+/// Contexts are accumulated from outermost to innermost and projected by
+/// `get_parse_error_path`.
+type ParseContext {
   InTransaction
-
-  /// The error occurred while parsing a specific input within the input vector.
-  ///
-  /// The wrapped `Int` is the zero-based index of the input being parsed.
   AtInput(Int)
-
-  /// The error occurred while parsing a specific output within the output vector.
-  ///
-  /// The wrapped `Int` is the zero-based index of the output being parsed.
   AtOutput(Int)
-
-  /// The error occurred while parsing witness data for a specific input.
-  ///
-  /// The wrapped `Int` is the zero-based index of the input whose witness
-  /// stack was being parsed.
   AtWitnessStack(Int)
-
-  /// The error occurred while parsing a specific item within a witness stack.
-  ///
-  /// The wrapped `Int` is the zero-based index of the witness item being parsed.
   AtWitnessItem(Int)
-
-  /// The error occurred while parsing a specific named field.
-  ///
-  /// The wrapped `Field` identifies which transaction field was being parsed
-  /// when the error occurred, such as the version, lock time, an input's
-  /// script signature, or an output's value.
-  AtField(Field)
+  AtField(ParseField)
 }
 
-/// A named field within a Bitcoin transaction.
-///
-/// Every variant corresponds directly to a field in the Bitcoin wire format
-/// and is used in error reporting to indicate which field was being parsed
-/// when an error occurred.
-pub type Field {
+/// Internal transaction wire-format fields used in parse error paths.
+type ParseField {
   // Top-level transaction fields
   Version
   LockTime
-
   // SegWit marker/flag detection
   SegwitMarkerAndFlag
-
   // Input-related fields
   InputCount
   OutPointTxid
   OutPointVout
-  ScriptSig
   ScriptSigLength
   Sequence
-
   // Output-related fields
   OutputCount
   Value
-  ScriptPubKey
   ScriptPubKeyLength
-
   // Witness-related fields
   WitnessItemCount
   WitnessItemLength
@@ -915,22 +884,9 @@ pub fn get_parse_error_kind(err: ParseError) -> ParseErrorKind {
   err.kind
 }
 
-/// Get the parsing context stack for an error.
-///
-/// Returns a list of `ParseContext` values showing where in the transaction
-/// structure the error occurred. The list is ordered from least specific (outermost)
-/// to most specific (innermost), providing a "stack trace" through the parsing
-/// process.
-///
-/// For example, failure at the scriptSig length prefix of the third input can
-/// produce `[InTransaction, AtInput(2), AtField(ScriptSigLength)]`.
-pub fn get_parse_error_context(err: ParseError) -> List(ParseContext) {
-  err.context
-}
-
 /// Get the structural path for a parsing error.
 ///
-/// The path is derived from the error's context stack and uses a stable,
+/// The path is derived from internal parse-location details and uses a stable,
 /// machine-friendly format rooted at `transaction`. Collection indices are
 /// zero-based and written in brackets.
 ///
@@ -954,7 +910,7 @@ pub fn get_parse_error_path(err: ParseError) -> String {
   })
 }
 
-fn field_path_suffix(field: Field) -> String {
+fn field_path_suffix(field: ParseField) -> String {
   case field {
     Version -> ".version"
     LockTime -> ".lock_time"
@@ -962,12 +918,10 @@ fn field_path_suffix(field: Field) -> String {
     InputCount -> ".inputs.count"
     OutPointTxid -> ".outpoint.txid"
     OutPointVout -> ".outpoint.vout"
-    ScriptSig -> ".script_sig"
     ScriptSigLength -> ".script_sig.length"
     Sequence -> ".sequence"
     OutputCount -> ".outputs.count"
     Value -> ".value"
-    ScriptPubKey -> ".script_pubkey"
     ScriptPubKeyLength -> ".script_pubkey.length"
     WitnessItemCount -> ".items.count"
     WitnessItemLength -> ".length"
@@ -991,7 +945,7 @@ fn with_context(err: ParseError, context: List(ParseContext)) -> ParseError {
 /// point the error to a specific byte location, such as the start of a field,
 /// rather than the current reader position.
 fn field_error(
-  field: Field,
+  field: ParseField,
   offset: Int,
   context: List(ParseContext),
 ) -> fn(ParseErrorKind) -> DecodeError {
@@ -1331,7 +1285,7 @@ fn hex_to_bytes(hex: String) -> Result(BitArray, DecodeError) {
 
 /// Construct a parser for a field, adding error mapping and context wrapping.
 fn field_parser(
-  field: Field,
+  field: ParseField,
   read_fn: fn(Reader) -> Result(#(Reader, a), reader.ReaderError),
 ) -> Parser(ParseContext, a, DecodeError) {
   parser.new(fn(reader, ctx) {
@@ -1347,7 +1301,7 @@ fn field_parser(
 
 /// Construct a CompactSize parser with error mapping and context wrapping.
 fn compact_size_parser(
-  field: Field,
+  field: ParseField,
 ) -> Parser(ParseContext, Uint64, DecodeError) {
   parser.new(fn(reader, ctx) {
     reader
@@ -1368,7 +1322,7 @@ fn compact_size_parser(
 /// This wraps `compact_size_parser` and handles the common pattern of converting
 /// the `Uint64` result to `Int`, mapping conversion failures to `IntegerOutOfRange` errors.
 fn compact_size_int_parser(
-  field: Field,
+  field: ParseField,
 ) -> Parser(ParseContext, Int, DecodeError) {
   field
   |> compact_size_parser
@@ -1679,9 +1633,7 @@ fn script_sig_parser(
 ) -> Parser(ParseContext, ScriptBytes(InputScript), DecodeError) {
   ScriptSigLength
   |> script_length_parser(max_script_size_policy)
-  |> parser.then(fn(script_length) {
-    field_parser(ScriptSig, reader.read_bytes(_, script_length))
-  })
+  |> parser.then(checked_script_bytes_parser(ScriptSigLength, _))
   |> parser.map(ScriptBytes)
 }
 
@@ -1690,10 +1642,27 @@ fn script_pubkey_parser(
 ) -> Parser(ParseContext, ScriptBytes(OutputScript), DecodeError) {
   ScriptPubKeyLength
   |> script_length_parser(max_script_size_policy)
-  |> parser.then(fn(script_length) {
-    field_parser(ScriptPubKey, reader.read_bytes(_, script_length))
-  })
+  |> parser.then(checked_script_bytes_parser(ScriptPubKeyLength, _))
   |> parser.map(ScriptBytes)
+}
+
+/// Read script bytes after `script_length_parser` has validated the count.
+///
+/// The read should not fail after length validation, but map any future
+/// invariant break to the public length-field path rather than panicking.
+fn checked_script_bytes_parser(
+  field: ParseField,
+  count: Int,
+) -> Parser(ParseContext, BitArray, DecodeError) {
+  parser.new(fn(reader, ctx) {
+    reader
+    |> reader.read_bytes(count)
+    |> result.map_error(fn(err) {
+      err
+      |> reader_error_to_kind
+      |> field_error(field, reader.get_offset(reader), ctx)
+    })
+  })
 }
 
 /// Construct a parser for a validated script length field.
@@ -1701,7 +1670,7 @@ fn script_pubkey_parser(
 /// When run, it parses a CompactSize length, converts it to `Int`, validates it
 /// against `max_script_size_policy`, and ensures sufficient bytes remain.
 fn script_length_parser(
-  field: Field,
+  field: ParseField,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, Int, DecodeError) {
   field
