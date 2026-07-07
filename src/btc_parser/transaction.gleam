@@ -843,13 +843,11 @@ type ParseField {
   InputCount
   OutPointTxid
   OutPointVout
-  ScriptSig
   ScriptSigLength
   Sequence
   // Output-related fields
   OutputCount
   Value
-  ScriptPubKey
   ScriptPubKeyLength
   // Witness-related fields
   WitnessItemCount
@@ -920,12 +918,10 @@ fn field_path_suffix(field: ParseField) -> String {
     InputCount -> ".inputs.count"
     OutPointTxid -> ".outpoint.txid"
     OutPointVout -> ".outpoint.vout"
-    ScriptSig -> ".script_sig"
     ScriptSigLength -> ".script_sig.length"
     Sequence -> ".sequence"
     OutputCount -> ".outputs.count"
     Value -> ".value"
-    ScriptPubKey -> ".script_pubkey"
     ScriptPubKeyLength -> ".script_pubkey.length"
     WitnessItemCount -> ".items.count"
     WitnessItemLength -> ".length"
@@ -1638,7 +1634,12 @@ fn script_sig_parser(
   ScriptSigLength
   |> script_length_parser(max_script_size_policy)
   |> parser.then(fn(script_length) {
-    field_parser(ScriptSig, reader.read_bytes(_, script_length))
+    parser.new(fn(reader, _) {
+      // Safe: script_length_parser already checked this count against the
+      // current byte-aligned reader
+      let assert Ok(#(reader, bytes)) = reader.read_bytes(reader, script_length)
+      Ok(#(reader, bytes))
+    })
   })
   |> parser.map(ScriptBytes)
 }
@@ -1649,7 +1650,12 @@ fn script_pubkey_parser(
   ScriptPubKeyLength
   |> script_length_parser(max_script_size_policy)
   |> parser.then(fn(script_length) {
-    field_parser(ScriptPubKey, reader.read_bytes(_, script_length))
+    parser.new(fn(reader, _) {
+      // Safe: script_length_parser already checked this count against the
+      // current byte-aligned reader
+      let assert Ok(#(reader, bytes)) = reader.read_bytes(reader, script_length)
+      Ok(#(reader, bytes))
+    })
   })
   |> parser.map(ScriptBytes)
 }
