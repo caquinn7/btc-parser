@@ -1633,14 +1633,7 @@ fn script_sig_parser(
 ) -> Parser(ParseContext, ScriptBytes(InputScript), DecodeError) {
   ScriptSigLength
   |> script_length_parser(max_script_size_policy)
-  |> parser.then(fn(script_length) {
-    parser.new(fn(reader, _) {
-      // Safe: script_length_parser already checked this count against the
-      // current byte-aligned reader
-      let assert Ok(#(reader, bytes)) = reader.read_bytes(reader, script_length)
-      Ok(#(reader, bytes))
-    })
-  })
+  |> parser.then(checked_script_bytes_parser(ScriptSigLength, _))
   |> parser.map(ScriptBytes)
 }
 
@@ -1649,15 +1642,27 @@ fn script_pubkey_parser(
 ) -> Parser(ParseContext, ScriptBytes(OutputScript), DecodeError) {
   ScriptPubKeyLength
   |> script_length_parser(max_script_size_policy)
-  |> parser.then(fn(script_length) {
-    parser.new(fn(reader, _) {
-      // Safe: script_length_parser already checked this count against the
-      // current byte-aligned reader
-      let assert Ok(#(reader, bytes)) = reader.read_bytes(reader, script_length)
-      Ok(#(reader, bytes))
+  |> parser.then(checked_script_bytes_parser(ScriptPubKeyLength, _))
+  |> parser.map(ScriptBytes)
+}
+
+/// Read script bytes after `script_length_parser` has validated the count.
+///
+/// The read should not fail after length validation, but map any future
+/// invariant break to the public length-field path rather than panicking.
+fn checked_script_bytes_parser(
+  field: ParseField,
+  count: Int,
+) -> Parser(ParseContext, BitArray, DecodeError) {
+  parser.new(fn(reader, ctx) {
+    reader
+    |> reader.read_bytes(count)
+    |> result.map_error(fn(err) {
+      err
+      |> reader_error_to_kind
+      |> field_error(field, reader.get_offset(reader), ctx)
     })
   })
-  |> parser.map(ScriptBytes)
 }
 
 /// Construct a parser for a validated script length field.
