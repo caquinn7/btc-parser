@@ -3,7 +3,7 @@
 ## Project Purpose
 
 `btc_parser` is a Gleam library for working with Bitcoin data structures. Its
-current transaction domain parses wire bytes, inspects transaction fields,
+current transaction domain decodes wire bytes, inspects transaction fields,
 classifies output scripts, serializes transactions, and runs context-free
 consensus checks. It aims to mirror Bitcoin's wire format closely, expose
 malformed encodings as structured errors, and remain portable across Erlang and
@@ -17,7 +17,7 @@ context, mempool policy, or network/RPC access unless the project scope changes.
 
 - `src/btc_parser/transaction.gleam` defines the public transaction API and
   transaction data model. It contains opaque transaction/input/output/script types,
-  decode policy, parse errors, output script classification, context-free consensus
+  decode policy, decode errors, output script classification, context-free consensus
   validation, serialization, and txid/wtxid computation.
 - `src/btc_parser/internal/reader.gleam` is the byte reader. It owns offset
   tracking and byte-aligned reads.
@@ -34,6 +34,16 @@ context, mempool policy, or network/RPC access unless the project scope changes.
 - `dev/perf/transaction/` contains the transaction benchmark suite and report;
   `dev/perf/internal/` contains shared runtime metadata.
 - `docs/` documents API behavior and output script classification.
+
+## Terminology
+
+- Decoding is the public act of converting serialized Bitcoin data into typed
+  Gleam values.
+- Parsing is the internal implementation strategy used to perform decoding with
+  structured context and useful errors.
+- Prefer decode terminology for public APIs, source docs, examples, errors, and
+  type-state names. Keep parser terminology for internal parser combinators,
+  parser-returning functions, and parse-location context.
 
 ## Build And Test Commands
 
@@ -72,23 +82,23 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - Preserve transaction wire order and little-endian byte order. Public hash bytes
   and outpoint txids are exposed in the same little-endian order used on the wire.
 - Preserve the phantom-type validation boundary. `decode` produces
-  `Transaction(Parsed)`, `validate_context_free_consensus` is the only public
+  `Transaction(Decoded)`, `validate_context_free_consensus` is the only public
   upgrade path to `Transaction(ContextFreeValidated)`, and APIs whose documented
   guarantees depend on context-free validation should keep that requirement.
-- Parsing must consume exactly one transaction. Extra bytes must return
+- Transaction decoding must consume exactly one transaction. Extra bytes must return
   `TrailingBytes`, not be ignored.
 - CompactSize integers must reject non-minimal encodings.
 - Do not pass user-controlled CompactSize-derived values directly into reader
   byte-count operations or repeat helpers. First convert them to `Int` with
-  parse-error handling, then validate them against the current reader state and
+  decode-error handling, then validate them against the current reader state and
   any relevant policy limit.
-- Parse errors must include accurate byte offsets and context stacks from outer
+- Decode errors must include accurate byte offsets and context stacks from outer
   to inner context, such as `InTransaction`, `AtInput(n)`, `AtField(...)`.
 - Resource limits are policy, not consensus. Exceeding `DecodePolicy` limits
   should report `PolicyLimitExceeded`; structurally impossible lengths/counts
   should report `InsufficientBytes` or `UnexpectedEof`.
 - Reader and parser code should not panic on user-controlled input. Prefer
-  returning structured `ParseError`s for prevalidated variable-length reads even
+  returning structured `DecodeError`s for prevalidated variable-length reads even
   when a prior check should make failure impossible. Reserve `assert`/`panic`
   for fixed-width reads after successful reader checks or for private
   representation invariants proven locally.
@@ -130,7 +140,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - Keep public API documentation clear about byte order, validation state, and
   whether a check is structural, policy, or consensus.
 - Use parser helpers (`read_field`, `read_compact_size_as_int`,
-  `parser.with_context`, `parser.indexed_repeat`) so new parse failures get
+  `parser.with_context`, `parser.indexed_repeat`) so new decode failures get
   consistent offsets and contexts.
 - Use `Result` for malformed input and validation failures. Reserve panic/assert
   for impossible internal states.
@@ -175,7 +185,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
   byte-backed wrappers until a safe conversion is proven.
 - Avoid quadratic (O(n^2)) list or `BitArray` work in parser hot paths. Accumulate lists in
   reverse and reverse once, as the parser helpers do.
-- Do not silently relax default policy limits. They protect callers parsing
+- Do not silently relax default policy limits. They protect callers decoding
   untrusted bytes even though some consensus-valid transactions may exceed them.
 - Keep the default perf suite selective. Add benchmark rows only when they cover
   a distinct public operation, scaling dimension, fail-fast path, or transaction

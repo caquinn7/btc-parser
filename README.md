@@ -3,7 +3,7 @@
 <!-- [![Package Version](https://img.shields.io/hexpm/v/btc_parser)](https://hex.pm/packages/btc_parser)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/btc_parser/) -->
 
-A Gleam library for parsing and inspecting Bitcoin data structures.
+A Gleam library for decoding, inspecting, and structurally validating Bitcoin wire-format data in Gleam.
 
 `btc_parser` is designed to reflect Bitcoin's wire formats and protocol
 structures closely, expose malformed encodings as structured errors, and remain
@@ -13,7 +13,7 @@ portable across Erlang and JavaScript targets.
 
 Transactions are the only data structure currently implemented:
 
-- [`btc_parser/transaction`](docs/transaction/transaction.md) parses, inspects, validates,
+- [`btc_parser/transaction`](docs/transaction/transaction.md) decodes, inspects, validates,
   and serializes legacy and SegWit transactions.
 
 Future sibling modules, such as `btc_parser/block`, are planned as the library
@@ -74,7 +74,7 @@ and structural mutations while sharing the project-level command workflow.
 
 ### Benchmarking
 
-The [performance harness](dev/perf/README.md) measures public parsing and
+The [performance harness](dev/perf/README.md) measures public decoding and
 inspection workflows across representative inputs, scaling dimensions, and
 fail-fast paths. Domain-specific benchmark suites can be added as the library
 grows.

@@ -15,7 +15,7 @@ transactions.
 > errors from the library, not crash the process.
 
 The harness is not a semantic oracle. It does not verify that every malformed
-input returns a specific parse error kind, nor does it prove that every
+input returns a specific decode error kind, nor does it prove that every
 successfully decoded mutated transaction is semantically "correct." Focused unit
 tests cover exact error shapes and consensus-validation behavior.
 
