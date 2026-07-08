@@ -3,7 +3,7 @@
 ## Project Purpose
 
 `btc_parser` is a Gleam library for working with Bitcoin data structures. Its
-current transaction domain parses wire bytes, inspects transaction fields,
+current transaction domain decodes wire bytes, inspects transaction fields,
 classifies output scripts, serializes transactions, and runs context-free
 consensus checks. It aims to mirror Bitcoin's wire format closely, expose
 malformed encodings as structured errors, and remain portable across Erlang and
@@ -34,6 +34,16 @@ context, mempool policy, or network/RPC access unless the project scope changes.
 - `dev/perf/transaction/` contains the transaction benchmark suite and report;
   `dev/perf/internal/` contains shared runtime metadata.
 - `docs/` documents API behavior and output script classification.
+
+## Terminology
+
+- Decoding is the public act of converting serialized Bitcoin data into typed
+  Gleam values.
+- Parsing is the internal implementation strategy used to perform decoding with
+  structured context and useful errors.
+- Prefer decode terminology for public APIs, source docs, examples, errors, and
+  type-state names. Keep parser terminology for internal parser combinators,
+  parser-returning functions, and parse-location context.
 
 ## Build And Test Commands
 
