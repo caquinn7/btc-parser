@@ -677,11 +677,11 @@ fn decode_small_int_opcode(opcode: Int) -> Int {
 // Error handling
 // ==============================================================================
 
-/// An error that occurred while decoding a Bitcoin transaction.
+/// An error that occurred while decoding a Bitcoin transaction from hex.
 ///
 /// Distinguishes failures during hex-to-bytes conversion from failures during
 /// transaction parsing.
-pub type DecodeError {
+pub type DecodeHexError {
   /// The hexadecimal string could not be converted to bytes.
   ///
   /// This occurs before any transaction parsing begins, typically due to an
@@ -938,9 +938,9 @@ fn with_context(err: ParseError, context: List(ParseContext)) -> ParseError {
   })
 }
 
-/// Build a DecodeError factory function for a specific field at a given offset.
+/// Build a ParseError factory function for a specific field at a given offset.
 ///
-/// Returns a function that takes a ParseErrorKind and produces a DecodeError
+/// Returns a function that takes a ParseErrorKind and produces a ParseError
 /// with the field context already applied. The offset parameter allows you to
 /// point the error to a specific byte location, such as the start of a field,
 /// rather than the current reader position.
@@ -948,12 +948,11 @@ fn field_error(
   field: ParseField,
   offset: Int,
   context: List(ParseContext),
-) -> fn(ParseErrorKind) -> DecodeError {
+) -> fn(ParseErrorKind) -> ParseError {
   fn(kind) {
     kind
     |> new_parse_error(offset)
     |> with_context([AtField(field), ..context])
-    |> ParseFailed
   }
 }
 
@@ -1159,11 +1158,9 @@ pub fn decode_policy_max_witness_stack_payload_size(
 /// ## Returns
 ///
 /// - `Ok(Transaction(Parsed))`: Successfully decoded within the default policy limits.
-/// - `Error(ParseFailed(error))`: The bytes were not a well-formed transaction
+/// - `Error(ParseError)`: The bytes were not a well-formed transaction
 ///   encoding within the default policy limits.
-/// - `Error(InvalidHex)`: Never returned by this function; used only by
-///   the hexadecimal decoding functions.
-pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), DecodeError) {
+pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), ParseError) {
   decode_with_policy(bytes, default_decode_policy())
 }
 
@@ -1178,21 +1175,18 @@ pub fn decode(bytes: BitArray) -> Result(Transaction(Parsed), DecodeError) {
 /// ## Returns
 ///
 /// - `Ok(Transaction(Parsed))`: Successfully decoded within the supplied policy limits.
-/// - `Error(ParseFailed(error))`: The bytes were not a well-formed transaction
+/// - `Error(ParseError)`: The bytes were not a well-formed transaction
 ///   encoding within the supplied policy limits.
-/// - `Error(InvalidHex)`: Never returned by this function; used only by
-///   the hexadecimal decoding functions.
 pub fn decode_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
-) -> Result(Transaction(Parsed), DecodeError) {
+) -> Result(Transaction(Parsed), ParseError) {
   let tx_size = bit_array.byte_size(bytes)
   use <- bool.guard(
     tx_size > policy.max_tx_size,
     PolicyLimitExceeded(MaxTransactionSize, tx_size, policy.max_tx_size)
       |> new_parse_error(0)
       |> with_context([InTransaction])
-      |> ParseFailed
       |> Error,
   )
 
@@ -1204,7 +1198,7 @@ pub fn decode_with_policy(
 
 fn tx_parser(
   policy: DecodePolicy,
-) -> Parser(ParseContext, Transaction(Parsed), DecodeError) {
+) -> Parser(ParseContext, Transaction(Parsed), ParseError) {
   use version <- parser.then(field_parser(Version, reader.read_u32_le))
   use is_segwit <- parser.then(segwit_detection_parser())
   use inputs <- parser.then(inputs_parser(
@@ -1248,10 +1242,8 @@ fn tx_parser(
 ///   invalid characters).
 /// - `Error(ParseFailed(error))`: The decoded bytes were not a well-formed
 ///   transaction encoding within the default policy limits.
-pub fn decode_hex(hex: String) -> Result(Transaction(Parsed), DecodeError) {
-  hex
-  |> hex_to_bytes
-  |> result.try(decode)
+pub fn decode_hex(hex: String) -> Result(Transaction(Parsed), DecodeHexError) {
+  decode_hex_with_policy(hex, default_decode_policy())
 }
 
 /// Decode a Bitcoin transaction from hexadecimal with custom parsing limits.
@@ -1271,23 +1263,23 @@ pub fn decode_hex(hex: String) -> Result(Transaction(Parsed), DecodeError) {
 pub fn decode_hex_with_policy(
   hex: String,
   policy: DecodePolicy,
-) -> Result(Transaction(Parsed), DecodeError) {
-  hex
-  |> hex_to_bytes
-  |> result.try(decode_with_policy(_, policy))
-}
+) -> Result(Transaction(Parsed), DecodeHexError) {
+  use bytes <- result.try(
+    hex
+    |> bit_array.base16_decode
+    |> result.replace_error(InvalidHex),
+  )
 
-fn hex_to_bytes(hex: String) -> Result(BitArray, DecodeError) {
-  hex
-  |> bit_array.base16_decode
-  |> result.replace_error(InvalidHex)
+  bytes
+  |> decode_with_policy(policy)
+  |> result.map_error(ParseFailed)
 }
 
 /// Construct a parser for a field, adding error mapping and context wrapping.
 fn field_parser(
   field: ParseField,
   read_fn: fn(Reader) -> Result(#(Reader, a), reader.ReaderError),
-) -> Parser(ParseContext, a, DecodeError) {
+) -> Parser(ParseContext, a, ParseError) {
   parser.new(fn(reader, ctx) {
     reader
     |> read_fn
@@ -1302,7 +1294,7 @@ fn field_parser(
 /// Construct a CompactSize parser with error mapping and context wrapping.
 fn compact_size_parser(
   field: ParseField,
-) -> Parser(ParseContext, Uint64, DecodeError) {
+) -> Parser(ParseContext, Uint64, ParseError) {
   parser.new(fn(reader, ctx) {
     reader
     |> compact_size.read
@@ -1323,7 +1315,7 @@ fn compact_size_parser(
 /// the `Uint64` result to `Int`, mapping conversion failures to `IntegerOutOfRange` errors.
 fn compact_size_int_parser(
   field: ParseField,
-) -> Parser(ParseContext, Int, DecodeError) {
+) -> Parser(ParseContext, Int, ParseError) {
   field
   |> compact_size_parser
   |> parser.try_with_start_offset(fn(value_u64, start_offset, _, ctx) {
@@ -1342,7 +1334,7 @@ fn compact_size_int_parser(
 ///
 /// Returns `True` if the marker/flag bytes (0x00, 0x01) are present, `False` otherwise.
 /// When run, the parser consumes the marker/flag bytes if present.
-fn segwit_detection_parser() -> Parser(ParseContext, Bool, DecodeError) {
+fn segwit_detection_parser() -> Parser(ParseContext, Bool, ParseError) {
   segwit_lookahead_parser()
   |> parser.then(fn(is_segwit) {
     case is_segwit {
@@ -1363,7 +1355,7 @@ fn segwit_detection_parser() -> Parser(ParseContext, Bool, DecodeError) {
 ///
 /// `segwit_detection_parser` consumes the marker and flag bytes after this
 /// parser recognizes 0x00 0x01.
-fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
+fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, ParseError) {
   // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
   parser.new(fn(reader, ctx) {
     case reader.peek_bytes(reader, 2) {
@@ -1395,7 +1387,7 @@ fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
 }
 
 /// Construct a parser that consumes the SegWit marker and flag bytes when run.
-fn segwit_marker_and_flag_parser() -> Parser(ParseContext, Nil, DecodeError) {
+fn segwit_marker_and_flag_parser() -> Parser(ParseContext, Nil, ParseError) {
   field_parser(SegwitMarkerAndFlag, fn(reader) {
     reader
     |> reader.skip_bytes(2)
@@ -1406,7 +1398,7 @@ fn segwit_marker_and_flag_parser() -> Parser(ParseContext, Nil, DecodeError) {
 fn inputs_parser(
   max_input_count_policy: Int,
   max_script_size_policy: Int,
-) -> Parser(ParseContext, List(Input), DecodeError) {
+) -> Parser(ParseContext, List(Input), ParseError) {
   max_input_count_policy
   |> input_count_parser
   |> parser.then(input_list_parser(_, max_script_size_policy))
@@ -1416,7 +1408,7 @@ fn inputs_parser(
 /// checking structural and policy limits.
 fn input_count_parser(
   max_input_count_policy: Int,
-) -> Parser(ParseContext, Int, DecodeError) {
+) -> Parser(ParseContext, Int, ParseError) {
   InputCount
   |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(input_count, start_offset, reader, ctx) {
@@ -1438,8 +1430,8 @@ fn validate_input_count(
   input_count: Int,
   reader: Reader,
   max_input_count_policy: Int,
-  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
-) -> Result(Int, DecodeError) {
+  on_invalid: fn(ParseErrorKind) -> Result(Int, ParseError),
+) -> Result(Int, ParseError) {
   let min_input_size = 41
   let remaining = reader.bytes_remaining(reader)
   // Upper bound implied by remaining bytes (each input is at least 41 bytes)
@@ -1463,7 +1455,7 @@ fn validate_input_count(
 fn input_list_parser(
   input_count: Int,
   max_script_size_policy: Int,
-) -> Parser(ParseContext, List(Input), DecodeError) {
+) -> Parser(ParseContext, List(Input), ParseError) {
   // input_count
   // ├─ Input #0
   // │    ├─ outpoint txid (32 bytes)
@@ -1483,7 +1475,7 @@ fn input_list_parser(
 
 fn input_parser(
   max_script_size_policy: Int,
-) -> Parser(ParseContext, Input, DecodeError) {
+) -> Parser(ParseContext, Input, ParseError) {
   // │ outpoint txid (32 bytes)
   // │ vout (4 bytes)
   // │ scriptSig length (CompactSize)
@@ -1497,7 +1489,7 @@ fn input_parser(
   )
 }
 
-fn outpoint_parser() -> Parser(ParseContext, OutPoint, DecodeError) {
+fn outpoint_parser() -> Parser(ParseContext, OutPoint, ParseError) {
   parser.map2(
     field_parser(OutPointTxid, reader.read_bytes(_, 32)),
     field_parser(OutPointVout, reader.read_u32_le),
@@ -1518,7 +1510,7 @@ fn outpoint_parser() -> Parser(ParseContext, OutPoint, DecodeError) {
 fn outputs_parser(
   max_output_count_policy: Int,
   max_script_size_policy: Int,
-) -> Parser(ParseContext, List(Output), DecodeError) {
+) -> Parser(ParseContext, List(Output), ParseError) {
   max_output_count_policy
   |> output_count_parser
   |> parser.then(output_list_parser(_, max_script_size_policy))
@@ -1527,7 +1519,7 @@ fn outputs_parser(
 /// Validate and convert the output count from Uint64 to Int, checking structural and policy limits.
 fn output_count_parser(
   max_output_count_policy: Int,
-) -> Parser(ParseContext, Int, DecodeError) {
+) -> Parser(ParseContext, Int, ParseError) {
   OutputCount
   |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(output_count, start_offset, reader, ctx) {
@@ -1549,8 +1541,8 @@ fn validate_output_count(
   output_count: Int,
   reader: Reader,
   max_output_count_policy: Int,
-  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
-) -> Result(Int, DecodeError) {
+  on_invalid: fn(ParseErrorKind) -> Result(Int, ParseError),
+) -> Result(Int, ParseError) {
   let min_output_size = 9
   let remaining = reader.bytes_remaining(reader)
   // Upper bound implied by remaining bytes (each output is at least 9 bytes)
@@ -1577,7 +1569,7 @@ fn validate_output_count(
 fn output_list_parser(
   output_count: Int,
   max_script_size_policy: Int,
-) -> Parser(ParseContext, List(Output), DecodeError) {
+) -> Parser(ParseContext, List(Output), ParseError) {
   // output_count
   // ├─ Output #0
   // │    ├─ value (8 bytes)
@@ -1595,7 +1587,7 @@ fn output_list_parser(
 
 fn output_parser(
   max_script_size_policy: Int,
-) -> Parser(ParseContext, Output, DecodeError) {
+) -> Parser(ParseContext, Output, ParseError) {
   // | value (8 bytes)
   // | scriptPubKey length (CompactSize)
   // | scriptPubKey bytes
@@ -1606,7 +1598,7 @@ fn output_parser(
   )
 }
 
-fn satoshis_parser() -> Parser(ParseContext, Int, DecodeError) {
+fn satoshis_parser() -> Parser(ParseContext, Int, ParseError) {
   Value
   |> field_parser(reader.read_bytes(_, 8))
   |> parser.map(fn(value_bytes) {
@@ -1630,7 +1622,7 @@ fn satoshis_parser() -> Parser(ParseContext, Int, DecodeError) {
 
 fn script_sig_parser(
   max_script_size_policy: Int,
-) -> Parser(ParseContext, ScriptBytes(InputScript), DecodeError) {
+) -> Parser(ParseContext, ScriptBytes(InputScript), ParseError) {
   ScriptSigLength
   |> script_length_parser(max_script_size_policy)
   |> parser.then(checked_script_bytes_parser(ScriptSigLength, _))
@@ -1639,7 +1631,7 @@ fn script_sig_parser(
 
 fn script_pubkey_parser(
   max_script_size_policy: Int,
-) -> Parser(ParseContext, ScriptBytes(OutputScript), DecodeError) {
+) -> Parser(ParseContext, ScriptBytes(OutputScript), ParseError) {
   ScriptPubKeyLength
   |> script_length_parser(max_script_size_policy)
   |> parser.then(checked_script_bytes_parser(ScriptPubKeyLength, _))
@@ -1653,7 +1645,7 @@ fn script_pubkey_parser(
 fn checked_script_bytes_parser(
   field: ParseField,
   count: Int,
-) -> Parser(ParseContext, BitArray, DecodeError) {
+) -> Parser(ParseContext, BitArray, ParseError) {
   parser.new(fn(reader, ctx) {
     reader
     |> reader.read_bytes(count)
@@ -1672,7 +1664,7 @@ fn checked_script_bytes_parser(
 fn script_length_parser(
   field: ParseField,
   max_script_size_policy: Int,
-) -> Parser(ParseContext, Int, DecodeError) {
+) -> Parser(ParseContext, Int, ParseError) {
   field
   |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(script_length, start_offset, reader, ctx) {
@@ -1694,8 +1686,8 @@ fn validate_script_length(
   script_length: Int,
   reader: Reader,
   max_script_size_policy: Int,
-  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
-) -> Result(Int, DecodeError) {
+  on_invalid: fn(ParseErrorKind) -> Result(Int, ParseError),
+) -> Result(Int, ParseError) {
   let remaining = reader.bytes_remaining(reader)
 
   case script_length > remaining, script_length > max_script_size_policy {
@@ -1717,7 +1709,7 @@ fn witnesses_if_segwit_parser(
   is_segwit: Bool,
   input_count: Int,
   policy: DecodePolicy,
-) -> Parser(ParseContext, Option(List(WitnessStack)), DecodeError) {
+) -> Parser(ParseContext, Option(List(WitnessStack)), ParseError) {
   case is_segwit {
     True ->
       input_count
@@ -1735,7 +1727,7 @@ fn witnesses_parser(
   input_count: Int,
   max_witness_stack_item_count: Option(Int),
   max_witness_stack_payload_size: Option(Int),
-) -> Parser(ParseContext, List(WitnessStack), DecodeError) {
+) -> Parser(ParseContext, List(WitnessStack), ParseError) {
   input_count
   |> parser.indexed_repeat(
     witness_parser(max_witness_stack_item_count, max_witness_stack_payload_size),
@@ -1747,7 +1739,6 @@ fn witnesses_parser(
         SuperfluousWitnessRecord
         |> new_parse_error(start_offset)
         |> with_context(ctx)
-        |> ParseFailed
         |> Error
 
       False -> Ok(witnesses)
@@ -1758,7 +1749,7 @@ fn witnesses_parser(
 fn witness_parser(
   max_witness_stack_item_count: Option(Int),
   max_witness_stack_payload_size: Option(Int),
-) -> Parser(ParseContext, WitnessStack, DecodeError) {
+) -> Parser(ParseContext, WitnessStack, ParseError) {
   // WitnessStack for one input:
   // ├─ item count (CompactSize)
   // ├─ WitnessItem #0
@@ -1784,7 +1775,7 @@ fn witness_parser(
 /// it against the `max_witness_stack_item_count` policy.
 fn witness_item_count_parser(
   max_witness_stack_item_count_policy: Option(Int),
-) -> Parser(ParseContext, Int, DecodeError) {
+) -> Parser(ParseContext, Int, ParseError) {
   WitnessItemCount
   |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(item_count, start_offset, _reader, ctx) {
@@ -1801,7 +1792,7 @@ fn witness_item_count_parser(
 
 fn witness_items_parser(
   item_count: Int,
-) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
+) -> Parser(ParseContext, List(WitnessItem), ParseError) {
   parser.indexed_repeat(item_count, witness_item_parser(), AtWitnessItem)
 }
 
@@ -1811,7 +1802,7 @@ fn witness_items_parser(
 fn tracked_witness_items_parser(
   item_count: Int,
   max_total_bytes: Int,
-) -> Parser(ParseContext, List(WitnessItem), DecodeError) {
+) -> Parser(ParseContext, List(WitnessItem), ParseError) {
   parser.indexed_repeat_with_limit(
     item_count,
     sized_witness_item_parser(),
@@ -1825,7 +1816,6 @@ fn tracked_witness_items_parser(
       )
       |> new_parse_error(start_offset)
       |> with_context(ctx)
-      |> ParseFailed
     },
   )
 }
@@ -1834,7 +1824,7 @@ fn tracked_witness_items_parser(
 fn sized_witness_item_parser() -> Parser(
   ParseContext,
   #(WitnessItem, Int),
-  DecodeError,
+  ParseError,
 ) {
   witness_item_parser()
   |> parser.map(fn(item) {
@@ -1847,7 +1837,7 @@ fn sized_witness_item_parser() -> Parser(
   })
 }
 
-fn witness_item_parser() -> Parser(ParseContext, WitnessItem, DecodeError) {
+fn witness_item_parser() -> Parser(ParseContext, WitnessItem, ParseError) {
   witness_item_length_parser()
   |> parser.then(fn(item_length) {
     parser.new(fn(reader, ctx) {
@@ -1858,14 +1848,13 @@ fn witness_item_parser() -> Parser(ParseContext, WitnessItem, DecodeError) {
         |> reader_error_to_kind
         |> new_parse_error(reader.get_offset(reader))
         |> with_context(ctx)
-        |> ParseFailed
       })
     })
   })
   |> parser.map(WitnessItem)
 }
 
-fn witness_item_length_parser() -> Parser(ParseContext, Int, DecodeError) {
+fn witness_item_length_parser() -> Parser(ParseContext, Int, ParseError) {
   WitnessItemLength
   |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(item_length, start_offset, reader, ctx) {
@@ -1881,8 +1870,8 @@ fn witness_item_length_parser() -> Parser(ParseContext, Int, DecodeError) {
 fn validate_witness_item_length(
   item_length: Int,
   reader: Reader,
-  on_invalid: fn(ParseErrorKind) -> Result(Int, DecodeError),
-) -> Result(Int, DecodeError) {
+  on_invalid: fn(ParseErrorKind) -> Result(Int, ParseError),
+) -> Result(Int, ParseError) {
   let remaining = reader.bytes_remaining(reader)
 
   case item_length > remaining {
@@ -1894,13 +1883,12 @@ fn validate_witness_item_length(
   }
 }
 
-fn end_of_tx_parser() -> Parser(ParseContext, Nil, DecodeError) {
+fn end_of_tx_parser() -> Parser(ParseContext, Nil, ParseError) {
   parser.end_of_input(fn(bytes_remaining, reader, ctx) {
     bytes_remaining
     |> TrailingBytes
     |> new_parse_error(reader.get_offset(reader))
     |> with_context(ctx)
-    |> ParseFailed
   })
 }
 

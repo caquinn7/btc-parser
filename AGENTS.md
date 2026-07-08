@@ -78,14 +78,20 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - Parsing must consume exactly one transaction. Extra bytes must return
   `TrailingBytes`, not be ignored.
 - CompactSize integers must reject non-minimal encodings.
+- Do not pass user-controlled CompactSize-derived values directly into reader
+  byte-count operations or repeat helpers. First convert them to `Int` with
+  parse-error handling, then validate them against the current reader state and
+  any relevant policy limit.
 - Parse errors must include accurate byte offsets and context stacks from outer
   to inner context, such as `InTransaction`, `AtInput(n)`, `AtField(...)`.
 - Resource limits are policy, not consensus. Exceeding `DecodePolicy` limits
   should report `PolicyLimitExceeded`; structurally impossible lengths/counts
   should report `InsufficientBytes` or `UnexpectedEof`.
-- Reader and parser code should not panic on user-controlled input. Existing
-  panics/asserts should remain limited to internal invariants already proven by
-  earlier checks.
+- Reader and parser code should not panic on user-controlled input. Prefer
+  returning structured `ParseError`s for prevalidated variable-length reads even
+  when a prior check should make failure impossible. Reserve `assert`/`panic`
+  for fixed-width reads after successful reader checks or for private
+  representation invariants proven locally.
 - Witness stack count must match input count for SegWit transactions.
 - Extended SegWit serialization must contain at least one witness item across
   all input stacks. An all-empty witness record is superfluous; a zero-length
