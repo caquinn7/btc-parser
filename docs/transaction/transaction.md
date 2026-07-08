@@ -17,7 +17,7 @@ transactions while preserving Bitcoin's wire representation.
 - **Context-free consensus validation**: Check transaction-local rules such as
   input/output presence, output value ranges, coinbase structure, and duplicate
   inputs.
-- **Validation-aware API**: Phantom types distinguish parsed transactions from
+- **Validation-aware API**: Phantom types distinguish decoded transactions from
   transactions that passed context-free consensus validation.
 - **Serialization and identifiers**: Produce stripped or full wire bytes and
   compute txids and wtxids.

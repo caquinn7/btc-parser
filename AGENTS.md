@@ -72,7 +72,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - Preserve transaction wire order and little-endian byte order. Public hash bytes
   and outpoint txids are exposed in the same little-endian order used on the wire.
 - Preserve the phantom-type validation boundary. `decode` produces
-  `Transaction(Parsed)`, `validate_context_free_consensus` is the only public
+  `Transaction(Decoded)`, `validate_context_free_consensus` is the only public
   upgrade path to `Transaction(ContextFreeValidated)`, and APIs whose documented
   guarantees depend on context-free validation should keep that requirement.
 - Transaction decoding must consume exactly one transaction. Extra bytes must return

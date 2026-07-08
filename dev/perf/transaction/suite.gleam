@@ -13,7 +13,7 @@
 //// `decode` or one `compute_txid` call.
 
 import btc_parser/transaction.{
-  type ContextFreeValidated, type Parsed, type Transaction, DuplicateInput,
+  type ContextFreeValidated, type Decoded, type Transaction, DuplicateInput,
   InsufficientBytes, MaxScriptSize, PolicyLimitExceeded,
   TotalOutputValueOutOfRange, UnexpectedEof,
 }
@@ -122,6 +122,7 @@ pub fn run() -> PerfResult {
 // ==============================================================================
 
 /// Measures `transaction.decode` from byte arrays that are prepared before timing.
+///
 /// This group includes valid legacy/SegWit fixtures, synthetic many-input and
 /// many-output legacy transactions, synthetic SegWit transactions that isolate
 /// witness scaling dimensions, malformed inputs that fail after most of the
@@ -546,9 +547,9 @@ fn coinbase_shape_case(
 ) -> PerfCaseInput(Transaction(ContextFreeValidated)) {
   let tx_bytes = build_synthetic_legacy_tx(input_count, 1, UniqueOutPoints)
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
   let assert Ok(validated_tx) =
-    transaction.validate_context_free_consensus(parsed_tx)
+    transaction.validate_context_free_consensus(decoded_tx)
 
   assert !transaction.has_coinbase_shape(validated_tx)
 
@@ -563,8 +564,9 @@ fn coinbase_shape_case(
 // Context-free consensus validation
 // ==============================================================================
 
-/// Measures `transaction.validate_context_free_consensus` on already-parsed
+/// Measures `transaction.validate_context_free_consensus` on already-decoded
 /// synthetic transactions.
+///
 /// The valid cases exercise full success-path input-count and output-count
 /// scanning. The late-duplicate cases place the duplicate outpoint at the end so
 /// rejection still walks nearly the whole input list.
@@ -651,7 +653,7 @@ fn measure_context_free_consensus_validation_output_overflow() -> PerfSection {
 
 fn measure_validation_input_counts(
   input_counts: List(Int),
-  build_case: fn(Int) -> PerfCaseInput(Transaction(Parsed)),
+  build_case: fn(Int) -> PerfCaseInput(Transaction(Decoded)),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   input_counts
@@ -679,7 +681,7 @@ fn measure_validation_output_overflow_counts(
 
 fn valid_input_count_consensus_case(
   input_count: Int,
-) -> PerfCaseInput(Transaction(Parsed)) {
+) -> PerfCaseInput(Transaction(Decoded)) {
   context_free_consensus_validation_case(
     "valid inputs=" <> int.to_string(input_count),
     build_synthetic_legacy_tx(input_count, 1, UniqueOutPoints),
@@ -689,7 +691,7 @@ fn valid_input_count_consensus_case(
 
 fn valid_output_count_consensus_case(
   output_count: Int,
-) -> PerfCaseInput(Transaction(Parsed)) {
+) -> PerfCaseInput(Transaction(Decoded)) {
   context_free_consensus_validation_case(
     "valid outputs=" <> int.to_string(output_count),
     build_synthetic_legacy_tx(1, output_count, UniqueOutPoints),
@@ -699,7 +701,7 @@ fn valid_output_count_consensus_case(
 
 fn late_duplicate_input_count_consensus_case(
   input_count: Int,
-) -> PerfCaseInput(Transaction(Parsed)) {
+) -> PerfCaseInput(Transaction(Decoded)) {
   context_free_consensus_validation_case(
     "late duplicate inputs=" <> int.to_string(input_count),
     build_synthetic_legacy_tx(input_count, 1, LastOutPointDuplicatesFirst),
@@ -709,7 +711,7 @@ fn late_duplicate_input_count_consensus_case(
 
 fn output_overflow_count_consensus_case(
   output_count: Int,
-) -> PerfCaseInput(Transaction(Parsed)) {
+) -> PerfCaseInput(Transaction(Decoded)) {
   let outputs = build_output_overflow_outputs(output_count)
 
   context_free_consensus_validation_case(
@@ -728,15 +730,15 @@ fn context_free_consensus_validation_case(
   label: String,
   tx_bytes: BitArray,
   expectation: ContextFreeConsensusValidationExpectation,
-) -> PerfCaseInput(Transaction(Parsed)) {
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
-  preflight_validate_context_free_consensus(parsed_tx, expectation)
+) -> PerfCaseInput(Transaction(Decoded)) {
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
+  preflight_validate_context_free_consensus(decoded_tx, expectation)
 
-  PerfCaseInput(label, bit_array.byte_size(tx_bytes), parsed_tx)
+  PerfCaseInput(label, bit_array.byte_size(tx_bytes), decoded_tx)
 }
 
 fn measure_validate_context_free_consensus(
-  inputs: List(PerfCaseInput(Transaction(Parsed))),
+  inputs: List(PerfCaseInput(Transaction(Decoded))),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   run_bench_cases(
@@ -761,25 +763,25 @@ type ContextFreeConsensusValidationExpectation {
 }
 
 fn preflight_validate_context_free_consensus(
-  parsed_tx: Transaction(Parsed),
+  decoded_tx: Transaction(Decoded),
   expectation: ContextFreeConsensusValidationExpectation,
 ) -> Nil {
   case expectation {
     ExpectValid -> {
-      let assert Ok(_) = transaction.validate_context_free_consensus(parsed_tx)
+      let assert Ok(_) = transaction.validate_context_free_consensus(decoded_tx)
       Nil
     }
 
     ExpectLateDuplicate(input_count) -> {
-      let assert [first_input, ..] = transaction.get_inputs(parsed_tx)
+      let assert [first_input, ..] = transaction.get_inputs(decoded_tx)
       let duplicate_outpoint = transaction.get_input_outpoint(first_input)
 
-      assert transaction.validate_context_free_consensus(parsed_tx)
+      assert transaction.validate_context_free_consensus(decoded_tx)
         == Error([DuplicateInput(duplicate_outpoint, 0, input_count - 1)])
     }
 
     ExpectOutputOverflow(output_count) -> {
-      assert transaction.validate_context_free_consensus(parsed_tx)
+      assert transaction.validate_context_free_consensus(decoded_tx)
         == Error([
           TotalOutputValueOutOfRange(
             output_count - 1,
@@ -794,7 +796,8 @@ fn preflight_validate_context_free_consensus(
 // Txid computation & serialization
 // ==============================================================================
 
-/// Measures `compute_txid` and `compute_wtxid` on already-parsed transactions.
+/// Measures `compute_txid` and `compute_wtxid` on already-decoded transactions.
+///
 /// This excludes decode cost, leaving serialization and double-SHA256 work
 /// inside the timed region.
 fn measure_txid_computation() -> List(PerfSection) {
@@ -811,7 +814,7 @@ fn measure_txid_computation() -> List(PerfSection) {
 fn measure_fixture_txid_computation() -> PerfSection {
   PerfSection(
     "txid computation / fixtures",
-    measure_txid_functions(fixture_parsed_tx_cases(), measurement_config(100)),
+    measure_txid_functions(fixture_decoded_tx_cases(), measurement_config(100)),
   )
 }
 
@@ -869,8 +872,10 @@ fn measure_synthetic_witness_payload_txid_computation() -> PerfSection {
   PerfSection("txid computation / synthetic witness payload", cases)
 }
 
-/// Measures `to_stripped_bytes` and `to_wire_bytes` on already-parsed
-/// transactions. The benchmark set includes legacy and SegWit transactions
+/// Measures `to_stripped_bytes` and `to_wire_bytes` on already-decoded
+/// transactions.
+///
+/// The benchmark set includes legacy and SegWit transactions
 /// because witness serialization changes the code path and payload shape.
 fn measure_tx_serialization() -> List(PerfSection) {
   [
@@ -887,7 +892,7 @@ fn measure_fixture_tx_serialization() -> PerfSection {
   PerfSection(
     "serialization / fixtures",
     measure_serialization_functions(
-      fixture_parsed_tx_cases(),
+      fixture_decoded_tx_cases(),
       measurement_config(100),
     ),
   )
@@ -1157,25 +1162,25 @@ fn measure_synthetic_parsed_function(
   specs: List(SyntheticTxSpec),
   config: PerfMeasurementConfig,
   function_label: String,
-  measured_function: fn(Transaction(Parsed)) -> BitArray,
+  measured_function: fn(Transaction(Decoded)) -> BitArray,
 ) -> List(PerfCaseResult) {
   specs
   |> list.map(synthetic_parsed_case)
-  |> measure_parsed_tx_function(config, function_label, measured_function)
+  |> measure_decoded_tx_function(config, function_label, measured_function)
 }
 
 fn measure_txid_functions(
-  inputs: List(PerfCaseInput(Transaction(Parsed))),
+  inputs: List(PerfCaseInput(Transaction(Decoded))),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   [
-    measure_parsed_tx_function(
+    measure_decoded_tx_function(
       inputs,
       config,
       "compute_txid",
       transaction.compute_txid,
     ),
-    measure_parsed_tx_function(
+    measure_decoded_tx_function(
       inputs,
       config,
       "compute_wtxid",
@@ -1186,17 +1191,17 @@ fn measure_txid_functions(
 }
 
 fn measure_serialization_functions(
-  inputs: List(PerfCaseInput(Transaction(Parsed))),
+  inputs: List(PerfCaseInput(Transaction(Decoded))),
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   [
-    measure_parsed_tx_function(
+    measure_decoded_tx_function(
       inputs,
       config,
       "to_stripped_bytes",
       transaction.to_stripped_bytes,
     ),
-    measure_parsed_tx_function(
+    measure_decoded_tx_function(
       inputs,
       config,
       "to_wire_bytes",
@@ -1206,11 +1211,11 @@ fn measure_serialization_functions(
   |> list.flatten
 }
 
-fn measure_parsed_tx_function(
-  inputs: List(PerfCaseInput(Transaction(Parsed))),
+fn measure_decoded_tx_function(
+  inputs: List(PerfCaseInput(Transaction(Decoded))),
   config: PerfMeasurementConfig,
   function_label: String,
-  measured_function: fn(Transaction(Parsed)) -> BitArray,
+  measured_function: fn(Transaction(Decoded)) -> BitArray,
 ) -> List(PerfCaseResult) {
   run_bench_cases(
     inputs,
@@ -1226,23 +1231,23 @@ fn measure_parsed_tx_function(
 
 fn synthetic_parsed_case(
   synthetic_spec: SyntheticTxSpec,
-) -> PerfCaseInput(Transaction(Parsed)) {
+) -> PerfCaseInput(Transaction(Decoded)) {
   let #(label, tx_bytes) = synthetic_tx_spec_to_bytes(synthetic_spec)
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
-  PerfCaseInput(label, bit_array.byte_size(tx_bytes), parsed_tx)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
+  PerfCaseInput(label, bit_array.byte_size(tx_bytes), decoded_tx)
 }
 
-fn fixture_parsed_tx_cases() -> List(PerfCaseInput(Transaction(Parsed))) {
-  let fixture_parsed_tx_case = fn(input_label, tx_hex) {
+fn fixture_decoded_tx_cases() -> List(PerfCaseInput(Transaction(Decoded))) {
+  let fixture_decoded_tx_case = fn(input_label, tx_hex) {
     let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
-    let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
-    PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), parsed_tx)
+    let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
+    PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), decoded_tx)
   }
 
   [
-    fixture_parsed_tx_case("simple legacy tx", simple_legacy_tx),
-    fixture_parsed_tx_case("simple segwit tx", simple_segwit_tx),
-    fixture_parsed_tx_case("witness-heavy tx", witness_heavy_p2wsh_tx),
+    fixture_decoded_tx_case("simple legacy tx", simple_legacy_tx),
+    fixture_decoded_tx_case("simple segwit tx", simple_segwit_tx),
+    fixture_decoded_tx_case("witness-heavy tx", witness_heavy_p2wsh_tx),
   ]
 }
 

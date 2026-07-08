@@ -2220,45 +2220,45 @@ pub fn classify_output_script_unknown_witness_v1_max_program_test() {
 
 pub fn validate_context_free_consensus_accepts_valid_legacy_tx_test() {
   // Use a real legacy transaction that has 1 input and 1 output
-  let assert Ok(parsed_tx) = transaction.decode_hex(legacy_v1_tx)
+  let assert Ok(decoded_tx) = transaction.decode_hex(legacy_v1_tx)
 
-  assert !transaction.is_segwit(parsed_tx)
+  assert !transaction.is_segwit(decoded_tx)
 
   let assert Ok(validated_tx) =
-    transaction.validate_context_free_consensus(parsed_tx)
+    transaction.validate_context_free_consensus(decoded_tx)
 
   // Verify the context-free-validated transaction maintains the same properties
   assert !transaction.is_segwit(validated_tx)
   assert transaction.get_version(validated_tx)
-    == transaction.get_version(parsed_tx)
+    == transaction.get_version(decoded_tx)
   assert list.length(transaction.get_inputs(validated_tx))
-    == list.length(transaction.get_inputs(parsed_tx))
+    == list.length(transaction.get_inputs(decoded_tx))
   assert list.length(transaction.get_outputs(validated_tx))
-    == list.length(transaction.get_outputs(parsed_tx))
+    == list.length(transaction.get_outputs(decoded_tx))
   assert transaction.get_lock_time(validated_tx)
-    == transaction.get_lock_time(parsed_tx)
+    == transaction.get_lock_time(decoded_tx)
 }
 
 pub fn validate_context_free_consensus_accepts_valid_segwit_tx_test() {
-  let assert Ok(parsed_tx) = transaction.decode_hex(segwit_v1_tx)
+  let assert Ok(decoded_tx) = transaction.decode_hex(segwit_v1_tx)
 
-  assert transaction.is_segwit(parsed_tx)
+  assert transaction.is_segwit(decoded_tx)
 
   let assert Ok(validated_tx) =
-    transaction.validate_context_free_consensus(parsed_tx)
+    transaction.validate_context_free_consensus(decoded_tx)
 
   // Verify the context-free-validated transaction maintains the same properties
   assert transaction.is_segwit(validated_tx)
   assert transaction.get_version(validated_tx)
-    == transaction.get_version(parsed_tx)
+    == transaction.get_version(decoded_tx)
   assert list.length(transaction.get_inputs(validated_tx))
-    == list.length(transaction.get_inputs(parsed_tx))
+    == list.length(transaction.get_inputs(decoded_tx))
   assert list.length(transaction.get_outputs(validated_tx))
-    == list.length(transaction.get_outputs(parsed_tx))
+    == list.length(transaction.get_outputs(decoded_tx))
   assert transaction.get_lock_time(validated_tx)
-    == transaction.get_lock_time(parsed_tx)
+    == transaction.get_lock_time(decoded_tx)
   assert transaction.get_witnesses(validated_tx)
-    == transaction.get_witnesses(parsed_tx)
+    == transaction.get_witnesses(decoded_tx)
 }
 
 pub fn validate_context_free_consensus_collects_no_inputs_and_no_outputs_test() {
@@ -2269,9 +2269,9 @@ pub fn validate_context_free_consensus_collects_no_inputs_and_no_outputs_test() 
     0:little-size(32),
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
 
-  assert transaction.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(decoded_tx)
     == Error([NoInputs, NoOutputs])
 }
 
@@ -2290,9 +2290,9 @@ pub fn validate_context_free_consensus_rejects_tx_with_no_outputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
 
-  assert transaction.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(decoded_tx)
     == Error([NoOutputs])
 }
 
@@ -2315,9 +2315,9 @@ pub fn validate_context_free_consensus_rejects_tx_with_negative_output_value_tes
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
 
-  assert transaction.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(decoded_tx)
     == Error([OutputValueOutOfRange(0, -1)])
 }
 
@@ -2341,9 +2341,9 @@ pub fn validate_context_free_consensus_rejects_tx_with_output_exceeding_supply_t
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
 
-  assert transaction.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(decoded_tx)
     == Error([OutputValueOutOfRange(0, 2_100_000_000_000_001)])
 }
 
@@ -2370,9 +2370,9 @@ pub fn validate_context_free_consensus_rejects_tx_with_total_outputs_exceeding_s
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
 
-  assert transaction.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(decoded_tx)
     == Error([TotalOutputValueOutOfRange(1, 2_200_000_000_000_000)])
 }
 
@@ -2403,9 +2403,9 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_multiple_inputs_tes
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
 
-  assert transaction.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(decoded_tx)
     == Error([CoinbaseWithMultipleInputs])
 }
 
@@ -2434,9 +2434,9 @@ pub fn validate_context_free_consensus_rejects_multiple_coinbase_inputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
 
-  assert transaction.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(decoded_tx)
     == Error([CoinbaseWithMultipleInputs])
 }
 
@@ -2460,9 +2460,9 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_short
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
 
-  assert transaction.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(decoded_tx)
     == Error([InvalidCoinbaseScriptSigLength])
 }
 
@@ -2488,9 +2488,9 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_long_
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
 
-  assert transaction.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(decoded_tx)
     == Error([InvalidCoinbaseScriptSigLength])
 }
 
@@ -2516,8 +2516,8 @@ pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_min_lengt
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
-  let assert Ok(_) = transaction.validate_context_free_consensus(parsed_tx)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
+  let assert Ok(_) = transaction.validate_context_free_consensus(decoded_tx)
 }
 
 pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
@@ -2542,8 +2542,8 @@ pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_max_lengt
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
-  let assert Ok(_) = transaction.validate_context_free_consensus(parsed_tx)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
+  let assert Ok(_) = transaction.validate_context_free_consensus(decoded_tx)
 }
 
 pub fn validate_context_free_consensus_returns_multiple_errors_test() {
@@ -2573,11 +2573,11 @@ pub fn validate_context_free_consensus_returns_multiple_errors_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
 
   // Validate consensus rules - should fail with multiple errors
   let assert Error(errors) =
-    transaction.validate_context_free_consensus(parsed_tx)
+    transaction.validate_context_free_consensus(decoded_tx)
 
   // Should contain both CoinbaseWithMultipleInputs and OutputValueOutOfRange
   assert list.contains(errors, CoinbaseWithMultipleInputs)
@@ -2607,11 +2607,11 @@ pub fn validate_context_free_consensus_rejects_tx_with_duplicate_inputs_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
-  let assert [input0, ..] = transaction.get_inputs(parsed_tx)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
+  let assert [input0, ..] = transaction.get_inputs(decoded_tx)
   let duplicate_outpoint = transaction.get_input_outpoint(input0)
 
-  assert transaction.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(decoded_tx)
     == Error([DuplicateInput(duplicate_outpoint, 0, 1)])
 }
 
@@ -2640,11 +2640,11 @@ pub fn validate_context_free_consensus_rejects_duplicate_input_at_non_adjacent_i
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
-  let assert [input0, ..] = transaction.get_inputs(parsed_tx)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
+  let assert [input0, ..] = transaction.get_inputs(decoded_tx)
   let duplicate_outpoint = transaction.get_input_outpoint(input0)
 
-  assert transaction.validate_context_free_consensus(parsed_tx)
+  assert transaction.validate_context_free_consensus(decoded_tx)
     == Error([DuplicateInput(duplicate_outpoint, 0, 2)])
 }
 
@@ -2670,8 +2670,8 @@ pub fn validate_context_free_consensus_accepts_inputs_with_same_txid_but_differe
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
-  let assert Ok(_) = transaction.validate_context_free_consensus(parsed_tx)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
+  let assert Ok(_) = transaction.validate_context_free_consensus(decoded_tx)
 }
 
 pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_errors_test() {
@@ -2697,12 +2697,12 @@ pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
-  let assert [input0, ..] = transaction.get_inputs(parsed_tx)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
+  let assert [input0, ..] = transaction.get_inputs(decoded_tx)
   let duplicate_outpoint = transaction.get_input_outpoint(input0)
 
   let assert Error(errors) =
-    transaction.validate_context_free_consensus(parsed_tx)
+    transaction.validate_context_free_consensus(decoded_tx)
   assert list.contains(errors, OutputValueOutOfRange(0, -1))
   assert list.contains(errors, DuplicateInput(duplicate_outpoint, 0, 1))
   assert list.length(errors) == 2
@@ -2716,17 +2716,17 @@ pub fn round_trip_legacy_tx_wire_bytes_match_original_hex_test() {
   // The bytes produced by to_wire_bytes must exactly match the original
   // hex encoding — no byte dropped or added.
   let assert Ok(original_bytes) = bit_array.base16_decode(legacy_v1_tx)
-  let assert Ok(parsed_tx) = transaction.decode(original_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(original_bytes)
 
-  assert transaction.to_stripped_bytes(parsed_tx) == original_bytes
-  assert transaction.to_wire_bytes(parsed_tx) == original_bytes
+  assert transaction.to_stripped_bytes(decoded_tx) == original_bytes
+  assert transaction.to_wire_bytes(decoded_tx) == original_bytes
 }
 
 pub fn round_trip_segwit_tx_wire_bytes_match_original_hex_test() {
   let assert Ok(original_bytes) = bit_array.base16_decode(segwit_v1_tx)
-  let assert Ok(parsed_tx) = transaction.decode(original_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(original_bytes)
 
-  assert transaction.to_wire_bytes(parsed_tx) == original_bytes
+  assert transaction.to_wire_bytes(decoded_tx) == original_bytes
 }
 
 pub fn hashing_and_serialization_accept_context_free_invalid_segwit_tx_test() {
@@ -2746,12 +2746,12 @@ pub fn hashing_and_serialization_accept_context_free_invalid_segwit_tx_test() {
     0:little-size(32),
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(wire_bytes)
-  assert transaction.validate_context_free_consensus(parsed_tx)
+  let assert Ok(decoded_tx) = transaction.decode(wire_bytes)
+  assert transaction.validate_context_free_consensus(decoded_tx)
     == Error([NoOutputs])
 
-  assert transaction.to_stripped_bytes(parsed_tx) == stripped_bytes
-  assert transaction.to_wire_bytes(parsed_tx) == wire_bytes
+  assert transaction.to_stripped_bytes(decoded_tx) == stripped_bytes
+  assert transaction.to_wire_bytes(decoded_tx) == wire_bytes
 
   let expected_txid =
     stripped_bytes
@@ -2763,8 +2763,8 @@ pub fn hashing_and_serialization_accept_context_free_invalid_segwit_tx_test() {
     |> crypto.hash(Sha256, _)
     |> crypto.hash(Sha256, _)
 
-  assert transaction.compute_txid(parsed_tx) == expected_txid
-  assert transaction.compute_wtxid(parsed_tx) == expected_wtxid
+  assert transaction.compute_txid(decoded_tx) == expected_txid
+  assert transaction.compute_wtxid(decoded_tx) == expected_wtxid
 }
 
 // ============================================================================
@@ -2789,9 +2789,9 @@ pub fn has_coinbase_shape_regular_transaction_returns_false_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
   let assert Ok(validated_tx) =
-    transaction.validate_context_free_consensus(parsed_tx)
+    transaction.validate_context_free_consensus(decoded_tx)
   assert !transaction.has_coinbase_shape(validated_tx)
 }
 
@@ -2813,9 +2813,9 @@ pub fn has_coinbase_shape_coinbase_transaction_test() {
     lock_time:bits,
   >>
 
-  let assert Ok(parsed_tx) = transaction.decode(tx_bytes)
+  let assert Ok(decoded_tx) = transaction.decode(tx_bytes)
   let assert Ok(validated_tx) =
-    transaction.validate_context_free_consensus(parsed_tx)
+    transaction.validate_context_free_consensus(decoded_tx)
   assert transaction.has_coinbase_shape(validated_tx)
 }
 
