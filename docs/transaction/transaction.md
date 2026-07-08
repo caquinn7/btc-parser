@@ -30,9 +30,17 @@ import gleam/result
 
 pub fn txid_from_bytes(
   bytes: BitArray,
-) -> Result(BitArray, transaction.DecodeError) {
+) -> Result(BitArray, transaction.ParseError) {
   bytes
   |> transaction.decode
+  |> result.map(transaction.compute_txid)
+}
+
+pub fn txid_from_hex(
+  hex: String,
+) -> Result(BitArray, transaction.DecodeHexError) {
+  hex
+  |> transaction.decode_hex
   |> result.map(transaction.compute_txid)
 }
 ```
