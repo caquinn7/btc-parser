@@ -3,7 +3,7 @@
 <!-- [![Package Version](https://img.shields.io/hexpm/v/btc_parser)](https://hex.pm/packages/btc_parser)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/btc_parser/) -->
 
-A Gleam library for parsing and inspecting Bitcoin data structures.
+A Gleam library for decoding, inspecting, and structurally validating Bitcoin wire-format data in Gleam.
 
 `btc_parser` is designed to reflect Bitcoin's wire formats and protocol
 structures closely, expose malformed encodings as structured errors, and remain
