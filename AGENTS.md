@@ -17,7 +17,7 @@ context, mempool policy, or network/RPC access unless the project scope changes.
 
 - `src/btc_parser/transaction.gleam` defines the public transaction API and
   transaction data model. It contains opaque transaction/input/output/script types,
-  decode policy, parse errors, output script classification, context-free consensus
+  decode policy, decode errors, output script classification, context-free consensus
   validation, serialization, and txid/wtxid computation.
 - `src/btc_parser/internal/reader.gleam` is the byte reader. It owns offset
   tracking and byte-aligned reads.
@@ -75,20 +75,20 @@ file/timer/CLI behavior, or a runtime-specific bug.
   `Transaction(Parsed)`, `validate_context_free_consensus` is the only public
   upgrade path to `Transaction(ContextFreeValidated)`, and APIs whose documented
   guarantees depend on context-free validation should keep that requirement.
-- Parsing must consume exactly one transaction. Extra bytes must return
+- Transaction decoding must consume exactly one transaction. Extra bytes must return
   `TrailingBytes`, not be ignored.
 - CompactSize integers must reject non-minimal encodings.
 - Do not pass user-controlled CompactSize-derived values directly into reader
   byte-count operations or repeat helpers. First convert them to `Int` with
-  parse-error handling, then validate them against the current reader state and
+  decode-error handling, then validate them against the current reader state and
   any relevant policy limit.
-- Parse errors must include accurate byte offsets and context stacks from outer
+- Decode errors must include accurate byte offsets and context stacks from outer
   to inner context, such as `InTransaction`, `AtInput(n)`, `AtField(...)`.
 - Resource limits are policy, not consensus. Exceeding `DecodePolicy` limits
   should report `PolicyLimitExceeded`; structurally impossible lengths/counts
   should report `InsufficientBytes` or `UnexpectedEof`.
 - Reader and parser code should not panic on user-controlled input. Prefer
-  returning structured `ParseError`s for prevalidated variable-length reads even
+  returning structured `DecodeError`s for prevalidated variable-length reads even
   when a prior check should make failure impossible. Reserve `assert`/`panic`
   for fixed-width reads after successful reader checks or for private
   representation invariants proven locally.
@@ -130,7 +130,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - Keep public API documentation clear about byte order, validation state, and
   whether a check is structural, policy, or consensus.
 - Use parser helpers (`read_field`, `read_compact_size_as_int`,
-  `parser.with_context`, `parser.indexed_repeat`) so new parse failures get
+  `parser.with_context`, `parser.indexed_repeat`) so new decode failures get
   consistent offsets and contexts.
 - Use `Result` for malformed input and validation failures. Reserve panic/assert
   for impossible internal states.
@@ -175,7 +175,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
   byte-backed wrappers until a safe conversion is proven.
 - Avoid quadratic (O(n^2)) list or `BitArray` work in parser hot paths. Accumulate lists in
   reverse and reverse once, as the parser helpers do.
-- Do not silently relax default policy limits. They protect callers parsing
+- Do not silently relax default policy limits. They protect callers decoding
   untrusted bytes even though some consensus-valid transactions may exceed them.
 - Keep the default perf suite selective. Add benchmark rows only when they cover
   a distinct public operation, scaling dimension, fail-fast path, or transaction

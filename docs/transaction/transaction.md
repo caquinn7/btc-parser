@@ -1,13 +1,13 @@
 # `btc_parser/transaction`
 
-The transaction domain parses, inspects, validates, and serializes Bitcoin
+The transaction domain decodes, inspects, validates, and serializes Bitcoin
 transactions while preserving Bitcoin's wire representation.
 
 ## Features
 
-- **Safe parsing**: Configurable resource limits constrain work and allocation
-  when parsing untrusted transaction bytes.
-- **Rich parse diagnostics**: Parse errors include byte offsets and stable
+- **Safe decoding**: Configurable resource limits constrain work and allocation
+  when decoding untrusted transaction bytes.
+- **Rich decode diagnostics**: Decode errors include byte offsets and stable
   structural paths.
 - **Format detection**: Legacy and SegWit transaction encodings remain distinct.
 - **Transaction inspection**: Access versions, lock times, inputs, outputs,
@@ -30,7 +30,7 @@ import gleam/result
 
 pub fn txid_from_bytes(
   bytes: BitArray,
-) -> Result(BitArray, transaction.ParseError) {
+) -> Result(BitArray, transaction.DecodeError) {
   bytes
   |> transaction.decode
   |> result.map(transaction.compute_txid)
@@ -47,7 +47,7 @@ pub fn txid_from_hex(
 
 ## Scope
 
-The module performs structural parsing, inspection, serialization, output script
+The module performs structural decoding, inspection, serialization, output script
 classification, and documented context-free consensus checks. It does not
 perform full transaction validation requiring UTXO lookup, script execution,
 signature verification, block context, mempool policy, or network/RPC access.

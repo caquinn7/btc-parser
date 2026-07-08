@@ -13,7 +13,7 @@ portable across Erlang and JavaScript targets.
 
 Transactions are the only data structure currently implemented:
 
-- [`btc_parser/transaction`](docs/transaction/transaction.md) parses, inspects, validates,
+- [`btc_parser/transaction`](docs/transaction/transaction.md) decodes, inspects, validates,
   and serializes legacy and SegWit transactions.
 
 Future sibling modules, such as `btc_parser/block`, are planned as the library
@@ -74,7 +74,7 @@ and structural mutations while sharing the project-level command workflow.
 
 ### Benchmarking
 
-The [performance harness](dev/perf/README.md) measures public parsing and
+The [performance harness](dev/perf/README.md) measures public decoding and
 inspection workflows across representative inputs, scaling dimensions, and
 fail-fast paths. Domain-specific benchmark suites can be added as the library
 grows.

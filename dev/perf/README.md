@@ -65,12 +65,12 @@ requested report cannot be written.
 tests for common legacy, SegWit, and witness-heavy shapes that synthetic cases
 may not model exactly.
 
-`decode / synthetic inputs` measures parser scaling as the legacy input vector
-grows. It is meant to catch input parsing regressions, accidental quadratic list
+`decode / synthetic inputs` measures decoder scaling as the legacy input vector
+grows. It is meant to catch input decoding regressions, accidental quadratic list
 or `BitArray` work, and CompactSize count handling issues.
 
-`decode / synthetic outputs` measures parser scaling as the legacy output vector
-grows. It is meant to catch output parsing regressions and scriptPubKey length
+`decode / synthetic outputs` measures decoder scaling as the legacy output vector
+grows. It is meant to catch output decoding regressions and scriptPubKey length
 handling problems while keeping the input side fixed.
 
 `decode / synthetic segwit inputs` measures full SegWit transaction decoding as
@@ -87,7 +87,7 @@ flat here because payload bytes are captured, not interpreted. A steep increase
 would suggest unexpected copying or byte-by-byte payload work.
 
 `decode / malformed` measures malformed inputs that fail after most of the
-transaction has already been parsed. These rows are meant to catch expensive
+transaction has already been decoded. These rows are meant to catch expensive
 late-failure paths and ensure truncation checks stay precise.
 
 `decode / policy limits` measures policy-limit rejection before unnecessary
