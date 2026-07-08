@@ -126,7 +126,7 @@ pub fn run() -> PerfResult {
 /// This group includes valid legacy/SegWit fixtures, synthetic many-input and
 /// many-output legacy transactions, synthetic SegWit transactions that isolate
 /// witness scaling dimensions, malformed inputs that fail after most of the
-/// transaction has been parsed, and policy-limit violations that should reject
+/// transaction has been decoded, and policy-limit violations that should reject
 /// before doing unnecessary payload work.
 fn measure_tx_decoding() -> List(PerfSection) {
   [
@@ -854,13 +854,13 @@ fn measure_synthetic_witness_payload_txid_computation() -> PerfSection {
 
   let cases =
     [
-      measure_synthetic_parsed_function(
+      measure_synthetic_decoded_function(
         small_specs,
         small_config,
         "compute_wtxid",
         transaction.compute_wtxid,
       ),
-      measure_synthetic_parsed_function(
+      measure_synthetic_decoded_function(
         large_specs,
         large_config,
         "compute_wtxid",
@@ -940,13 +940,13 @@ fn measure_synthetic_witness_payload_tx_serialization() -> PerfSection {
 
   let cases =
     [
-      measure_synthetic_parsed_function(
+      measure_synthetic_decoded_function(
         small_specs,
         small_config,
         "to_wire_bytes",
         transaction.to_wire_bytes,
       ),
-      measure_synthetic_parsed_function(
+      measure_synthetic_decoded_function(
         large_specs,
         large_config,
         "to_wire_bytes",
@@ -967,13 +967,13 @@ fn measure_synthetic_legacy_txid_curve(
   let large_config = large_synthetic_tx_measurement_config()
 
   [
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       small_specs,
       small_config,
       "compute_txid",
       transaction.compute_txid,
     ),
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       large_specs,
       large_config,
       "compute_txid",
@@ -992,13 +992,13 @@ fn measure_synthetic_legacy_serialization_curve(
   let large_config = large_synthetic_tx_measurement_config()
 
   [
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       small_specs,
       small_config,
       "to_stripped_bytes",
       transaction.to_stripped_bytes,
     ),
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       large_specs,
       large_config,
       "to_stripped_bytes",
@@ -1024,31 +1024,31 @@ fn measure_synthetic_segwit_txid_curve(
   let slow_config = slow_synthetic_tx_measurement_config()
 
   [
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       small_specs,
       small_config,
       "compute_txid",
       transaction.compute_txid,
     ),
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       large_specs,
       large_config,
       "compute_txid",
       transaction.compute_txid,
     ),
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       small_witness_specs,
       small_config,
       "compute_wtxid",
       transaction.compute_wtxid,
     ),
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       medium_witness_specs,
       medium_config,
       "compute_wtxid",
       transaction.compute_wtxid,
     ),
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       slow_witness_specs,
       slow_config,
       "compute_wtxid",
@@ -1067,13 +1067,13 @@ fn measure_synthetic_witness_wtxid_curve(
   let large_config = large_synthetic_tx_measurement_config()
 
   [
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       small_specs,
       small_config,
       "compute_wtxid",
       transaction.compute_wtxid,
     ),
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       large_specs,
       large_config,
       "compute_wtxid",
@@ -1099,31 +1099,31 @@ fn measure_synthetic_segwit_serialization_curve(
   let slow_config = slow_synthetic_tx_measurement_config()
 
   [
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       small_specs,
       small_config,
       "to_stripped_bytes",
       transaction.to_stripped_bytes,
     ),
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       large_specs,
       large_config,
       "to_stripped_bytes",
       transaction.to_stripped_bytes,
     ),
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       small_witness_specs,
       small_config,
       "to_wire_bytes",
       transaction.to_wire_bytes,
     ),
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       medium_witness_specs,
       medium_config,
       "to_wire_bytes",
       transaction.to_wire_bytes,
     ),
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       slow_witness_specs,
       slow_config,
       "to_wire_bytes",
@@ -1142,13 +1142,13 @@ fn measure_synthetic_witness_serialization_curve(
   let large_config = large_synthetic_tx_measurement_config()
 
   [
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       small_specs,
       small_config,
       "to_wire_bytes",
       transaction.to_wire_bytes,
     ),
-    measure_synthetic_parsed_function(
+    measure_synthetic_decoded_function(
       large_specs,
       large_config,
       "to_wire_bytes",
@@ -1158,14 +1158,14 @@ fn measure_synthetic_witness_serialization_curve(
   |> list.flatten
 }
 
-fn measure_synthetic_parsed_function(
+fn measure_synthetic_decoded_function(
   specs: List(SyntheticTxSpec),
   config: PerfMeasurementConfig,
   function_label: String,
   measured_function: fn(Transaction(Decoded)) -> BitArray,
 ) -> List(PerfCaseResult) {
   specs
-  |> list.map(synthetic_parsed_case)
+  |> list.map(synthetic_decoded_case)
   |> measure_decoded_tx_function(config, function_label, measured_function)
 }
 
@@ -1229,7 +1229,7 @@ fn measure_decoded_tx_function(
   )
 }
 
-fn synthetic_parsed_case(
+fn synthetic_decoded_case(
   synthetic_spec: SyntheticTxSpec,
 ) -> PerfCaseInput(Transaction(Decoded)) {
   let #(label, tx_bytes) = synthetic_tx_spec_to_bytes(synthetic_spec)
