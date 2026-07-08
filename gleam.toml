@@ -1,7 +1,7 @@
 name = "btc_parser"
 version = "1.0.0"
 
-description = "Decode and inspect Bitcoin wire-format data structures."
+description = "Parse and inspect Bitcoin wire-format data structures."
 licences = ["MIT"]
 
 [repository]
