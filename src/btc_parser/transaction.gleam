@@ -1196,35 +1196,6 @@ pub fn decode_with_policy(
   |> result.map(pair.second)
 }
 
-fn tx_parser(
-  policy: DecodePolicy,
-) -> Parser(ParseContext, Transaction(Parsed), ParseError) {
-  use version <- parser.then(field_parser(Version, reader.read_u32_le))
-  use is_segwit <- parser.then(segwit_detection_parser())
-  use inputs <- parser.then(inputs_parser(
-    policy.max_input_count,
-    policy.max_script_size,
-  ))
-  use outputs <- parser.then(outputs_parser(
-    policy.max_output_count,
-    policy.max_script_size,
-  ))
-  use witnesses <- parser.then(witnesses_if_segwit_parser(
-    is_segwit,
-    list.length(inputs),
-    policy,
-  ))
-  use lock_time <- parser.then(field_parser(LockTime, reader.read_u32_le))
-  use _ <- parser.then(end_of_tx_parser())
-
-  parser.return(case witnesses {
-    Some(witnesses) ->
-      Segwit(version:, inputs:, outputs:, lock_time:, witnesses:)
-
-    None -> Legacy(version:, inputs:, outputs:, lock_time:)
-  })
-}
-
 /// Decode a Bitcoin transaction from its hexadecimal string representation.
 ///
 /// This is a convenience function that combines hex-to-bytes conversion with
@@ -1274,6 +1245,52 @@ pub fn decode_hex_with_policy(
   |> decode_with_policy(policy)
   |> result.map_error(ParseFailed)
 }
+
+// ==============================================================================
+// Transaction Parser
+// ==============================================================================
+
+fn tx_parser(
+  policy: DecodePolicy,
+) -> Parser(ParseContext, Transaction(Parsed), ParseError) {
+  use version <- parser.then(field_parser(Version, reader.read_u32_le))
+  use is_segwit <- parser.then(segwit_detection_parser())
+  use inputs <- parser.then(inputs_parser(
+    policy.max_input_count,
+    policy.max_script_size,
+  ))
+  use outputs <- parser.then(outputs_parser(
+    policy.max_output_count,
+    policy.max_script_size,
+  ))
+  use witnesses <- parser.then(witnesses_if_segwit_parser(
+    is_segwit,
+    list.length(inputs),
+    policy,
+  ))
+  use lock_time <- parser.then(field_parser(LockTime, reader.read_u32_le))
+  use _ <- parser.then(end_of_tx_parser())
+
+  parser.return(case witnesses {
+    Some(witnesses) ->
+      Segwit(version:, inputs:, outputs:, lock_time:, witnesses:)
+
+    None -> Legacy(version:, inputs:, outputs:, lock_time:)
+  })
+}
+
+fn end_of_tx_parser() -> Parser(ParseContext, Nil, ParseError) {
+  parser.end_of_input(fn(bytes_remaining, reader, ctx) {
+    bytes_remaining
+    |> TrailingBytes
+    |> new_parse_error(reader.get_offset(reader))
+    |> with_context(ctx)
+  })
+}
+
+// ==============================================================================
+// Shared Parser Helpers
+// ==============================================================================
 
 /// Construct a parser for a field, adding error mapping and context wrapping.
 fn field_parser(
@@ -1329,6 +1346,10 @@ fn compact_size_int_parser(
     })
   })
 }
+
+// ==============================================================================
+// SegWit Detection
+// ==============================================================================
 
 /// Construct a parser that detects whether a transaction uses SegWit format.
 ///
@@ -1395,6 +1416,10 @@ fn segwit_marker_and_flag_parser() -> Parser(ParseContext, Nil, ParseError) {
   })
 }
 
+// ==============================================================================
+// Input Parsing
+// ==============================================================================
+
 fn inputs_parser(
   max_input_count_policy: Int,
   max_script_size_policy: Int,
@@ -1424,32 +1449,6 @@ fn input_count_parser(
       on_invalid,
     )
   })
-}
-
-fn validate_input_count(
-  input_count: Int,
-  reader: Reader,
-  max_input_count_policy: Int,
-  on_invalid: fn(ParseErrorKind) -> Result(Int, ParseError),
-) -> Result(Int, ParseError) {
-  let min_input_size = 41
-  let remaining = reader.bytes_remaining(reader)
-  // Upper bound implied by remaining bytes (each input is at least 41 bytes)
-  let max_inputs_by_bytes = remaining / min_input_size
-
-  case input_count > max_inputs_by_bytes, input_count > max_input_count_policy {
-    // Structural limit: count exceeds what remaining bytes can accommodate
-    True, _ ->
-      InsufficientBytes(claimed: remaining + 1, remaining:)
-      |> on_invalid
-
-    // Policy limit: count exceeds configured maximum
-    _, True ->
-      PolicyLimitExceeded(MaxInputCount, input_count, max_input_count_policy)
-      |> on_invalid
-
-    _, _ -> Ok(input_count)
-  }
 }
 
 fn input_list_parser(
@@ -1507,6 +1506,36 @@ fn outpoint_parser() -> Parser(ParseContext, OutPoint, ParseError) {
   )
 }
 
+fn validate_input_count(
+  input_count: Int,
+  reader: Reader,
+  max_input_count_policy: Int,
+  on_invalid: fn(ParseErrorKind) -> Result(Int, ParseError),
+) -> Result(Int, ParseError) {
+  let min_input_size = 41
+  let remaining = reader.bytes_remaining(reader)
+  // Upper bound implied by remaining bytes (each input is at least 41 bytes)
+  let max_inputs_by_bytes = remaining / min_input_size
+
+  case input_count > max_inputs_by_bytes, input_count > max_input_count_policy {
+    // Structural limit: count exceeds what remaining bytes can accommodate
+    True, _ ->
+      InsufficientBytes(claimed: remaining + 1, remaining:)
+      |> on_invalid
+
+    // Policy limit: count exceeds configured maximum
+    _, True ->
+      PolicyLimitExceeded(MaxInputCount, input_count, max_input_count_policy)
+      |> on_invalid
+
+    _, _ -> Ok(input_count)
+  }
+}
+
+// ==============================================================================
+// Output Parsing
+// ==============================================================================
+
 fn outputs_parser(
   max_output_count_policy: Int,
   max_script_size_policy: Int,
@@ -1535,35 +1564,6 @@ fn output_count_parser(
       on_invalid,
     )
   })
-}
-
-fn validate_output_count(
-  output_count: Int,
-  reader: Reader,
-  max_output_count_policy: Int,
-  on_invalid: fn(ParseErrorKind) -> Result(Int, ParseError),
-) -> Result(Int, ParseError) {
-  let min_output_size = 9
-  let remaining = reader.bytes_remaining(reader)
-  // Upper bound implied by remaining bytes (each output is at least 9 bytes)
-  let max_outputs_by_bytes = remaining / min_output_size
-
-  case
-    output_count > max_outputs_by_bytes,
-    output_count > max_output_count_policy
-  {
-    // Structural limit: count exceeds what remaining bytes can accommodate
-    True, _ ->
-      InsufficientBytes(claimed: remaining + 1, remaining:)
-      |> on_invalid
-
-    // Policy limit: count exceeds configured maximum
-    _, True ->
-      PolicyLimitExceeded(MaxOutputCount, output_count, max_output_count_policy)
-      |> on_invalid
-
-    _, _ -> Ok(output_count)
-  }
 }
 
 fn output_list_parser(
@@ -1620,6 +1620,39 @@ fn satoshis_parser() -> Parser(ParseContext, Int, ParseError) {
   })
 }
 
+fn validate_output_count(
+  output_count: Int,
+  reader: Reader,
+  max_output_count_policy: Int,
+  on_invalid: fn(ParseErrorKind) -> Result(Int, ParseError),
+) -> Result(Int, ParseError) {
+  let min_output_size = 9
+  let remaining = reader.bytes_remaining(reader)
+  // Upper bound implied by remaining bytes (each output is at least 9 bytes)
+  let max_outputs_by_bytes = remaining / min_output_size
+
+  case
+    output_count > max_outputs_by_bytes,
+    output_count > max_output_count_policy
+  {
+    // Structural limit: count exceeds what remaining bytes can accommodate
+    True, _ ->
+      InsufficientBytes(claimed: remaining + 1, remaining:)
+      |> on_invalid
+
+    // Policy limit: count exceeds configured maximum
+    _, True ->
+      PolicyLimitExceeded(MaxOutputCount, output_count, max_output_count_policy)
+      |> on_invalid
+
+    _, _ -> Ok(output_count)
+  }
+}
+
+// ==============================================================================
+// Script Parsing
+// ==============================================================================
+
 fn script_sig_parser(
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, ScriptBytes(InputScript), ParseError) {
@@ -1636,25 +1669,6 @@ fn script_pubkey_parser(
   |> script_length_parser(max_script_size_policy)
   |> parser.then(checked_script_bytes_parser(ScriptPubKeyLength, _))
   |> parser.map(ScriptBytes)
-}
-
-/// Read script bytes after `script_length_parser` has validated the count.
-///
-/// The read should not fail after length validation, but map any future
-/// invariant break to the public length-field path rather than panicking.
-fn checked_script_bytes_parser(
-  field: ParseField,
-  count: Int,
-) -> Parser(ParseContext, BitArray, ParseError) {
-  parser.new(fn(reader, ctx) {
-    reader
-    |> reader.read_bytes(count)
-    |> result.map_error(fn(err) {
-      err
-      |> reader_error_to_kind
-      |> field_error(field, reader.get_offset(reader), ctx)
-    })
-  })
 }
 
 /// Construct a parser for a validated script length field.
@@ -1682,6 +1696,25 @@ fn script_length_parser(
   })
 }
 
+/// Read script bytes after `script_length_parser` has validated the count.
+///
+/// The read should not fail after length validation, but map any future
+/// invariant break to the public length-field path rather than panicking.
+fn checked_script_bytes_parser(
+  field: ParseField,
+  count: Int,
+) -> Parser(ParseContext, BitArray, ParseError) {
+  parser.new(fn(reader, ctx) {
+    reader
+    |> reader.read_bytes(count)
+    |> result.map_error(fn(err) {
+      err
+      |> reader_error_to_kind
+      |> field_error(field, reader.get_offset(reader), ctx)
+    })
+  })
+}
+
 fn validate_script_length(
   script_length: Int,
   reader: Reader,
@@ -1704,6 +1737,10 @@ fn validate_script_length(
     _, _ -> Ok(script_length)
   }
 }
+
+// ==============================================================================
+// Witness Parsing
+// ==============================================================================
 
 fn witnesses_if_segwit_parser(
   is_segwit: Bool,
@@ -1881,15 +1918,6 @@ fn validate_witness_item_length(
 
     False -> Ok(item_length)
   }
-}
-
-fn end_of_tx_parser() -> Parser(ParseContext, Nil, ParseError) {
-  parser.end_of_input(fn(bytes_remaining, reader, ctx) {
-    bytes_remaining
-    |> TrailingBytes
-    |> new_parse_error(reader.get_offset(reader))
-    |> with_context(ctx)
-  })
 }
 
 // ==============================================================================
