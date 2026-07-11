@@ -5,3 +5,4 @@ erl_crash.dump
 /resources
 .DS_Store
 dev/fuzz/**/*.sh
+test/btc_parser/block/fixtures/get_block_hex.sh

@@ -1,9 +1,11 @@
 //// Decode, inspect, validate, and serialize Bitcoin transactions.
 
 import btc_parser/internal/compact_size
+import btc_parser/internal/decode
 import btc_parser/internal/fixed_int/int64
 import btc_parser/internal/fixed_int/uint64.{type Uint64}
 import btc_parser/internal/hash32.{type Hash32}
+import btc_parser/internal/lifecycle
 import btc_parser/internal/parser.{type Parser}
 import btc_parser/internal/reader.{type Reader}
 import gleam/bit_array
@@ -23,7 +25,8 @@ import gleam/result
 /// Phantom type indicating a transaction that has been successfully
 /// decoded from bytes but has not yet been validated against Bitcoin
 /// consensus rules.
-pub type Decoded
+pub type Decoded =
+  lifecycle.Decoded
 
 /// Phantom type indicating a transaction that has passed the context-free
 /// Bitcoin consensus checks performed by `validate_context_free_consensus`.
@@ -31,7 +34,8 @@ pub type Decoded
 /// This does not indicate full transaction validity. Context-dependent checks
 /// such as script execution, signature verification, and UTXO lookup are not
 /// performed.
-pub type ContextFreeValidated
+pub type ContextFreeValidated =
+  lifecycle.ContextFreeValidated
 
 /// A Bitcoin transaction.
 ///
@@ -39,7 +43,7 @@ pub type ContextFreeValidated
 /// (inputs) and creating new outputs. Transactions are either legacy
 /// (pre-SegWit) or SegWit, which affects whether witness data is present
 /// in the serialized structure.
-pub opaque type Transaction(validation_state) {
+pub opaque type Transaction(state) {
   Legacy(
     /// The unsigned 32-bit transaction version.
     version: Int,
@@ -77,7 +81,7 @@ pub opaque type Transaction(validation_state) {
 ///
 /// For example, raw version bytes `ff ff ff ff` are returned as
 /// `4_294_967_295`, not `-1`.
-pub fn get_version(tx: Transaction(v)) -> Int {
+pub fn get_version(tx: Transaction(s)) -> Int {
   tx.version
 }
 
@@ -88,7 +92,7 @@ pub fn get_version(tx: Transaction(v)) -> Int {
 /// transaction malleability fixes.
 ///
 /// Returns `True` for SegWit transactions, `False` for legacy transactions.
-pub fn is_segwit(tx: Transaction(v)) -> Bool {
+pub fn is_segwit(tx: Transaction(s)) -> Bool {
   case tx {
     Legacy(..) -> False
     Segwit(..) -> True
@@ -115,21 +119,21 @@ pub fn has_coinbase_shape(tx: Transaction(ContextFreeValidated)) -> Bool {
 }
 
 /// Return whether any input has the coinbase marker (null outpoint).
-fn has_coinbase_marker(tx: Transaction(v)) -> Bool {
+fn has_coinbase_marker(tx: Transaction(s)) -> Bool {
   list.any(tx.inputs, input_has_null_outpoint)
 }
 
 /// Get the transaction inputs.
 ///
 /// Returns the inputs in the same order they appear in the transaction serialization.
-pub fn get_inputs(tx: Transaction(v)) -> List(Input) {
+pub fn get_inputs(tx: Transaction(s)) -> List(Input) {
   tx.inputs
 }
 
 /// Get the transaction outputs.
 ///
 /// Returns the outputs in the same order they appear in the transaction serialization.
-pub fn get_outputs(tx: Transaction(v)) -> List(Output) {
+pub fn get_outputs(tx: Transaction(s)) -> List(Output) {
   tx.outputs
 }
 
@@ -142,7 +146,7 @@ pub fn get_outputs(tx: Transaction(v)) -> List(Output) {
 /// Whether this value constrains transaction finality also depends on the input
 /// sequence numbers and block context. This library exposes the value without
 /// evaluating finality.
-pub fn get_lock_time(tx: Transaction(v)) -> Int {
+pub fn get_lock_time(tx: Transaction(s)) -> Int {
   tx.lock_time
 }
 
@@ -156,7 +160,7 @@ pub fn get_lock_time(tx: Transaction(v)) -> Int {
 /// - `Ok(witnesses)`: The transaction uses SegWit serialization.
 /// - `Error(Nil)`: The transaction uses legacy serialization, which does not
 ///   contain witness data.
-pub fn get_witnesses(tx: Transaction(v)) -> Result(List(WitnessStack), Nil) {
+pub fn get_witnesses(tx: Transaction(s)) -> Result(List(WitnessStack), Nil) {
   case tx {
     Segwit(witnesses:, ..) -> Ok(witnesses)
     Legacy(..) -> Error(Nil)
@@ -956,24 +960,6 @@ fn field_error(
   }
 }
 
-/// Maps an internal `ReaderError` to a public `DecodeErrorKind`.
-///
-/// `InvalidReadCount` is an internal invariant violation (a library bug) and
-/// is never triggered by user-supplied data, so it is treated as a panic.
-fn reader_error_to_decode_error_kind(
-  err: reader.ReaderError,
-) -> DecodeErrorKind {
-  case err {
-    reader.InvalidReadCount(i) ->
-      panic as {
-        "tried to read an invalid number of bytes: " <> int.to_string(i) <> "."
-      }
-
-    reader.UnexpectedEof(bytes_needed:, remaining:) ->
-      UnexpectedEof(bytes_needed:, remaining:)
-  }
-}
-
 // ==============================================================================
 // Decoding
 // ==============================================================================
@@ -1198,6 +1184,26 @@ pub fn decode_with_policy(
   |> result.map(pair.second)
 }
 
+/// Returns the decoded `Transaction` and the number of bytes consumed.
+///
+/// This is intended for internal use by block decoding. It does not require the
+/// input to end after the transaction and does not apply the policy's top-level
+/// `max_tx_size` check; callers that decode an enclosing structure are expected
+/// to enforce their own envelope limits.
+@internal
+pub fn decode_prefix_with_policy(
+  bytes: BitArray,
+  policy: DecodePolicy,
+) -> Result(#(Transaction(Decoded), Int), DecodeError) {
+  policy
+  |> tx_body_parser
+  |> parser.try_with_reader(fn(tx, reader, _ctx) {
+    Ok(#(tx, reader.get_offset(reader)))
+  })
+  |> parser.run(reader.new(bytes), [InTransaction])
+  |> result.map(pair.second)
+}
+
 /// Decode a Bitcoin transaction from its hexadecimal string representation.
 ///
 /// This is a convenience function that combines hex-to-bytes conversion with
@@ -1255,6 +1261,14 @@ pub fn decode_hex_with_policy(
 fn tx_parser(
   policy: DecodePolicy,
 ) -> Parser(ParseContext, Transaction(Decoded), DecodeError) {
+  use tx <- parser.then(tx_body_parser(policy))
+  use Nil <- parser.then(end_of_tx_parser())
+  parser.return(tx)
+}
+
+fn tx_body_parser(
+  policy: DecodePolicy,
+) -> Parser(ParseContext, Transaction(Decoded), DecodeError) {
   use version <- parser.then(field_parser(Version, reader.read_u32_le))
   use is_segwit <- parser.then(segwit_detection_parser())
   use inputs <- parser.then(inputs_parser(
@@ -1271,7 +1285,6 @@ fn tx_parser(
     policy,
   ))
   use lock_time <- parser.then(field_parser(LockTime, reader.read_u32_le))
-  use _ <- parser.then(end_of_tx_parser())
 
   parser.return(case witnesses {
     Some(witnesses) ->
@@ -1299,14 +1312,10 @@ fn field_parser(
   field: ParseField,
   read_fn: fn(Reader) -> Result(#(Reader, a), reader.ReaderError),
 ) -> Parser(ParseContext, a, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    reader
-    |> read_fn
-    |> result.map_error(fn(err) {
-      err
-      |> reader_error_to_decode_error_kind
-      |> field_error(field, reader.get_offset(reader), ctx)
-    })
+  parser.from_reader(read_fn, fn(err, start_offset, ctx) {
+    err
+    |> decode.map_reader_error(UnexpectedEof)
+    |> field_error(field, start_offset, ctx)
   })
 }
 
@@ -1314,17 +1323,10 @@ fn field_parser(
 fn compact_size_parser(
   field: ParseField,
 ) -> Parser(ParseContext, Uint64, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    reader
-    |> compact_size.read
-    |> result.map_error(fn(err) {
-      case err {
-        compact_size.ReaderError(re) -> reader_error_to_decode_error_kind(re)
-        compact_size.NonMinimalCompactSize(encoded_size:, value:) ->
-          NonMinimalCompactSize(encoded_size:, value:)
-      }
-      |> field_error(field, reader.get_offset(reader), ctx)
-    })
+  parser.from_reader(compact_size.read, fn(err, start_offset, ctx) {
+    err
+    |> decode.map_compact_size_error(UnexpectedEof, NonMinimalCompactSize)
+    |> field_error(field, start_offset, ctx)
   })
 }
 
@@ -1339,13 +1341,8 @@ fn compact_size_int_parser(
   |> compact_size_parser
   |> parser.try_with_start_offset(fn(value_u64, start_offset, _, ctx) {
     value_u64
-    |> uint64.to_int
-    |> result.map_error(fn(_) {
-      value_u64
-      |> uint64.to_string
-      |> IntegerOutOfRange
-      |> field_error(field, start_offset, ctx)
-    })
+    |> decode.uint64_to_int(IntegerOutOfRange)
+    |> result.map_error(field_error(field, start_offset, ctx))
   })
 }
 
@@ -1400,7 +1397,7 @@ fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
 
       Error(err) -> {
         // Panic on InvalidReadCount and silently treat UnexpectedEof as non-SegWit.
-        let _ = reader_error_to_decode_error_kind(err)
+        let _ = decode.map_reader_error(err, UnexpectedEof)
         // We can't peek, so we fall through and let the subsequent field parsers
         // produce a more contextual EOF error.
         Ok(#(reader, False))
@@ -1706,14 +1703,10 @@ fn checked_script_bytes_parser(
   field: ParseField,
   count: Int,
 ) -> Parser(ParseContext, BitArray, DecodeError) {
-  parser.new(fn(reader, ctx) {
-    reader
-    |> reader.read_bytes(count)
-    |> result.map_error(fn(err) {
-      err
-      |> reader_error_to_decode_error_kind
-      |> field_error(field, reader.get_offset(reader), ctx)
-    })
+  parser.from_reader(reader.read_bytes(_, count), fn(err, start_offset, ctx) {
+    err
+    |> decode.map_reader_error(UnexpectedEof)
+    |> field_error(field, start_offset, ctx)
   })
 }
 
@@ -1879,16 +1872,15 @@ fn sized_witness_item_parser() -> Parser(
 fn witness_item_parser() -> Parser(ParseContext, WitnessItem, DecodeError) {
   witness_item_length_parser()
   |> parser.then(fn(item_length) {
-    parser.new(fn(reader, ctx) {
-      reader
-      |> reader.read_bytes(item_length)
-      |> result.map_error(fn(err) {
+    parser.from_reader(
+      reader.read_bytes(_, item_length),
+      fn(err, start_offset, ctx) {
         err
-        |> reader_error_to_decode_error_kind
-        |> new_decode_error(reader.get_offset(reader))
+        |> decode.map_reader_error(UnexpectedEof)
+        |> new_decode_error(start_offset)
         |> with_context(ctx)
-      })
-    })
+      },
+    )
   })
   |> parser.map(WitnessItem)
 }
@@ -2195,7 +2187,7 @@ fn validate_no_duplicate_inputs_loop(
 ///
 /// Returns the 32 bytes of the txid in little-endian byte order, as they
 /// appear in Bitcoin transactions and on the wire.
-pub fn compute_txid(tx: Transaction(v)) -> BitArray {
+pub fn compute_txid(tx: Transaction(s)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
     |> to_stripped_bytes
@@ -2207,7 +2199,7 @@ pub fn compute_txid(tx: Transaction(v)) -> BitArray {
 /// Returns the 32 bytes of the wtxid in little-endian byte order, as they
 /// appear in Bitcoin transactions and on the wire. For legacy transactions,
 /// the wtxid is identical to the txid.
-pub fn compute_wtxid(tx: Transaction(v)) -> BitArray {
+pub fn compute_wtxid(tx: Transaction(s)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
     |> to_wire_bytes
@@ -2227,7 +2219,7 @@ pub fn compute_wtxid(tx: Transaction(v)) -> BitArray {
 ///
 /// - `compute_txid` — hashes this serialization to produce the txid
 /// - `to_wire_bytes` — the full wire serialization including witness data
-pub fn to_stripped_bytes(tx: Transaction(v)) -> BitArray {
+pub fn to_stripped_bytes(tx: Transaction(s)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(input_count) = uint64.from_int(list.length(tx.inputs))
@@ -2265,7 +2257,7 @@ pub fn to_stripped_bytes(tx: Transaction(v)) -> BitArray {
 ///
 /// - `compute_wtxid` — hashes this serialization to produce the wtxid
 /// - `to_stripped_bytes` — the no-witness serialization used for the txid
-pub fn to_wire_bytes(tx: Transaction(v)) -> BitArray {
+pub fn to_wire_bytes(tx: Transaction(s)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(input_count) = uint64.from_int(list.length(tx.inputs))

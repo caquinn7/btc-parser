@@ -1,6 +1,6 @@
 import gleam/bit_array
 
-/// A 32-byte hash used as a Bitcoin transaction identifier.
+/// A 32-byte hash used in Bitcoin wire data.
 ///
 /// Bitcoin encodes these hashes in little-endian byte order on the wire,
 /// which is the order this type stores and exposes them in.

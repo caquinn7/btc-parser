@@ -15,6 +15,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
+import support/bitcoin_wire.{compact_size}
 import support/target
 
 const legacy_v1_tx = "010000000173ea7c1caa2dc6669848997864cb9f597284760654a98f67f321ae78d89dcd380a0000006a4730440220185e66bef2903df84f7eb68c4eedb17bcf59f416324e1807e41461cad39aee8202200cbe809bfbac0f33ed5a23fc70473ff64462e225b9218b568bf5e13a11832445012103c3a5d7ca9937c6f862e3454d679171e90e7ff6d8147b0725cfae909a1c94a538feffffff2122020000000000001976a9145349473a38385c482b2f6a2b6d5476534b6f394f88ac22020000000000001976a91455677a584a742b5a544a5262516a627a50716b3888ac22020000000000001976a9146e7473336b746356685451555a5177326d55373788acdd3f0000000000001976a914b02562ff4e772f0875fbb4cccbc15ef08c431f3e88ac22020000000000001976a91448324f70644f667a36764e544665474a586d776688ac22020000000000001976a9144744756e56484142754a68586e513d4f424a5c3388ac22020000000000001976a91432362f7b2275726e223a2239346637313165353088ac22020000000000001976a914346238643131633162373835613162393663613088ac22020000000000001976a914383531333039376164663361316631303834313688ac22020000000000001976a9146535656134643733623437646166652f4120736d88ac22020000000000001976a914616c6c206d6573736167652e6a7067222c226e6d88ac22020000000000001976a91465223a2266756e6b20796f75222c22637265223a88ac22020000000000001976a9145b223139434b474c61426a64707045706148537488ac22020000000000001976a91438776e727a5371487838356850643955222c223188ac22020000000000001976a91444764e5039385a664857376d53397634426a375288ac22020000000000001976a9147436477457567844344c625a37222c223136726288ac22020000000000001976a9143979413746595150545570775a4a73575a56373788ac22020000000000001976a91466575555477366477077225d2c226f776e223a7b88ac22020000000000001976a914223139434b474c61426a6470704570614853743888ac22020000000000001976a914776e727a5371487838356850643955223a397d2c88ac22020000000000001976a91422726f79223a7b22314233444c725936344c4e6988ac22020000000000001976a91467775071755356414c64704b484563774a546a4688ac22020000000000001976a9144d59223a352e307d7d232323232323232323232388ac22020000000000001976a914393466373131653530346238643131633162373888ac22020000000000001976a914a968f1d8335db1404e32b6b360952e4bdd7ab20088ac22020000000000001976a91466756e6b2323232323232323232323232323232388ac22020000000000001976a914796f75232323232323232323232323232323232388ac22020000000000001976a9147032666b2323232323232323232323232323232388ac22020000000000001976a914656d62696923232323232323232323232323232388ac22020000000000001976a9146e1c6481b500237b14c7c474ae728e670d3b757588ac22020000000000001976a9144039859aabef04c076fd641744faedb3ee240f1588ac22020000000000001976a91459e4d4073fe0680c02fffb0cfe5ad923bf5c1f6588ac22020000000000001976a9148db967691586d193770e916d8cb9475d4118094988ac3a540e00"
@@ -129,10 +130,8 @@ pub fn decode_with_policy_rejects_tx_exceeding_max_tx_size_test() {
       policy_with_max_tx_size(tx_size - 1),
     )
 
-  assert transaction.get_decode_error_offset(decode_err) == 0
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(decode_err, 0, "transaction")
     == PolicyLimitExceeded(MaxTransactionSize, tx_size, tx_size - 1)
-  assert transaction.get_decode_error_path(decode_err) == "transaction"
 }
 
 pub fn decode_with_policy_rejects_tx_well_above_max_tx_size_test() {
@@ -144,10 +143,8 @@ pub fn decode_with_policy_rejects_tx_well_above_max_tx_size_test() {
       policy_with_max_tx_size(10),
     )
 
-  assert transaction.get_decode_error_offset(decode_err) == 0
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(decode_err, 0, "transaction")
     == PolicyLimitExceeded(MaxTransactionSize, 100, 10)
-  assert transaction.get_decode_error_path(decode_err) == "transaction"
 }
 
 // ============================================================================
@@ -217,18 +214,15 @@ pub fn high_bit_version_round_trips_wire_bytes_test() {
 pub fn decode_errors_on_empty_string_test() {
   let assert Error(DecodeFailed(decode_err)) = transaction.decode_hex("")
 
-  assert transaction.get_decode_error_offset(decode_err) == 0
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(decode_err, 0, "transaction.version")
     == UnexpectedEof(bytes_needed: 4, remaining: 0)
-  assert transaction.get_decode_error_path(decode_err) == "transaction.version"
 }
 
 pub fn decode_errors_when_input_shorter_than_4_bytes_test() {
   let assert Error(DecodeFailed(decode_err)) = transaction.decode_hex("010203")
 
-  assert transaction.get_decode_error_offset(decode_err) == 0
-  assert transaction.get_decode_error_kind(decode_err) == UnexpectedEof(4, 3)
-  assert transaction.get_decode_error_path(decode_err) == "transaction.version"
+  assert check_transaction_decode_error(decode_err, 0, "transaction.version")
+    == UnexpectedEof(4, 3)
 }
 
 pub fn decode_errors_on_non_byte_aligned_input_test() {
@@ -244,19 +238,19 @@ pub fn decode_errors_on_non_byte_aligned_input_test() {
   let assert Error(decode_err) = transaction.decode(unaligned)
 
   let expected_remaining = bit_array.byte_size(valid_bytes) + 1
-  assert transaction.get_decode_error_offset(decode_err) == 0
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(decode_err, 0, "transaction.version")
     == UnexpectedEof(bytes_needed: 4, remaining: expected_remaining)
-  assert transaction.get_decode_error_path(decode_err) == "transaction.version"
 }
 
 pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_missing_test() {
   let assert Error(decode_err) = transaction.decode(version1)
 
-  assert transaction.get_decode_error_offset(decode_err) == 4
-  assert transaction.get_decode_error_kind(decode_err) == UnexpectedEof(1, 0)
-  assert transaction.get_decode_error_path(decode_err)
-    == "transaction.inputs.count"
+  assert check_transaction_decode_error(
+      decode_err,
+      4,
+      "transaction.inputs.count",
+    )
+    == UnexpectedEof(1, 0)
 }
 
 pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_truncated_test() {
@@ -265,10 +259,12 @@ pub fn decode_does_not_misclassify_segwit_when_marker_and_flag_are_truncated_tes
   let assert Error(decode_err) =
     transaction.decode(<<version1:bits, marker:bits>>)
 
-  assert transaction.get_decode_error_offset(decode_err) == 5
-  assert transaction.get_decode_error_kind(decode_err) == UnexpectedEof(1, 0)
-  assert transaction.get_decode_error_path(decode_err)
-    == "transaction.outputs.count"
+  assert check_transaction_decode_error(
+      decode_err,
+      5,
+      "transaction.outputs.count",
+    )
+    == UnexpectedEof(1, 0)
 }
 
 pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
@@ -278,11 +274,12 @@ pub fn decode_returns_invalid_segwit_marker_flag_error_test() {
   let assert Error(decode_err) =
     transaction.decode(<<version1:bits, marker:bits, flag:bits>>)
 
-  assert transaction.get_decode_error_offset(decode_err) == 4
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(
+      decode_err,
+      4,
+      "transaction.segwit.marker_and_flag",
+    )
     == InvalidSegwitMarkerFlag(0, 2)
-  assert transaction.get_decode_error_path(decode_err)
-    == "transaction.segwit.marker_and_flag"
 }
 
 pub fn decode_treats_zero_input_and_output_counts_as_empty_legacy_tx_test() {
@@ -396,13 +393,12 @@ pub fn validate_input_count_exceeds_policy_error_test() {
       policy_with_max_input_count(2),
     )
 
-  assert transaction.get_decode_error_offset(decode_err) == 4
-
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(
+      decode_err,
+      4,
+      "transaction.inputs.count",
+    )
     == PolicyLimitExceeded(MaxInputCount, input_count, 2)
-
-  assert transaction.get_decode_error_path(decode_err)
-    == "transaction.inputs.count"
 }
 
 pub fn validate_input_count_exceeds_structural_error_test() {
@@ -415,20 +411,23 @@ pub fn validate_input_count_exceeds_structural_error_test() {
 
   let assert Error(decode_err) =
     transaction.decode_with_policy(
-      <<version1:bits, compact_size(input_count):bits, input_padding:bits>>,
+      <<
+        version1:bits,
+        compact_size(input_count):bits,
+        input_padding:bits,
+      >>,
       policy_with_max_input_count(100),
     )
 
-  assert transaction.get_decode_error_offset(decode_err) == 4
-
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(
+      decode_err,
+      4,
+      "transaction.inputs.count",
+    )
     == InsufficientBytes(
       claimed: 2 * min_input_size_bytes + 1,
       remaining: 2 * min_input_size_bytes,
     )
-
-  assert transaction.get_decode_error_path(decode_err)
-    == "transaction.inputs.count"
 }
 
 pub fn validate_input_count_structural_boundary_succeeds_test() {
@@ -472,16 +471,15 @@ pub fn validate_input_count_insufficient_bytes_for_inputs_test() {
       input_padding:bits,
     >>)
 
-  assert transaction.get_decode_error_offset(decode_err) == 4
-
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(
+      decode_err,
+      4,
+      "transaction.inputs.count",
+    )
     == InsufficientBytes(
       remaining: min_input_size_bytes - 1,
       claimed: min_input_size_bytes,
     )
-
-  assert transaction.get_decode_error_path(decode_err)
-    == "transaction.inputs.count"
 }
 
 pub fn decode_rejects_segwit_tx_with_zero_inputs_test() {
@@ -505,11 +503,12 @@ pub fn decode_rejects_segwit_tx_with_zero_inputs_test() {
 
   let assert Error(decode_err) = transaction.decode(tx_bytes)
 
-  assert transaction.get_decode_error_offset(decode_err)
-    == expected_witness_offset
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(
+      decode_err,
+      expected_witness_offset,
+      "transaction",
+    )
     == SuperfluousWitnessRecord
-  assert transaction.get_decode_error_path(decode_err) == "transaction"
 }
 
 // ============================================================================
@@ -756,13 +755,12 @@ pub fn decode_rejects_scriptsig_exceeding_max_size_test() {
       input_bytes:bits,
     >>)
 
-  assert transaction.get_decode_error_offset(decode_err) == 41
-
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(
+      decode_err,
+      41,
+      "transaction.inputs[0].script_sig.length",
+    )
     == PolicyLimitExceeded(MaxScriptSize, 10_001, 10_000)
-
-  assert transaction.get_decode_error_path(decode_err)
-    == "transaction.inputs[0].script_sig.length"
 }
 
 pub fn decode_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
@@ -793,13 +791,12 @@ pub fn decode_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
       input_bytes:bits,
     >>)
 
-  assert transaction.get_decode_error_offset(decode_err) == 41
-
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(
+      decode_err,
+      41,
+      "transaction.inputs[0].script_sig.length",
+    )
     == InsufficientBytes(claimed: 100, remaining: 10)
-
-  assert transaction.get_decode_error_path(decode_err)
-    == "transaction.inputs[0].script_sig.length"
 }
 
 pub fn decode_returns_error_with_current_input_index_test() {
@@ -1011,16 +1008,15 @@ pub fn validate_output_count_exceeds_structural_error_test() {
       policy_with_max_output_count(100),
     )
 
-  assert transaction.get_decode_error_offset(decode_err) == 46
-
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(
+      decode_err,
+      46,
+      "transaction.outputs.count",
+    )
     == InsufficientBytes(
       claimed: 2 * min_output_size_bytes + 1,
       remaining: 2 * min_output_size_bytes,
     )
-
-  assert transaction.get_decode_error_path(decode_err)
-    == "transaction.outputs.count"
 }
 
 pub fn validate_output_count_structural_boundary_succeeds_test() {
@@ -1122,7 +1118,10 @@ pub fn decode_accepts_segwit_tx_with_zero_outputs_test() {
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output_count = compact_size(0)
   // One zero-length item counts as witness data.
-  let witness_stack = <<compact_size(1):bits, compact_size(0):bits>>
+  let witness_stack = <<
+    compact_size(1):bits,
+    compact_size(0):bits,
+  >>
   let lock_time = <<0:little-size(32)>>
 
   let tx_bytes = <<
@@ -1396,13 +1395,12 @@ pub fn decode_rejects_scriptpubkey_exceeding_max_size_test() {
       output_bytes:bits,
     >>)
 
-  assert transaction.get_decode_error_offset(decode_err) == 55
-
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(
+      decode_err,
+      55,
+      "transaction.outputs[0].script_pubkey.length",
+    )
     == PolicyLimitExceeded(MaxScriptSize, 10_001, 10_000)
-
-  assert transaction.get_decode_error_path(decode_err)
-    == "transaction.outputs[0].script_pubkey.length"
 }
 
 pub fn decode_parses_scriptpubkey_at_max_size_test() {
@@ -1534,11 +1532,12 @@ pub fn decode_rejects_segwit_tx_with_all_empty_witness_stacks_test() {
 
   let assert Error(decode_err) = transaction.decode(tx_bytes)
 
-  assert transaction.get_decode_error_offset(decode_err)
-    == expected_witness_offset
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(
+      decode_err,
+      expected_witness_offset,
+      "transaction",
+    )
     == SuperfluousWitnessRecord
-  assert transaction.get_decode_error_path(decode_err) == "transaction"
 }
 
 pub fn decode_segwit_tx_allows_empty_stack_when_another_stack_has_item_test() {
@@ -1547,7 +1546,10 @@ pub fn decode_segwit_tx_allows_empty_stack_when_another_stack_has_item_test() {
   let output = build_output(<<1000:little-size(64)>>, <<0x76, 0xa9>>)
 
   let empty_stack = compact_size(0)
-  let stack_with_empty_item = <<compact_size(1):bits, compact_size(0):bits>>
+  let stack_with_empty_item = <<
+    compact_size(1):bits,
+    compact_size(0):bits,
+  >>
 
   let tx_bytes =
     build_segwit_tx([input1, input2], [output], [
@@ -1829,19 +1831,17 @@ pub fn decode_witness_stack_exceeds_max_item_count_fails_test() {
   let assert Error(decode_err) =
     transaction.decode_with_policy(tx_bytes, policy)
 
-  assert transaction.get_decode_error_offset(decode_err) == 58
-
   // Verify the error kind indicates the count exceeded max_witness_stack_item_count
-  assert transaction.get_decode_error_kind(decode_err)
+  assert check_transaction_decode_error(
+      decode_err,
+      58,
+      "transaction.witnesses[0].items.count",
+    )
     == PolicyLimitExceeded(
       MaxWitnessStackItemCount,
       max_witness_stack_item_count + 1,
       max_witness_stack_item_count,
     )
-
-  // Verify the error path indicates witness item count validation
-  assert transaction.get_decode_error_path(decode_err)
-    == "transaction.witnesses[0].items.count"
 }
 
 // ============================================================================
@@ -1995,28 +1995,35 @@ pub fn decode_rejects_legacy_tx_with_trailing_byte_test() {
   let assert Error(decode_err) =
     transaction.decode(<<valid_tx:bits, 0x42:size(8)>>)
 
-  assert transaction.get_decode_error_kind(decode_err) == TrailingBytes(1)
-  assert transaction.get_decode_error_path(decode_err) == "transaction"
-
   let expected_offset = bit_array.byte_size(valid_tx)
-  assert transaction.get_decode_error_offset(decode_err) == expected_offset
+  assert check_transaction_decode_error(
+      decode_err,
+      expected_offset,
+      "transaction",
+    )
+    == TrailingBytes(1)
 }
 
 pub fn decode_rejects_segwit_tx_with_trailing_byte_test() {
   let input = build_input(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output(<<0:little-size(64)>>, <<>>)
-  let witness_stack = <<compact_size(1):bits, compact_size(0):bits>>
+  let witness_stack = <<
+    compact_size(1):bits,
+    compact_size(0):bits,
+  >>
 
   let valid_tx = build_segwit_tx([input], [output], [witness_stack])
 
   let assert Error(decode_err) =
     transaction.decode(<<valid_tx:bits, 0xFF:size(8)>>)
 
-  assert transaction.get_decode_error_kind(decode_err) == TrailingBytes(1)
-  assert transaction.get_decode_error_path(decode_err) == "transaction"
-
   let expected_offset = bit_array.byte_size(valid_tx)
-  assert transaction.get_decode_error_offset(decode_err) == expected_offset
+  assert check_transaction_decode_error(
+      decode_err,
+      expected_offset,
+      "transaction",
+    )
+    == TrailingBytes(1)
 }
 
 // ============================================================================
@@ -3080,23 +3087,6 @@ fn repeat_byte(b: Int, n: Int) -> BitArray {
   }
 }
 
-/// Encode an integer as a CompactSize byte array.
-///
-/// This helper matches the Bitcoin CompactSize encoding rules:
-/// - 0-252: single byte
-/// - 253-65535: 0xFD followed by 2 bytes (little-endian)
-/// - 65536-4294967295: 0xFE followed by 4 bytes (little-endian)
-/// - 4294967296+: 0xFF followed by 8 bytes (little-endian)
-fn compact_size(n: Int) -> BitArray {
-  case n {
-    _ if n < 0 -> panic as "compact_size: negative values not supported"
-    _ if n <= 252 -> <<n:size(8)>>
-    _ if n <= 65_535 -> <<0xFD, n:little-size(16)>>
-    _ if n <= 4_294_967_295 -> <<0xFE, n:little-size(32)>>
-    _ -> <<0xFF, n:little-size(64)>>
-  }
-}
-
 fn reverse_bytes(bits: BitArray) -> BitArray {
   do_reverse_bytes(bits, <<>>)
 }
@@ -3162,4 +3152,14 @@ fn policy_with_max_witness_stack_payload_size(
   |> transaction.decode_policy_with_max_witness_stack_payload_size(Some(
     max_witness_stack_payload_size,
   ))
+}
+
+pub fn check_transaction_decode_error(
+  error: transaction.DecodeError,
+  expected_offset: Int,
+  expected_path: String,
+) -> transaction.DecodeErrorKind {
+  assert transaction.get_decode_error_offset(error) == expected_offset
+  assert transaction.get_decode_error_path(error) == expected_path
+  transaction.get_decode_error_kind(error)
 }

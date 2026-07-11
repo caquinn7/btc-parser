@@ -21,6 +21,23 @@ pub fn new(
   Parser(f)
 }
 
+/// Create a parser from a reader function, mapping its low-level error.
+///
+/// The mapper receives the error, the reader offset from before the read, and
+/// the current parser context stack.
+pub fn from_reader(
+  read: fn(Reader) -> Result(#(Reader, a), e),
+  map_error: fn(e, Int, List(ctx)) -> err,
+) -> Parser(ctx, a, err) {
+  Parser(fn(reader, ctx) {
+    let start_offset = reader.get_offset(reader)
+
+    reader
+    |> read
+    |> result.map_error(map_error(_, start_offset, ctx))
+  })
+}
+
 /// Execute a parser and return its raw result.
 ///
 /// This is the primitive evaluator for `Parser`. It runs the parser with the given
@@ -34,10 +51,10 @@ pub fn new(
 pub fn run(
   parser: Parser(ctx, a, err),
   reader: Reader,
-  ctx: List(ctx),
+  context: List(ctx),
 ) -> Result(#(Reader, a), err) {
   let Parser(parse) = parser
-  parse(reader, ctx)
+  parse(reader, context)
 }
 
 /// Execute a parser and continue with its result.
@@ -52,10 +69,10 @@ pub fn run(
 pub fn run_then(
   parser: Parser(ctx, a, err),
   reader: Reader,
-  ctx: List(ctx),
+  context: List(ctx),
   next: fn(Reader, a) -> Result(b, err),
 ) -> Result(b, err) {
-  use #(reader, value) <- result.try(run(parser, reader, ctx))
+  use #(reader, value) <- result.try(run(parser, reader, context))
   next(reader, value)
 }
 
@@ -264,10 +281,10 @@ pub fn end_of_input(
 /// to provide better error messages when parsing fails.
 pub fn with_context(
   parser: Parser(ctx, a, err),
-  ctx: ctx,
+  context: ctx,
 ) -> Parser(ctx, a, err) {
   let Parser(parse) = parser
-  Parser(fn(reader, outer_ctx) { parse(reader, [ctx, ..outer_ctx]) })
+  Parser(fn(reader, outer_ctx) { parse(reader, [context, ..outer_ctx]) })
 }
 
 // ============================================================================
@@ -302,7 +319,7 @@ fn indexed_repeat_loop(
   count: Int,
   reader: Reader,
   items: List(a),
-  ctx: List(ctx),
+  context: List(ctx),
   item_parser: Parser(ctx, a, err),
   index_to_context: fn(Int) -> ctx,
 ) -> Result(#(Reader, List(a)), err) {
@@ -310,13 +327,13 @@ fn indexed_repeat_loop(
     True -> Ok(#(reader, list.reverse(items)))
     False -> {
       let contextualized = with_context(item_parser, index_to_context(index))
-      use #(reader, item) <- result.try(run(contextualized, reader, ctx))
+      use #(reader, item) <- result.try(run(contextualized, reader, context))
       indexed_repeat_loop(
         index + 1,
         count,
         reader,
         [item, ..items],
-        ctx,
+        context,
         item_parser,
         index_to_context,
       )
@@ -367,7 +384,7 @@ fn indexed_repeat_with_limit_loop(
   reader: Reader,
   items: List(a),
   acc_val: Int,
-  ctx: List(ctx),
+  context: List(ctx),
   item_parser: Parser(ctx, #(a, Int), err),
   index_to_context: fn(Int) -> ctx,
   limit: Int,
@@ -383,13 +400,13 @@ fn indexed_repeat_with_limit_loop(
       use #(reader, #(item, item_val)) <- result.try(run(
         contextualized,
         reader,
-        ctx,
+        context,
       ))
 
       let acc_val = acc_val + item_val
       case acc_val > limit {
         True -> {
-          let ctx = [index_ctx, ..ctx]
+          let ctx = [index_ctx, ..context]
           Error(on_limit_exceeded(acc_val, start_offset, ctx))
         }
         False ->
@@ -399,7 +416,7 @@ fn indexed_repeat_with_limit_loop(
             reader,
             [item, ..items],
             acc_val,
-            ctx,
+            context,
             item_parser,
             index_to_context,
             limit,
