@@ -1,6 +1,7 @@
 import btc_parser/block.{
-  DecodeFailed, IntegerOutOfRange, InvalidHex, NonMinimalCompactSize,
-  TrailingBytes, TransactionDecodeFailed, UnexpectedEof,
+  DecodeFailed, InsufficientBytes, IntegerOutOfRange, InvalidHex, MaxBlockSize,
+  MaxTransactionCount, NonMinimalCompactSize, PolicyLimitExceeded, TrailingBytes,
+  TransactionDecodeFailed, UnexpectedEof,
 }
 import btc_parser/transaction
 import btc_parser/transaction_test.{check_transaction_decode_error}
@@ -108,6 +109,94 @@ pub fn decode_preserves_multiple_transactions_in_wire_order_test() {
 
   assert transaction.get_version(first_tx) == 1
   assert transaction.get_version(second_tx) == 2
+}
+
+// ============================================================================
+// Decode Policy Builder
+// ============================================================================
+
+pub fn default_decode_policy_returns_expected_values_test() {
+  let policy = block.default_decode_policy()
+
+  assert block.decode_policy_max_block_size(policy) == 4_000_000
+  assert block.decode_policy_max_tx_count(policy) == 20_000
+}
+
+pub fn decode_policy_builder_overrides_default_limits_test() {
+  let policy =
+    block.default_decode_policy()
+    |> block.decode_policy_with_max_block_size(8_000_000)
+    |> block.decode_policy_with_max_tx_count(40_000)
+
+  assert block.decode_policy_max_block_size(policy) == 8_000_000
+  assert block.decode_policy_max_tx_count(policy) == 40_000
+}
+
+// ============================================================================
+// Decode Policy limits
+// ============================================================================
+
+pub fn decode_with_policy_rejects_bytes_exceeding_max_block_size_test() {
+  let bytes =
+    build_header_only_block(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let block_size = bit_array.byte_size(bytes)
+
+  let assert Error(error) =
+    block.decode_with_policy(bytes, policy_with_max_block_size(block_size - 1))
+
+  assert check_block_decode_error(error, 0, "block")
+    == PolicyLimitExceeded(MaxBlockSize, block_size, block_size - 1)
+}
+
+pub fn decode_with_policy_accepts_bytes_at_max_block_size_test() {
+  let bytes =
+    build_header_only_block(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+
+  let policy = policy_with_max_block_size(bit_array.byte_size(bytes))
+  let assert Ok(decoded_block) = block.decode_with_policy(bytes, policy)
+
+  assert block.get_transactions(decoded_block) == []
+}
+
+pub fn decode_with_policy_rejects_tx_count_exceeding_max_tx_count_test() {
+  let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let bytes =
+    build_block(header, [
+      build_minimal_legacy_transaction(1),
+      build_minimal_legacy_transaction(2),
+    ])
+
+  let assert Error(error) =
+    block.decode_with_policy(bytes, policy_with_max_tx_count(1))
+
+  assert check_block_decode_error(error, 80, "block.transactions.count")
+    == PolicyLimitExceeded(MaxTransactionCount, 2, 1)
+}
+
+pub fn decode_with_policy_prioritizes_structural_tx_count_error_test() {
+  let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+
+  // The count exceeds the policy, but no transaction bytes remain, so the
+  // structural impossibility must be reported before the policy violation.
+  let assert Error(error) =
+    block.decode_with_policy(<<header:bits, 2>>, policy_with_max_tx_count(1))
+
+  assert check_block_decode_error(error, 80, "block.transactions.count")
+    == InsufficientBytes(claimed: 1, remaining: 0)
+}
+
+pub fn decode_with_policy_accepts_tx_count_at_max_tx_count_test() {
+  let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let bytes =
+    build_block(header, [
+      build_minimal_legacy_transaction(1),
+      build_minimal_legacy_transaction(2),
+    ])
+
+  let assert Ok(decoded_block) =
+    block.decode_with_policy(bytes, policy_with_max_tx_count(2))
+
+  assert list.length(block.get_transactions(decoded_block)) == 2
 }
 
 // ============================================================================
@@ -244,24 +333,26 @@ pub fn decode_rejects_transaction_count_outside_the_runtime_int_range_test() {
 // Contained transaction errors
 // ============================================================================
 
-pub fn decode_errors_when_first_declared_transaction_is_missing_test() {
+pub fn decode_rejects_transaction_count_that_cannot_fit_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let tx_count = 1
 
-  let assert Error(error) = block.decode(<<header:bits, 1>>)
+  let assert Error(error) = block.decode(<<header:bits, tx_count>>)
 
-  let assert TransactionDecodeFailed(tx_decode_err) =
-    check_block_decode_error(error, 81, "block.transactions[0]")
-
-  assert check_transaction_decode_error(tx_decode_err, 0, "transaction.version")
-    == transaction.UnexpectedEof(bytes_needed: 4, remaining: 0)
+  assert check_block_decode_error(error, 80, "block.transactions.count")
+    == InsufficientBytes(claimed: 1, remaining: 0)
 }
 
 pub fn decode_offsets_contained_transaction_errors_from_the_block_start_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
-  let incomplete_tx = <<1:32-little>>
+  let tx_count = 1
+  let incomplete_tx = <<1:32-little, 1, 0:size(40)>>
 
-  let assert Error(error) = block.decode(<<header:bits, 1, incomplete_tx:bits>>)
+  let assert Error(error) =
+    block.decode(<<header:bits, tx_count, incomplete_tx:bits>>)
 
+  // `85` is block-relative (80-byte header + one-byte count + four-byte
+  // transaction version); `4` remains relative to the transaction start.
   let assert TransactionDecodeFailed(tx_decode_err) =
     check_block_decode_error(error, 85, "block.transactions[0]")
 
@@ -270,7 +361,7 @@ pub fn decode_offsets_contained_transaction_errors_from_the_block_start_test() {
       4,
       "transaction.inputs.count",
     )
-    == transaction.UnexpectedEof(bytes_needed: 1, remaining: 0)
+    == transaction.InsufficientBytes(claimed: 6, remaining: 5)
 }
 
 pub fn decode_reports_error_in_second_transaction_with_transaction_index_in_path_test() {
@@ -293,6 +384,38 @@ pub fn decode_reports_error_in_second_transaction_with_transaction_index_in_path
       "transaction.inputs.count",
     )
     == transaction.UnexpectedEof(bytes_needed: 1, remaining: 0)
+}
+
+pub fn decode_wraps_contained_transaction_policy_error_with_block_offset_test() {
+  let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let oversized_script_sig = <<0:size({ 10_001 * 8 })>>
+  let oversized_tx = <<
+    1:32-little,
+    1,
+    0:size(256),
+    0:32-little,
+    compact_size(10_001):bits,
+    oversized_script_sig:bits,
+    0:32-little,
+    0,
+    0:32-little,
+  >>
+
+  let assert Error(error) = block.decode(build_block(header, [oversized_tx]))
+
+  let assert TransactionDecodeFailed(tx_decode_err) =
+    check_block_decode_error(error, 122, "block.transactions[0]")
+
+  assert check_transaction_decode_error(
+      tx_decode_err,
+      41,
+      "transaction.inputs[0].script_sig.length",
+    )
+    == transaction.PolicyLimitExceeded(
+      transaction.MaxScriptSize,
+      10_001,
+      10_000,
+    )
 }
 
 // ============================================================================
@@ -337,6 +460,34 @@ pub fn decode_hex_decodes_block_with_one_legacy_transaction_test() {
   let assert [decoded_tx] = block.get_transactions(decoded_block)
   assert transaction.get_version(decoded_tx) == 1
   assert !transaction.is_segwit(decoded_tx)
+}
+
+pub fn decode_hex_with_policy_accepts_block_at_max_block_size_test() {
+  let bytes =
+    build_header_only_block(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+
+  let policy = policy_with_max_block_size(bit_array.byte_size(bytes))
+  let assert Ok(decoded_block) =
+    bytes
+    |> bit_array.base16_encode
+    |> block.decode_hex_with_policy(policy)
+
+  assert block.get_transactions(decoded_block) == []
+}
+
+pub fn decode_hex_with_policy_wraps_policy_limit_error_test() {
+  let bytes =
+    build_header_only_block(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let block_size = bit_array.byte_size(bytes)
+
+  let policy = policy_with_max_block_size(block_size - 1)
+  let assert Error(DecodeFailed(error)) =
+    bytes
+    |> bit_array.base16_encode
+    |> block.decode_hex_with_policy(policy)
+
+  assert check_block_decode_error(error, 0, "block")
+    == PolicyLimitExceeded(MaxBlockSize, block_size, block_size - 1)
 }
 
 pub fn decode_hex_errors_on_odd_length_string_test() {
@@ -450,4 +601,18 @@ fn check_block_decode_error(
   assert block.get_decode_error_offset(error) == expected_offset
   assert block.get_decode_error_path(error) == expected_path
   block.get_decode_error_kind(error)
+}
+
+// ============================================================================
+// Policy Builder Helper Functions
+// ============================================================================
+
+fn policy_with_max_block_size(max_block_size: Int) {
+  block.default_decode_policy()
+  |> block.decode_policy_with_max_block_size(max_block_size)
+}
+
+fn policy_with_max_tx_count(max_tx_count: Int) {
+  block.default_decode_policy()
+  |> block.decode_policy_with_max_tx_count(max_tx_count)
 }

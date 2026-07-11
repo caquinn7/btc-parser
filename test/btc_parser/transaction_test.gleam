@@ -50,6 +50,18 @@ pub fn decode_hex_errors_on_string_with_whitespace_test() {
 // Decode Policy Builder
 // ============================================================================
 
+pub fn default_decode_policy_returns_expected_values_test() {
+  let policy = transaction.default_decode_policy()
+
+  assert transaction.decode_policy_max_tx_size(policy) == 400_000
+  assert transaction.decode_policy_max_input_count(policy) == 100_000
+  assert transaction.decode_policy_max_output_count(policy) == 100_000
+  assert transaction.decode_policy_max_script_size(policy) == 10_000
+  assert transaction.decode_policy_max_witness_stack_item_count(policy) == None
+  assert transaction.decode_policy_max_witness_stack_payload_size(policy)
+    == None
+}
+
 pub fn decode_policy_builder_overrides_default_limits_test() {
   let policy =
     transaction.default_decode_policy()
@@ -68,22 +80,6 @@ pub fn decode_policy_builder_overrides_default_limits_test() {
     == Some(7)
   assert transaction.decode_policy_max_witness_stack_payload_size(policy)
     == Some(8)
-}
-
-pub fn decode_policy_builder_allows_zero_limits_test() {
-  let policy =
-    transaction.default_decode_policy()
-    |> transaction.decode_policy_with_max_input_count(0)
-
-  assert transaction.decode_policy_max_input_count(policy) == 0
-}
-
-pub fn default_decode_policy_uses_default_witness_limits_test() {
-  let policy = transaction.default_decode_policy()
-
-  assert transaction.decode_policy_max_witness_stack_item_count(policy) == None
-  assert transaction.decode_policy_max_witness_stack_payload_size(policy)
-    == None
 }
 
 // ============================================================================
