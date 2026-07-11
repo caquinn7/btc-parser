@@ -12,6 +12,10 @@ import gleam/list
 import gleam/pair
 import gleam/result
 
+// ==============================================================================
+// Block types
+// ==============================================================================
+
 /// Phantom type indicating a block that has been successfully
 /// decoded from bytes but has not yet been validated against
 /// Bitcoin consensus rules.
@@ -101,6 +105,10 @@ pub fn get_header_nonce(header: Header) -> Int {
   header.nonce
 }
 
+// ==============================================================================
+// Error handling
+// ==============================================================================
+
 /// An error that occurred while decoding a Bitcoin block.
 ///
 /// Distinguishes failures during hex-to-bytes conversion from failures during
@@ -167,6 +175,28 @@ pub type DecodeErrorKind {
   TransactionDecodeFailed(transaction.DecodeError)
 }
 
+/// Internal breadcrumbs used to build public decode error paths.
+///
+/// Contexts are accumulated from outermost to innermost and projected by
+/// `get_decode_error_path`.
+type ParseContext {
+  InBlock
+  InHeader
+  AtTransaction(Int)
+  AtField(ParseField)
+}
+
+/// Internal block wire-format fields used in decode error paths.
+type ParseField {
+  TransactionCount
+  Version
+  PreviousBlockHash
+  MerkleRoot
+  Timestamp
+  Target
+  Nonce
+}
+
 /// Get the byte offset where a block decoding error occurred.
 pub fn get_decode_error_offset(err: DecodeError) -> Int {
   err.offset
@@ -208,31 +238,31 @@ fn field_path_suffix(field: ParseField) -> String {
   }
 }
 
-/// Internal breadcrumbs used to build public decode error paths.
-///
-/// Contexts are accumulated from outermost to innermost and projected by
-/// `get_decode_error_path`.
-type ParseContext {
-  InBlock
-  InHeader
-  AtTransaction(Int)
-  AtField(ParseField)
-}
-
-/// Internal block wire-format fields used in decode error paths.
-type ParseField {
-  TransactionCount
-  Version
-  PreviousBlockHash
-  MerkleRoot
-  Timestamp
-  Target
-  Nonce
-}
-
 fn new_decode_error(kind: DecodeErrorKind, offset: Int) -> DecodeError {
   DecodeError(offset:, kind:, context: [])
 }
+
+fn with_context(err: DecodeError, context: List(ParseContext)) -> DecodeError {
+  list.fold(context, err, fn(err, ctx) {
+    DecodeError(..err, context: [ctx, ..err.context])
+  })
+}
+
+fn field_error(
+  field: ParseField,
+  offset: Int,
+  context: List(ParseContext),
+) -> fn(DecodeErrorKind) -> DecodeError {
+  fn(kind) {
+    kind
+    |> new_decode_error(offset)
+    |> with_context([AtField(field), ..context])
+  }
+}
+
+// ==============================================================================
+// Decoding
+// ==============================================================================
 
 /// Decode a Bitcoin block from its binary representation.
 ///
@@ -279,6 +309,10 @@ pub fn decode_hex(hex: String) -> Result(Block(Decoded), DecodeHexError) {
   |> result.map_error(DecodeFailed)
 }
 
+// ==============================================================================
+// Block Parser
+// ==============================================================================
+
 fn block_parser() -> Parser(ParseContext, Block(Decoded), DecodeError) {
   use block <- parser.then(block_body_parser())
   use Nil <- parser.then(end_of_block_parser())
@@ -316,17 +350,6 @@ fn header_parser() -> Parser(ParseContext, Header, DecodeError) {
     target:,
     nonce:,
   ))
-}
-
-fn hash32_parser(
-  field: ParseField,
-) -> Parser(ParseContext, Hash32, DecodeError) {
-  field
-  |> field_parser(reader.read_bytes(_, 32))
-  |> parser.map(fn(bytes) {
-    let assert Ok(hash32) = hash32.from_bytes_le(bytes)
-    hash32
-  })
 }
 
 fn transactions_parser() -> Parser(
@@ -378,23 +401,9 @@ fn transaction_parser() -> Parser(
   })
 }
 
-fn field_error(
-  field: ParseField,
-  offset: Int,
-  context: List(ParseContext),
-) -> fn(DecodeErrorKind) -> DecodeError {
-  fn(kind) {
-    kind
-    |> new_decode_error(offset)
-    |> with_context([AtField(field), ..context])
-  }
-}
-
-fn with_context(err: DecodeError, context: List(ParseContext)) -> DecodeError {
-  list.fold(context, err, fn(err, ctx) {
-    DecodeError(..err, context: [ctx, ..err.context])
-  })
-}
+// ==============================================================================
+// Shared Parser Helpers
+// ==============================================================================
 
 /// Construct a parser for a field, adding error mapping and context wrapping.
 fn field_parser(
@@ -429,5 +438,16 @@ fn compact_size_int_parser(
     value_u64
     |> decode.uint64_to_int(IntegerOutOfRange)
     |> result.map_error(field_error(field, start_offset, ctx))
+  })
+}
+
+fn hash32_parser(
+  field: ParseField,
+) -> Parser(ParseContext, Hash32, DecodeError) {
+  field
+  |> field_parser(reader.read_bytes(_, 32))
+  |> parser.map(fn(bytes) {
+    let assert Ok(hash32) = hash32.from_bytes_le(bytes)
+    hash32
   })
 }
