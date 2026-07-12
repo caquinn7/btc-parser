@@ -217,7 +217,7 @@ pub fn decode_with_policy_accepts_tx_count_at_max_tx_count_test() {
 }
 
 // ============================================================================
-// Input and header errors
+// Input shape errors
 // ============================================================================
 
 pub fn decode_rejects_non_byte_aligned_input_test() {
@@ -233,6 +233,10 @@ pub fn decode_rejects_non_byte_aligned_input_test() {
       remaining: bit_array.byte_size(aligned) + 1,
     )
 }
+
+// ============================================================================
+// Header errors
+// ============================================================================
 
 pub fn decode_errors_when_header_version_is_truncated_test() {
   let assert Error(error) = block.decode(<<0x01, 0x02, 0x03>>)
@@ -346,10 +350,6 @@ pub fn decode_rejects_transaction_count_outside_the_runtime_int_range_test() {
   }
 }
 
-// ============================================================================
-// Contained transaction errors
-// ============================================================================
-
 pub fn decode_rejects_transaction_count_that_cannot_fit_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
   let tx_count = 1
@@ -359,6 +359,10 @@ pub fn decode_rejects_transaction_count_that_cannot_fit_test() {
   assert check_block_decode_error(error, 80, "block.transactions.count")
     == InsufficientBytes(claimed: 1, remaining: 0)
 }
+
+// ============================================================================
+// Contained transaction errors
+// ============================================================================
 
 pub fn decode_offsets_contained_transaction_errors_from_the_block_start_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
