@@ -26,6 +26,7 @@ pub fn decode_accepts_header_only_block_with_zero_transactions_test() {
     )
 
   let assert Ok(decoded_block) = block.decode(bytes)
+  assert block.get_transaction_count(decoded_block) == 0
   assert block.get_transactions(decoded_block) == []
 }
 
@@ -83,6 +84,7 @@ pub fn decode_accepts_block_with_one_legacy_transaction_test() {
   let assert Ok(decoded_block) = block.decode(bytes)
   let assert [decoded_tx] = block.get_transactions(decoded_block)
 
+  assert block.get_transaction_count(decoded_block) == 1
   assert !transaction.is_segwit(decoded_tx)
 }
 
@@ -93,6 +95,7 @@ pub fn decode_accepts_block_with_one_segwit_transaction_test() {
   let assert Ok(decoded_block) = block.decode(bytes)
   let assert [decoded_tx] = block.get_transactions(decoded_block)
 
+  assert block.get_transaction_count(decoded_block) == 1
   assert transaction.is_segwit(decoded_tx)
 }
 
@@ -107,8 +110,22 @@ pub fn decode_preserves_multiple_transactions_in_wire_order_test() {
   let assert Ok(decoded_block) = block.decode(bytes)
   let assert [first_tx, second_tx] = block.get_transactions(decoded_block)
 
+  assert block.get_transaction_count(decoded_block) == 2
   assert transaction.get_version(first_tx) == 1
   assert transaction.get_version(second_tx) == 2
+}
+
+pub fn decode_preserves_multi_byte_compact_size_transaction_count_test() {
+  let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let transaction_count = 253
+  let transactions =
+    list.repeat(build_minimal_legacy_transaction(1), transaction_count)
+  let bytes = build_block(header, transactions)
+
+  let assert Ok(decoded_block) = block.decode(bytes)
+
+  assert block.get_transaction_count(decoded_block) == transaction_count
+  assert list.length(block.get_transactions(decoded_block)) == transaction_count
 }
 
 // ============================================================================

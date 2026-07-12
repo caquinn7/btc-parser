@@ -31,7 +31,9 @@ pub opaque type Block(state) {
   Block(
     /// The 80-byte block header.
     header: Header,
-    /// The transactions recorded in this block.
+    /// The number of transactions recorded in the block.
+    transaction_count: Int,
+    /// The transactions in wire order.
     transactions: List(Transaction(state)),
   )
 }
@@ -55,6 +57,13 @@ pub opaque type Header {
     /// The unsigned 32-bit value varied when searching for valid proof of work.
     nonce: Int,
   )
+}
+
+/// Get the number of transactions in a block.
+///
+/// Returns the decoded `CompactSize` transaction count from the block wire encoding.
+pub fn get_transaction_count(block: Block(s)) -> Int {
+  block.transaction_count
 }
 
 /// Get the transactions from a block.
@@ -535,8 +544,11 @@ fn block_body_parser(
   policy: DecodePolicy,
 ) -> Parser(ParseContext, Block(Decoded), DecodeError) {
   use header <- parser.then(parser.with_context(header_parser(), InHeader))
-  use transactions <- parser.then(transactions_parser(policy.max_tx_count))
-  parser.return(Block(header:, transactions:))
+  use transaction_count <- parser.then(transaction_count_parser(
+    policy.max_tx_count,
+  ))
+  use transactions <- parser.then(transactions_parser(transaction_count))
+  parser.return(Block(header:, transaction_count:, transactions:))
 }
 
 fn end_of_block_parser() -> Parser(ParseContext, Nil, DecodeError) {
@@ -567,11 +579,9 @@ fn header_parser() -> Parser(ParseContext, Header, DecodeError) {
 }
 
 fn transactions_parser(
-  max_tx_count_policy: Int,
+  tx_count: Int,
 ) -> Parser(ParseContext, List(Transaction(Decoded)), DecodeError) {
-  max_tx_count_policy
-  |> transaction_count_parser
-  |> parser.then(parser.indexed_repeat(_, transaction_parser(), AtTransaction))
+  parser.indexed_repeat(tx_count, transaction_parser(), AtTransaction)
 }
 
 fn transaction_count_parser(
