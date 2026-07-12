@@ -11,14 +11,16 @@ portable across Erlang and JavaScript targets.
 
 ## Project Status
 
-Transactions are the only data structure currently implemented:
+The following Bitcoin wire-format data structures are currently implemented:
 
 - [`btc_parser/transaction`](docs/transaction/transaction.md) decodes, inspects, validates,
   and serializes legacy and SegWit transactions.
+- [`btc_parser/block`](src/btc_parser/block.gleam) decodes complete blocks,
+  exposes their headers and wire-order legacy and SegWit transactions.
 
-Future sibling modules, such as `btc_parser/block`, are planned as the library
-expands to additional Bitcoin data structures. These modules are not implemented
-yet, and their APIs have not been defined.
+The block module is still in progress and will expand as its API matures.
+
+Additional domains may be added as the library expands.
 
 <!-- ## Installation
 ```sh

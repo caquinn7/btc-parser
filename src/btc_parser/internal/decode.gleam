@@ -1,3 +1,6 @@
+//// Shared helpers for mapping low-level decode failures and exact integer values
+//// into domain-owned decode errors.
+
 import btc_parser/internal/compact_size
 import btc_parser/internal/fixed_int/uint64.{type Uint64}
 import btc_parser/internal/reader
