@@ -607,6 +607,9 @@ fn transaction_parser() -> Parser(
   parser.new(fn(reader, ctx) {
     let tx_start_offset = reader.get_offset(reader)
 
+    // Decode one transaction without consuming the remainder of the block.
+    // The prefix decoder returns both the decoded transaction and
+    // the number of bytes it consumed.
     use #(tx, bytes_read) <- result.try(
       reader
       |> reader.get_remaining
@@ -617,12 +620,16 @@ fn transaction_parser() -> Parser(
         err
         |> TransactionDecodeFailed
         |> new_decode_error(
+          // Transaction errors are relative to the transaction start.
+          // Block errors must point at the corresponding offset in the whole block.
           tx_start_offset + transaction.get_decode_error_offset(err),
         )
         |> with_context(ctx)
       }),
     )
 
+    // Advance the shared block reader so the next indexed transaction begins
+    // exactly after this transaction's encoding.
     use reader <- result.try(
       reader
       |> reader.skip_bytes(bytes_read)
