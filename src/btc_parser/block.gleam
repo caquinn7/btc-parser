@@ -653,22 +653,24 @@ fn validate_transaction_count(
 ) -> Result(Int, DecodeError) {
   let min_transaction_size = 10
   let remaining = reader.bytes_remaining(reader)
-  // A legacy transaction with zero inputs and outputs is ten bytes.
+  // Even the smallest legacy transaction occupies ten bytes.
   let max_transactions_by_bytes = remaining / min_transaction_size
 
-  case tx_count > max_transactions_by_bytes, tx_count > max_tx_count_policy {
-    // Structural limit: count exceeds what remaining bytes can accommodate.
-    True, _ ->
-      InsufficientBytes(claimed: remaining + 1, remaining:)
-      |> on_invalid
+  use <- bool.guard(
+    tx_count > max_transactions_by_bytes,
+    on_invalid(InsufficientBytes(claimed: remaining + 1, remaining:)),
+  )
 
-    // Policy limit: count exceeds the configured maximum.
-    _, True ->
-      PolicyLimitExceeded(MaxTransactionCount, tx_count, max_tx_count_policy)
-      |> on_invalid
+  use <- bool.guard(
+    tx_count > max_tx_count_policy,
+    on_invalid(PolicyLimitExceeded(
+      MaxTransactionCount,
+      tx_count,
+      max_tx_count_policy,
+    )),
+  )
 
-    _, _ -> Ok(tx_count)
-  }
+  Ok(tx_count)
 }
 
 // ==============================================================================
@@ -711,6 +713,7 @@ fn compact_size_int_parser(
   })
 }
 
+/// Construct a parser for a 32-byte hash field, preserving Bitcoin wire order.
 fn hash32_parser(
   field: ParseField,
 ) -> Parser(ParseContext, Hash32, DecodeError) {
