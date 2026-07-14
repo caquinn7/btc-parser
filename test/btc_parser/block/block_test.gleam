@@ -12,7 +12,7 @@ import support/bitcoin_wire.{compact_size}
 import support/target
 
 // ============================================================================
-// Successful decoding
+// Decode header and empty-block success
 // ============================================================================
 
 pub fn decode_accepts_header_only_block_with_zero_transactions_test() {
@@ -78,6 +78,10 @@ pub fn decode_preserves_unsigned_header_timestamp_target_and_nonce_test() {
   assert block.get_header_nonce(header) == nonce
 }
 
+// ============================================================================
+// Decode transaction success
+// ============================================================================
+
 pub fn decode_accepts_block_with_one_legacy_transaction_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
   let bytes = build_block(header, [build_minimal_legacy_transaction(1)])
@@ -129,7 +133,7 @@ pub fn decode_preserves_multibyte_compact_size_transaction_count_test() {
 }
 
 // ============================================================================
-// Decode Policy Builder
+// Decode policy configuration
 // ============================================================================
 
 pub fn default_decode_policy_returns_expected_values_test() {
@@ -150,7 +154,7 @@ pub fn decode_policy_builder_overrides_default_limits_test() {
 }
 
 // ============================================================================
-// Decode Policy limits
+// Decode policy enforcement
 // ============================================================================
 
 pub fn decode_with_policy_rejects_bytes_exceeding_max_block_size_test() {
@@ -483,6 +487,29 @@ pub fn decode_hex_decodes_block_with_one_legacy_transaction_test() {
   assert !transaction.is_segwit(decoded_tx)
 }
 
+pub fn decode_hex_errors_on_odd_length_string_test() {
+  assert block.decode_hex("0") == Error(InvalidHex)
+}
+
+pub fn decode_hex_errors_on_invalid_hex_characters_test() {
+  assert block.decode_hex("0000zz") == Error(InvalidHex)
+}
+
+pub fn decode_hex_errors_on_string_with_whitespace_test() {
+  assert block.decode_hex("00 00") == Error(InvalidHex)
+}
+
+pub fn decode_hex_wraps_block_decode_error_test() {
+  let assert Error(DecodeFailed(error)) = block.decode_hex("")
+
+  assert check_block_decode_error(error, 0, "block.header.version")
+    == UnexpectedEof(bytes_needed: 4, remaining: 0)
+}
+
+// ============================================================================
+// decode_hex_with_policy
+// ============================================================================
+
 pub fn decode_hex_with_policy_accepts_block_at_max_block_size_test() {
   let bytes =
     build_header_only_block(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
@@ -509,51 +536,6 @@ pub fn decode_hex_with_policy_wraps_policy_limit_error_test() {
 
   assert check_block_decode_error(error, 0, "block")
     == PolicyLimitExceeded(MaxBlockSize, block_size, block_size - 1)
-}
-
-pub fn decode_hex_errors_on_odd_length_string_test() {
-  assert block.decode_hex("0") == Error(InvalidHex)
-}
-
-pub fn decode_hex_errors_on_invalid_hex_characters_test() {
-  assert block.decode_hex("0000zz") == Error(InvalidHex)
-}
-
-pub fn decode_hex_errors_on_string_with_whitespace_test() {
-  assert block.decode_hex("00 00") == Error(InvalidHex)
-}
-
-pub fn decode_hex_wraps_block_decode_error_test() {
-  let assert Error(DecodeFailed(error)) = block.decode_hex("")
-
-  assert check_block_decode_error(error, 0, "block.header.version")
-    == UnexpectedEof(bytes_needed: 4, remaining: 0)
-}
-
-// ============================================================================
-// compute_block_hash
-// ============================================================================
-
-pub fn compute_block_hash_matches_manual_dsha256_test() {
-  // A block hash covers exactly the 80-byte header, excluding all transaction data.
-  let header_bytes =
-    build_block_header(
-      2,
-      <<0x01, 0:size(240), 0x02>>,
-      <<0x03, 0:size(240), 0x04>>,
-      1_234_567_890,
-      0x1D00FFFF,
-      2_083_236_893,
-    )
-  let tx = build_minimal_legacy_transaction(1)
-  let assert Ok(decoded_block) = block.decode(build_block(header_bytes, [tx]))
-
-  let expected_hash =
-    header_bytes
-    |> crypto.hash(Sha256, _)
-    |> crypto.hash(Sha256, _)
-
-  assert block.compute_block_hash(decoded_block) == expected_hash
 }
 
 // ============================================================================
@@ -693,7 +675,33 @@ pub fn to_wire_bytes_encodes_multibyte_compact_size_transaction_count_test() {
 }
 
 // ============================================================================
-// Helper Functions
+// compute_block_hash
+// ============================================================================
+
+pub fn compute_block_hash_matches_manual_dsha256_test() {
+  // A block hash covers exactly the 80-byte header, excluding all transaction data.
+  let header_bytes =
+    build_block_header(
+      2,
+      <<0x01, 0:size(240), 0x02>>,
+      <<0x03, 0:size(240), 0x04>>,
+      1_234_567_890,
+      0x1D00FFFF,
+      2_083_236_893,
+    )
+  let tx = build_minimal_legacy_transaction(1)
+  let assert Ok(decoded_block) = block.decode(build_block(header_bytes, [tx]))
+
+  let expected_hash =
+    header_bytes
+    |> crypto.hash(Sha256, _)
+    |> crypto.hash(Sha256, _)
+
+  assert block.compute_block_hash(decoded_block) == expected_hash
+}
+
+// ============================================================================
+// Helpers
 // ============================================================================
 
 fn build_header_only_block(
@@ -785,10 +793,6 @@ fn check_block_decode_error(
   assert block.get_decode_error_path(error) == expected_path
   block.get_decode_error_kind(error)
 }
-
-// ============================================================================
-// Policy Builder Helper Functions
-// ============================================================================
 
 fn policy_with_max_block_size(max_block_size: Int) {
   block.default_decode_policy()
