@@ -13,10 +13,13 @@ portable across Erlang and JavaScript targets.
 
 The following Bitcoin wire-format data structures are currently implemented:
 
-- [`btc_parser/transaction`](docs/transaction/transaction.md) decodes, inspects, validates,
-  and serializes legacy and SegWit transactions.
-- [`btc_parser/block`](src/btc_parser/block.gleam) decodes complete blocks,
-  exposes their headers and wire-order legacy and SegWit transactions.
+- [`btc_parser/transaction`](docs/transaction/transaction.md) decodes and
+  serializes legacy and SegWit transactions, exposes their fields and output
+  script classifications, runs context-free consensus checks, and computes
+  txids and wtxids.
+- [`btc_parser/block`](src/btc_parser/block.gleam) decodes and serializes
+  complete blocks, exposes their headers and wire-order legacy and SegWit
+  transactions, and computes block hashes.
 
 The block module is still in progress and will expand as its API matures.
 

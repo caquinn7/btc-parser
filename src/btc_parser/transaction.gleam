@@ -2185,6 +2185,7 @@ fn validate_no_duplicate_inputs_loop(
 
 /// Compute the transaction identifier (txid) for a transaction.
 ///
+/// The txid is the double SHA-256 hash of the transaction's stripped serialization.
 /// Returns the 32 bytes of the txid in little-endian byte order, as they
 /// appear in Bitcoin transactions and on the wire.
 pub fn compute_txid(tx: Transaction(s)) -> BitArray {
@@ -2196,6 +2197,7 @@ pub fn compute_txid(tx: Transaction(s)) -> BitArray {
 
 /// Compute the witness transaction identifier (wtxid) for a transaction.
 ///
+/// The wtxid is the double SHA-256 hash of the transaction's full wire serialization.
 /// Returns the 32 bytes of the wtxid in little-endian byte order, as they
 /// appear in Bitcoin transactions and on the wire. For legacy transactions,
 /// the wtxid is identical to the txid.

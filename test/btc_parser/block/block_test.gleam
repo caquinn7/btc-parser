@@ -6,6 +6,7 @@ import btc_parser/block.{
 import btc_parser/transaction
 import btc_parser/transaction_test.{check_transaction_decode_error}
 import gleam/bit_array
+import gleam/crypto.{Sha256}
 import gleam/list
 import support/bitcoin_wire.{compact_size}
 import support/target
@@ -115,17 +116,16 @@ pub fn decode_preserves_multiple_transactions_in_wire_order_test() {
   assert transaction.get_version(second_tx) == 2
 }
 
-pub fn decode_preserves_multi_byte_compact_size_transaction_count_test() {
+pub fn decode_preserves_multibyte_compact_size_transaction_count_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
-  let transaction_count = 253
-  let transactions =
-    list.repeat(build_minimal_legacy_transaction(1), transaction_count)
-  let bytes = build_block(header, transactions)
+  let tx_count = 253
+  let txs = list.repeat(build_minimal_legacy_transaction(1), tx_count)
+  let bytes = build_block(header, txs)
 
   let assert Ok(decoded_block) = block.decode(bytes)
 
-  assert block.get_transaction_count(decoded_block) == transaction_count
-  assert list.length(block.get_transactions(decoded_block)) == transaction_count
+  assert block.get_transaction_count(decoded_block) == tx_count
+  assert list.length(block.get_transactions(decoded_block)) == tx_count
 }
 
 // ============================================================================
@@ -528,6 +528,168 @@ pub fn decode_hex_wraps_block_decode_error_test() {
 
   assert check_block_decode_error(error, 0, "block.header.version")
     == UnexpectedEof(bytes_needed: 4, remaining: 0)
+}
+
+// ============================================================================
+// compute_block_hash
+// ============================================================================
+
+pub fn compute_block_hash_matches_manual_dsha256_test() {
+  // A block hash covers exactly the 80-byte header, excluding all transaction data.
+  let header_bytes =
+    build_block_header(
+      2,
+      <<0x01, 0:size(240), 0x02>>,
+      <<0x03, 0:size(240), 0x04>>,
+      1_234_567_890,
+      0x1D00FFFF,
+      2_083_236_893,
+    )
+  let tx = build_minimal_legacy_transaction(1)
+  let assert Ok(decoded_block) = block.decode(build_block(header_bytes, [tx]))
+
+  let expected_hash =
+    header_bytes
+    |> crypto.hash(Sha256, _)
+    |> crypto.hash(Sha256, _)
+
+  assert block.compute_block_hash(decoded_block) == expected_hash
+}
+
+// ============================================================================
+// header_to_wire_bytes
+// ============================================================================
+
+pub fn header_to_wire_bytes_round_trips_decoded_header_bytes_test() {
+  // The serializer must reproduce the exact 80-byte header accepted by decode.
+  let header_bytes =
+    build_block_header(
+      2,
+      <<0x01, 0:size(240), 0x02>>,
+      <<0x03, 0:size(240), 0x04>>,
+      1_234_567_890,
+      0x1D00FFFF,
+      2_083_236_893,
+    )
+
+  let assert Ok(decoded_block) = block.decode(build_block(header_bytes, []))
+
+  assert decoded_block
+    |> block.get_header
+    |> block.header_to_wire_bytes
+    == header_bytes
+}
+
+pub fn header_to_wire_bytes_encodes_signed_version_bit_pattern_test() {
+  // Negative versions must retain their original signed 32-bit wire encoding.
+  let block_bytes =
+    build_header_only_block(-1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+
+  let assert Ok(decoded_block) = block.decode(block_bytes)
+
+  let serialized_header =
+    decoded_block
+    |> block.get_header
+    |> block.header_to_wire_bytes
+
+  let assert <<0xFF, 0xFF, 0xFF, 0xFF, _:bytes>> = serialized_header
+}
+
+pub fn header_to_wire_bytes_encodes_unsigned_u32_values_from_int_test() {
+  // Unsigned values above the signed 32-bit range must encode as four little-endian bytes.
+  let block_bytes =
+    build_header_only_block(
+      1,
+      <<0:size(256)>>,
+      <<0:size(256)>>,
+      0x80000000,
+      0xFEDCBA98,
+      0xFFFFFFFF,
+    )
+  let assert Ok(decoded_block) = block.decode(block_bytes)
+
+  let serialized_header =
+    decoded_block
+    |> block.get_header
+    |> block.header_to_wire_bytes
+
+  let assert <<
+    _:bytes-size(68),
+    0x00,
+    0x00,
+    0x00,
+    0x80,
+    0x98,
+    0xBA,
+    0xDC,
+    0xFE,
+    0xFF,
+    0xFF,
+    0xFF,
+    0xFF,
+  >> = serialized_header
+}
+
+// ============================================================================
+// to_wire_bytes
+// ============================================================================
+
+pub fn to_wire_bytes_encodes_zero_transaction_count_without_payload_test() {
+  // An empty transaction list must add only a CompactSize zero after the header.
+  let block_bytes =
+    build_header_only_block(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+
+  let assert Ok(decoded_block) = block.decode(block_bytes)
+
+  let assert <<_:bytes-size(80), 0>> = block.to_wire_bytes(decoded_block)
+}
+
+pub fn to_wire_bytes_preserves_transaction_wire_order_test() {
+  // Block serialization must concatenate contained transactions without reordering them.
+  let first_tx = build_minimal_legacy_transaction(1)
+  let second_tx = build_minimal_legacy_transaction(2)
+  let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let assert Ok(decoded_block) =
+    block.decode(build_block(header, [first_tx, second_tx]))
+
+  let assert <<_:bytes-size(80), serialized_payload:bytes>> =
+    block.to_wire_bytes(decoded_block)
+
+  assert serialized_payload == <<2, first_tx:bits, second_tx:bits>>
+}
+
+pub fn to_wire_bytes_includes_segwit_witness_data_test() {
+  // SegWit transactions must use their full wire form rather than stripped bytes.
+  let segwit_tx = <<
+    1:32-little,
+    0,
+    1,
+    build_minimal_transaction_body():bits,
+    1,
+    3,
+    0xAA,
+    0xBB,
+    0xCC,
+    0:32-little,
+  >>
+  let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let assert Ok(decoded_block) = block.decode(build_block(header, [segwit_tx]))
+
+  let assert <<_:bytes-size(80), 1, serialized_tx:bytes>> =
+    block.to_wire_bytes(decoded_block)
+
+  assert serialized_tx == segwit_tx
+}
+
+pub fn to_wire_bytes_encodes_multibyte_compact_size_transaction_count_test() {
+  // The transaction count must use minimal CompactSize at the first multibyte boundary.
+  let tx_count = 253
+  let txs = list.repeat(build_minimal_legacy_transaction(1), tx_count)
+  let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let assert Ok(decoded_block) = block.decode(build_block(header, txs))
+
+  let assert <<_:bytes-size(80), 0xFD, 0xFD, 0x00, _:bytes>> =
+    block.to_wire_bytes(decoded_block)
 }
 
 // ============================================================================

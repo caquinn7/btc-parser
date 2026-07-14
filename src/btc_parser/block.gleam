@@ -1,3 +1,5 @@
+//// Decode, inspect, and serialize Bitcoin blocks.
+
 import btc_parser/internal/compact_size
 import btc_parser/internal/decode
 import btc_parser/internal/fixed_int/uint64.{type Uint64}
@@ -8,6 +10,7 @@ import btc_parser/internal/reader.{type Reader}
 import btc_parser/transaction.{type Transaction}
 import gleam/bit_array
 import gleam/bool
+import gleam/crypto.{Sha256}
 import gleam/int
 import gleam/list
 import gleam/pair
@@ -723,4 +726,80 @@ fn hash32_parser(
     let assert Ok(hash32) = hash32.from_bytes_le(bytes)
     hash32
   })
+}
+
+// ==============================================================================
+// Serialization
+// ==============================================================================
+
+/// Compute the hash that identifies a Bitcoin block.
+///
+/// Returns the double SHA-256 hash of the block's exact 80-byte header. The
+/// transaction count and transactions are not included in this computation.
+///
+/// The returned 32 bytes use the little-endian byte order carried by previous
+/// block hash fields on the Bitcoin wire. This function does not validate the
+/// header's proof of work.
+///
+/// ## See Also
+///
+/// - `header_to_wire_bytes` — produces the header serialization being hashed
+pub fn compute_block_hash(block: Block(s)) -> BitArray {
+  let assert <<_:256-bits>> =
+    block.header
+    |> header_to_wire_bytes
+    |> dsha256
+}
+
+/// Serialize a block in its complete Bitcoin wire form.
+///
+/// Returns the 80-byte header followed by the minimal `CompactSize` transaction
+/// count and each transaction's full wire serialization in block order. SegWit
+/// transactions include their marker, flag, and witness data.
+///
+/// ## See Also
+///
+/// - `header_to_wire_bytes` — serializes only the fixed-size block header
+pub fn to_wire_bytes(block: Block(s)) -> BitArray {
+  // safe: tx count is a non-negative Int parsed from the wire,
+  // so it fits within Uint64 (and within JS safe integer bounds)
+  let assert Ok(tx_count) = uint64.from_int(block.transaction_count)
+
+  let tx_list_bytes =
+    block.transactions
+    |> list.map(transaction.to_wire_bytes)
+    |> bit_array.concat
+
+  <<
+    header_to_wire_bytes(block.header):bits,
+    compact_size.write(tx_count):bits,
+    tx_list_bytes:bits,
+  >>
+}
+
+/// Serialize a block header in its 80-byte Bitcoin wire form.
+///
+/// Returns the signed version, previous block hash, merkle root, timestamp,
+/// compact target, and nonce in their wire order. Integer fields are encoded
+/// little-endian, while both hashes retain their existing wire-order bytes.
+///
+/// ## See Also
+///
+/// - `compute_block_hash` — hashes this serialization to identify the block
+/// - `to_wire_bytes` — serializes the header and the block's transactions
+pub fn header_to_wire_bytes(header: Header) -> BitArray {
+  <<
+    header.version:32-little,
+    hash32.to_bytes_le(header.previous_block_hash):bits,
+    hash32.to_bytes_le(header.merkle_root):bits,
+    header.timestamp:32-little,
+    header.target:32-little,
+    header.nonce:32-little,
+  >>
+}
+
+fn dsha256(bytes: BitArray) -> BitArray {
+  bytes
+  |> crypto.hash(Sha256, _)
+  |> crypto.hash(Sha256, _)
 }

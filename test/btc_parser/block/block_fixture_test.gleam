@@ -4,10 +4,12 @@ import gleam/bit_array
 import gleam/list
 import gleam/string
 import simplifile
+import support/bitcoin_wire.{get_display_hex}
 
 type FixtureExpectation {
   FixtureExpectation(
     file_name: String,
+    display_block_hash_hex: String,
     byte_length: Int,
     version: Int,
     previous_block_hash_hex: String,
@@ -22,6 +24,7 @@ type FixtureExpectation {
 
 const mainnet_0_fixture = FixtureExpectation(
   file_name: "mainnet-0.hex",
+  display_block_hash_hex: "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
   byte_length: 285,
   version: 1,
   previous_block_hash_hex: "0000000000000000000000000000000000000000000000000000000000000000",
@@ -35,6 +38,7 @@ const mainnet_0_fixture = FixtureExpectation(
 
 const mainnet_170_fixture = FixtureExpectation(
   file_name: "mainnet-170.hex",
+  display_block_hash_hex: "00000000d1145790a8694403d4063f323d499e655c83426834d4ce2f8dd4a2ee",
   byte_length: 490,
   version: 1,
   previous_block_hash_hex: "55bd840a78798ad0da853f68974f3d183e2bd1db6a842c1feecf222a00000000",
@@ -48,6 +52,7 @@ const mainnet_170_fixture = FixtureExpectation(
 
 const mainnet_519311_fixture = FixtureExpectation(
   file_name: "mainnet-519311.hex",
+  display_block_hash_hex: "0000000000000000001381004f0bf7b0578189d6853cd8af5098994095213e38",
   byte_length: 22_884,
   version: 536_870_912,
   previous_block_hash_hex: "90e82ac51d6b37446dc3e6ade48e387a46bcc0b454e126000000000000000000",
@@ -74,6 +79,7 @@ pub fn decode_mainnet_519311_fixture_test() {
 fn assert_fixture_decodes(expectation: FixtureExpectation) -> Nil {
   let FixtureExpectation(
     file_name:,
+    display_block_hash_hex: _,
     byte_length: expected_byte_length,
     version: expected_version,
     previous_block_hash_hex:,
@@ -126,4 +132,30 @@ fn count_transaction_encodings(
       False -> #(legacy_count + 1, segwit_count)
     }
   })
+}
+
+pub fn compute_block_hash_mainnet_0_known_vector_test() {
+  compare_compute_block_hash_against_known_vector(mainnet_0_fixture)
+}
+
+pub fn compute_block_hash_mainnet_170_known_vector_test() {
+  compare_compute_block_hash_against_known_vector(mainnet_170_fixture)
+}
+
+pub fn compute_block_hash_mainnet_519311_known_vector_test() {
+  compare_compute_block_hash_against_known_vector(mainnet_519311_fixture)
+}
+
+fn compare_compute_block_hash_against_known_vector(
+  expectation: FixtureExpectation,
+) -> Nil {
+  let assert Ok(fixture_hex) =
+    simplifile.read("test/btc_parser/block/fixtures/" <> expectation.file_name)
+  let assert Ok(decoded_block) =
+    fixture_hex
+    |> string.trim
+    |> block.decode_hex
+
+  let wire_block_hash = block.compute_block_hash(decoded_block)
+  assert get_display_hex(wire_block_hash) == expectation.display_block_hash_hex
 }

@@ -5,10 +5,10 @@
 `btc_parser` is a Gleam library for working with Bitcoin data structures. Its
 transaction domain decodes wire bytes, exposes transaction fields, classifies
 output scripts, serializes transactions, and runs context-free consensus checks.
-Its block domain decodes complete blocks and exposes header fields and
-embedded transactions. It aims to
-mirror Bitcoin's wire format closely, expose malformed encodings as structured
-errors, and remain portable across Erlang and JavaScript targets.
+Its block domain decodes and serializes complete blocks, exposes header fields
+and embedded transactions, and computes block hashes. It aims to mirror
+Bitcoin's wire format closely, expose malformed encodings as structured errors,
+and remain portable across Erlang and JavaScript targets.
 
 This library does not perform full transaction or block validation. Do not add
 behavior that requires UTXO lookup, script execution, signature verification,
@@ -24,8 +24,8 @@ changes.
 - `src/btc_parser/block.gleam` defines the public block API and block/header
   data model. It decodes a complete block header, CompactSize transaction count,
   and contained transactions; exposes header and transaction accessors; and owns
-  block decode policies and block-level decode errors. It does not yet validate,
-  serialize, or hash blocks.
+  block decode policies and block-level decode errors. It serializes headers and
+  complete blocks and computes block hashes.
 - `src/btc_parser/internal/reader.gleam` is the byte reader. It owns offset
   tracking and byte-aligned reads.
 - `src/btc_parser/internal/parser.gleam` is a small parser combinator layer
