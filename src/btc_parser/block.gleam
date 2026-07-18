@@ -608,6 +608,7 @@ fn transaction_parser() -> Parser(
   DecodeError,
 ) {
   parser.new(fn(reader, ctx) {
+    let tx_policy = transaction.default_decode_policy()
     let tx_start_offset = reader.get_offset(reader)
 
     // Decode one transaction without consuming the remainder of the block.
@@ -616,9 +617,7 @@ fn transaction_parser() -> Parser(
     use #(tx, bytes_read) <- result.try(
       reader
       |> reader.get_remaining
-      |> transaction.decode_prefix_with_policy(
-        transaction.default_decode_policy(),
-      )
+      |> transaction.decode_prefix_with_policy(tx_policy)
       |> result.map_error(fn(err) {
         err
         |> TransactionDecodeFailed
