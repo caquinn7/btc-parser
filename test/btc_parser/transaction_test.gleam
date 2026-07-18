@@ -3130,7 +3130,7 @@ fn policy_with_max_witness_stack_payload_size(
   ))
 }
 
-pub fn check_transaction_decode_error(
+fn check_transaction_decode_error(
   error: transaction.DecodeError,
   expected_offset: Int,
   expected_path: String,

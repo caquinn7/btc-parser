@@ -4,7 +4,6 @@ import btc_parser/block.{
   TransactionDecodeFailed, UnexpectedEof,
 }
 import btc_parser/transaction
-import btc_parser/transaction_test.{check_transaction_decode_error}
 import gleam/bit_array
 import gleam/crypto.{Sha256}
 import gleam/list
@@ -792,6 +791,16 @@ fn check_block_decode_error(
   assert block.get_decode_error_offset(error) == expected_offset
   assert block.get_decode_error_path(error) == expected_path
   block.get_decode_error_kind(error)
+}
+
+fn check_transaction_decode_error(
+  error: transaction.DecodeError,
+  expected_offset: Int,
+  expected_path: String,
+) -> transaction.DecodeErrorKind {
+  assert transaction.get_decode_error_offset(error) == expected_offset
+  assert transaction.get_decode_error_path(error) == expected_path
+  transaction.get_decode_error_kind(error)
 }
 
 fn policy_with_max_block_size(max_block_size: Int) {
