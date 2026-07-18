@@ -3,15 +3,17 @@
 ## Project Purpose
 
 `btc_parser` is a Gleam library for working with Bitcoin data structures. Its
-current transaction domain decodes wire bytes, inspects transaction fields,
-classifies output scripts, serializes transactions, and runs context-free
-consensus checks. It aims to mirror Bitcoin's wire format closely, expose
-malformed encodings as structured errors, and remain portable across Erlang and
-JavaScript targets.
+transaction domain decodes wire bytes, exposes transaction fields, classifies
+output scripts, serializes transactions, and runs context-free consensus checks.
+Its block domain decodes and serializes complete blocks, exposes header fields
+and embedded transactions, and computes block hashes. It aims to mirror
+Bitcoin's wire format closely, expose malformed encodings as structured errors,
+and remain portable across Erlang and JavaScript targets.
 
-This library does not perform full transaction validation. Do not add behavior
-that requires UTXO lookup, script execution, signature verification, block
-context, mempool policy, or network/RPC access unless the project scope changes.
+This library does not perform full transaction or block validation. Do not add
+behavior that requires UTXO lookup, script execution, signature verification,
+chain state, mempool policy, or network/RPC access unless the project scope
+changes.
 
 ## Architecture
 
@@ -19,21 +21,34 @@ context, mempool policy, or network/RPC access unless the project scope changes.
   transaction data model. It contains opaque transaction/input/output/script types,
   decode policy, decode errors, output script classification, context-free consensus
   validation, serialization, and txid/wtxid computation.
+- `src/btc_parser/block.gleam` defines the public block API and block/header
+  data model. It decodes a complete block header, CompactSize transaction count,
+  and contained transactions; exposes header and transaction accessors; and owns
+  block decode policies and block-level decode errors. It serializes headers and
+  complete blocks and computes block hashes.
 - `src/btc_parser/internal/reader.gleam` is the byte reader. It owns offset
   tracking and byte-aligned reads.
 - `src/btc_parser/internal/parser.gleam` is a small parser combinator layer
   used to attach parse contexts and indexed locations to errors.
+- `src/btc_parser/internal/decode.gleam` maps shared reader and CompactSize
+  errors into domain-owned decode errors and converts exact unsigned 64-bit
+  values to target-safe `Int`s.
 - `src/btc_parser/internal/compact_size.gleam` handles Bitcoin CompactSize
   read/write, including minimal-encoding checks.
 - `src/btc_parser/internal/fixed_int/*.gleam` stores signed/unsigned 64-bit
   values as little-endian bytes so values remain exact on JavaScript.
-- `src/btc_parser/internal/hash32.gleam` stores 32-byte transaction hashes in
-  wire-order little-endian bytes.
+- `src/btc_parser/internal/hash32.gleam` stores 32-byte hashes in wire-order
+  little-endian bytes for transaction identifiers, block-header hashes, and
+  merkle roots.
+- `src/btc_parser/internal/lifecycle.gleam` provides the shared phantom types
+  that mark decoded values and values that passed available context-free
+  validation.
 - `dev/fuzz/transaction/` contains the transaction fuzz suite, report, and seed
   corpus; `dev/fuzz/internal/` contains shared fuzz utilities.
 - `dev/perf/transaction/` contains the transaction benchmark suite and report;
   `dev/perf/internal/` contains shared runtime metadata.
-- `docs/` documents API behavior and output script classification.
+- `docs/` currently documents transaction API behavior and output script
+  classification.
 
 ## Terminology
 
@@ -79,24 +94,29 @@ file/timer/CLI behavior, or a runtime-specific bug.
 
 ## Important Invariants
 
-- Preserve transaction wire order and little-endian byte order. Public hash bytes
-  and outpoint txids are exposed in the same little-endian order used on the wire.
-- Preserve the phantom-type validation boundary. `decode` produces
-  `Transaction(Decoded)`, `validate_context_free_consensus` is the only public
-  upgrade path to `Transaction(ContextFreeValidated)`, and APIs whose documented
-  guarantees depend on context-free validation should keep that requirement.
-- Transaction decoding must consume exactly one transaction. Extra bytes must return
-  `TrailingBytes`, not be ignored.
-- CompactSize integers must reject non-minimal encodings.
+- Preserve Bitcoin wire order and little-endian byte order. Public transaction
+  hashes, outpoint txids, block-header hashes, and merkle roots are exposed in
+  the same little-endian order used on the wire.
+- Preserve the phantom-type validation boundary. Block decoding produces
+  `Block(Decoded)` containing `Transaction(Decoded)` values; no block validation
+  upgrade path exists yet. `transaction.validate_context_free_consensus` is the
+  only public upgrade path to `Transaction(ContextFreeValidated)`, and APIs whose
+  documented guarantees depend on context-free validation should keep that
+  requirement.
+- Public full decoders must consume exactly one value. Extra bytes after a
+  complete block or transaction must return `TrailingBytes`, not be ignored.
+- CompactSize integers, including block transaction counts, must reject
+  non-minimal encodings.
 - Do not pass user-controlled CompactSize-derived values directly into reader
   byte-count operations or repeat helpers. First convert them to `Int` with
   decode-error handling, then validate them against the current reader state and
   any relevant policy limit.
 - Decode errors must include accurate byte offsets and context stacks from outer
-  to inner context, such as `InTransaction`, `AtInput(n)`, `AtField(...)`.
-- Resource limits are policy, not consensus. Exceeding `DecodePolicy` limits
-  should report `PolicyLimitExceeded`; structurally impossible lengths/counts
-  should report `InsufficientBytes` or `UnexpectedEof`.
+  to inner context, such as `InBlock`, `AtTransaction(n)`, `InTransaction`,
+  `AtInput(n)`, and `AtField(...)`.
+- Resource limits are policy, not consensus. Exceeding a transaction or block
+  `DecodePolicy` limit should report `PolicyLimitExceeded`; structurally
+  impossible lengths/counts should report `InsufficientBytes` or `UnexpectedEof`.
 - Reader and parser code should not panic on user-controlled input. Prefer
   returning structured `DecodeError`s for prevalidated variable-length reads even
   when a prior check should make failure impossible. Reserve `assert`/`panic`
@@ -114,6 +134,9 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - Keep context-free consensus validation aligned with the documented
   `validate_context_free_consensus` scope; do not add context-dependent checks
   such as UTXO lookup, block subsidy, or block-height validation.
+- Keep transaction and block validation aligned with their documented local
+  scope; do not add context-dependent checks such as UTXO lookup, block subsidy,
+  or block-height validation.
 - Keep structural inspection separate from validation: helpers may identify wire
   shapes, markers, and script templates, but consensus meaning should flow
   through documented validation APIs.
@@ -138,7 +161,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
   when they would otherwise become stale.
 - Prefer opaque domain types and accessor functions over exposing representation.
 - Keep public API documentation clear about byte order, validation state, and
-  whether a check is structural, policy, or consensus.
+  whether a transaction or block check is structural, policy, or consensus.
 - Use parser helpers (`read_field`, `read_compact_size_as_int`,
   `parser.with_context`, `parser.indexed_repeat`) so new decode failures get
   consistent offsets and contexts.
@@ -154,8 +177,10 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - Add focused unit tests near the behavior changed. Mirror source module paths
   under `test/`, adding the `_test` suffix for test modules; for example,
   `src/btc_parser/transaction.gleam` maps to `test/btc_parser/transaction_test.gleam`.
-- Test both success and exact failure shape for parser changes: error kind,
-  offset, and context stack.
+  The block decoder is covered by `test/btc_parser/block/block_test.gleam` and
+  mainnet fixtures in `test/btc_parser/block/fixtures/`.
+- Test both success and exact failure shape for transaction and block decoder
+  changes: error kind, offset, and context stack.
 - Include boundary tests for limits: exactly at limit, one over limit, truncated
   data, non-minimal CompactSize, and trailing bytes where relevant.
 - For consensus changes, test valid transactions, isolated violations, and
@@ -164,16 +189,16 @@ file/timer/CLI behavior, or a runtime-specific bug.
   SHA-256 comparisons and round-trip checks.
 - For script classification, test exact byte templates plus near misses that
   should be `NonStandard` or `UnknownWitnessProgram`.
-- Run the fuzz harness after changes to byte-level parsing, CompactSize handling,
-  length/count validation, SegWit detection, witness parsing, reader/parser
-  internals, or decode policy enforcement. Run with an explicit seed, or record
-  the generated seed from the fuzz output, so any failure can be reproduced.
-  Record the failing seed/hex if a crash or hang is found.
-- Run the perf harness after performance-sensitive changes to decode,
-  validation, transaction inspection, serialization, hashing, witness handling,
-  parser/list accumulation, `BitArray` handling, or decode policy fail-fast
-  behavior. Compare trends within the same machine, target, and runtime rather
-  than treating absolute numbers as portable.
+- Run the transaction fuzz harness after changes to shared byte-level parsing,
+  CompactSize handling, reader/parser internals, or transaction decode policy
+  enforcement. Run fuzz with an explicit seed, or record the generated seed from
+  the output, so any failure can be reproduced. Record the failing seed/hex if a
+  crash or hang is found.
+- Run the transaction perf harness after performance-sensitive changes to shared
+  decode infrastructure or transaction behavior. For block decoding changes,
+  measure relevant block workloads when adding a block benchmark suite. Compare
+  trends within the same machine, target, and runtime rather than treating
+  absolute numbers as portable.
 
 ## Performance Considerations
 
