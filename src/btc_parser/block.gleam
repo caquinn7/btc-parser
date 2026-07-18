@@ -1,4 +1,4 @@
-//// Decode, inspect, and serialize Bitcoin blocks.
+//// Deserialize, inspect, and serialize Bitcoin blocks.
 
 import btc_parser/internal/compact_size
 import btc_parser/internal/decode
@@ -20,11 +20,11 @@ import gleam/result
 // Block types
 // ==============================================================================
 
-/// Phantom type indicating a block that has been successfully
-/// decoded from bytes but has not yet been validated against
-/// Bitcoin consensus rules.
-pub type Decoded =
-  lifecycle.Decoded
+/// Phantom type indicating a block that has been successfully parsed from its
+/// canonical Bitcoin wire-format serialization but has not yet been validated
+/// against Bitcoin consensus rules.
+pub type Parsed =
+  lifecycle.Parsed
 
 /// A Bitcoin block.
 ///
@@ -65,14 +65,14 @@ pub opaque type Header {
 /// Get the number of transactions in a block.
 ///
 /// Returns the decoded `CompactSize` transaction count from the block wire encoding.
-pub fn get_transaction_count(block: Block(s)) -> Int {
+pub fn get_transaction_count(block: Block(state)) -> Int {
   block.transaction_count
 }
 
 /// Get the transactions from a block.
 ///
 /// Returns transactions in the same order they appear in the block wire encoding.
-pub fn get_transactions(block: Block(s)) -> List(Transaction(s)) {
+pub fn get_transactions(block: Block(state)) -> List(Transaction(state)) {
   block.transactions
 }
 
@@ -80,7 +80,7 @@ pub fn get_transactions(block: Block(s)) -> List(Transaction(s)) {
 ///
 /// Returns the 80-byte header that precedes the transaction count and transactions
 /// in the block wire encoding.
-pub fn get_header(block: Block(s)) -> Header {
+pub fn get_header(block: Block(state)) -> Header {
   block.header
 }
 
@@ -134,21 +134,21 @@ pub fn get_header_nonce(header: Header) -> Int {
 // Error handling
 // ==============================================================================
 
-/// An error that occurred while decoding a Bitcoin block.
+/// An error that occurred while deserializing a Bitcoin block from hex.
 ///
-/// Distinguishes failures during hex-to-bytes conversion from failures during
-/// block parsing.
-pub type DecodeHexError {
+/// Distinguishes failures during hex-to-bytes conversion from underlying block
+/// decoding failures.
+pub type DeserializeHexError {
   /// The hexadecimal string could not be converted to bytes.
   ///
-  /// This occurs before any block parsing begins, typically due to an
+  /// This occurs before any block decoding begins, typically due to an
   /// odd-length hex string or the presence of invalid hexadecimal characters.
   InvalidHex
 
-  /// The byte sequence could not be parsed as a Bitcoin block.
+  /// The byte sequence could not be decoded as a Bitcoin block.
   ///
   /// This wraps a `DecodeError` containing details about what went wrong during
-  /// the block parsing phase.
+  /// the block decoding phase.
   DecodeFailed(DecodeError)
 }
 
@@ -227,7 +227,8 @@ pub type DecodeErrorKind {
     max: Int,
   )
 
-  /// The block was successfully decoded, but extra bytes remain in the input.
+  /// One block was successfully decoded, but extra bytes remain, so
+  /// deserialization failed.
   ///
   /// This indicates the input buffer contains more data than a single valid block.
   /// The wrapped `Int` is the count of trailing bytes that were not consumed.
@@ -334,7 +335,7 @@ fn field_error(
 }
 
 // ==============================================================================
-// Decoding
+// Deserialization
 // ==============================================================================
 
 /// Configuration policy for block decoding limits.
@@ -362,7 +363,7 @@ fn field_error(
 /// ## See Also
 ///
 /// - `default_decode_policy` for the standard decoding limits
-/// - `decode_with_policy` to apply a custom policy
+/// - `deserialize_with_policy` to apply a custom policy
 pub opaque type DecodePolicy {
   DecodePolicy(
     /// Maximum byte size accepted by the decoder, checked before decoding.
@@ -375,9 +376,9 @@ pub opaque type DecodePolicy {
 /// The default block decoding policy.
 ///
 /// Provides reasonable resource limits for block decoding, applied
-/// automatically when using `decode` or `decode_hex`. These defaults protect
-/// against malicious inputs while preventing excessive memory allocation and
-/// processing time. As these are policy limits rather than consensus rules,
+/// automatically when using `deserialize` or `deserialize_hex`. These defaults
+/// protect against malicious inputs while preventing excessive memory allocation
+/// and processing time. As these are policy limits rather than consensus rules,
 /// some valid Bitcoin blocks may be rejected by this configuration.
 ///
 /// The overall block size limit (`max_block_size`) serves as the primary
@@ -419,36 +420,38 @@ pub fn decode_policy_max_tx_count(policy: DecodePolicy) -> Int {
   policy.max_tx_count
 }
 
-/// Decode a Bitcoin block from its binary representation.
+/// Deserialize a Bitcoin block from its canonical Bitcoin wire-format
+/// serialization.
 ///
-/// This is the standard entry point for decoding Bitcoin block data
-/// serialized in the Bitcoin network protocol format.
+/// This is the standard entry point for converting a complete serialized
+/// Bitcoin block into a typed value. The entire input must contain exactly one
+/// block; trailing bytes are rejected.
 ///
 /// This function applies `default_decode_policy` to protect against malicious inputs
 /// by enforcing reasonable limits.
 ///
-/// For custom resource limits, use `decode_with_policy` instead.
+/// For custom resource limits, use `deserialize_with_policy` instead.
 ///
-/// The returned block is marked as `Decoded`, meaning it has been
-/// successfully decoded from bytes but has not yet been checked against
-/// Bitcoin consensus rules.
+/// The returned block is marked as `Parsed`, meaning its structure was
+/// successfully parsed but it has not yet been checked against Bitcoin
+/// consensus rules.
 ///
 /// ## Returns
 ///
-/// - `Ok(Block(Decoded))`: Successfully decoded within the default policy limits.
+/// - `Ok(Block(Parsed))`: Successfully deserialized within the default policy limits.
 /// - `Error(DecodeError)`: The bytes were not a well-formed block encoding
 ///   within the default policy limits.
-pub fn decode(bytes: BitArray) -> Result(Block(Decoded), DecodeError) {
-  decode_with_policy(bytes, default_decode_policy())
+pub fn deserialize(bytes: BitArray) -> Result(Block(Parsed), DecodeError) {
+  deserialize_with_policy(bytes, default_decode_policy())
 }
 
-/// Decode a Bitcoin block with custom resource limits.
+/// Deserialize a Bitcoin block with custom resource limits.
 ///
-/// Like `decode`, but accepts a `DecodePolicy` to override the resource limits
-/// applied during decoding. Use `default_decode_policy` and the `decode_policy_with_*`
-/// builder functions to construct custom policies. Limits that are exceeded
-/// produce a `PolicyLimitExceeded` error. See `DecodePolicy` and
-/// `default_decode_policy` for available options and defaults.
+/// Like `deserialize`, but accepts a `DecodePolicy` to override the resource
+/// limits applied during decoding. Use `default_decode_policy` and the
+/// `decode_policy_with_*` builder functions to construct custom policies.
+/// Limits that are exceeded produce a `PolicyLimitExceeded` error. See
+/// `DecodePolicy` and `default_decode_policy` for available options and defaults.
 ///
 /// This policy controls block-level limits only. Contained transactions use
 /// `transaction.default_decode_policy`: its `max_tx_size` does not apply, while
@@ -456,13 +459,13 @@ pub fn decode(bytes: BitArray) -> Result(Block(Decoded), DecodeError) {
 ///
 /// ## Returns
 ///
-/// - `Ok(Block(Decoded))`: Successfully decoded within the supplied policy limits.
+/// - `Ok(Block(Parsed))`: Successfully deserialized within the supplied policy limits.
 /// - `Error(DecodeError)`: The bytes were not a well-formed block
 ///   encoding within the supplied policy limits.
-pub fn decode_with_policy(
+pub fn deserialize_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
-) -> Result(Block(Decoded), DecodeError) {
+) -> Result(Block(Parsed), DecodeError) {
   let block_size = bit_array.byte_size(bytes)
   use <- bool.guard(
     block_size > policy.max_block_size,
@@ -478,48 +481,50 @@ pub fn decode_with_policy(
   |> result.map(pair.second)
 }
 
-/// Decode a Bitcoin block from its hexadecimal string representation.
+/// Deserialize a Bitcoin block from its hexadecimal string representation.
 ///
 /// This is a convenience function that combines hex-to-bytes conversion with
-/// block decoding. It's useful when working with block data in hexadecimal
+/// block deserialization. It's useful when working with block data in hexadecimal
 /// format, such as from block explorers, RPC responses, or test vectors.
 ///
 /// This function applies `default_decode_policy` for resource limits.
-/// For custom resource limits, use `decode_hex_with_policy` instead.
+/// For custom resource limits, use `deserialize_hex_with_policy` instead.
 ///
 /// ## Returns
 ///
-/// - `Ok(Block(Decoded))`: Successfully decoded within the default policy limits.
+/// - `Ok(Block(Parsed))`: Successfully deserialized within the default policy limits.
 /// - `Error(InvalidHex)`: The hex string was invalid (odd length or
 ///   invalid characters).
 /// - `Error(DecodeFailed(error))`: The decoded bytes were not a well-formed
 ///   block encoding within the default policy limits.
-pub fn decode_hex(hex: String) -> Result(Block(Decoded), DecodeHexError) {
-  decode_hex_with_policy(hex, default_decode_policy())
+pub fn deserialize_hex(
+  hex: String,
+) -> Result(Block(Parsed), DeserializeHexError) {
+  deserialize_hex_with_policy(hex, default_decode_policy())
 }
 
-/// Decode a Bitcoin block from hexadecimal with custom resource limits.
+/// Deserialize a Bitcoin block from hexadecimal with custom resource limits.
 ///
 /// This function combines hex-to-bytes conversion with policy-based block
-/// decoding, providing both the convenience of hexadecimal input and fine-grained
-/// control over resource limits. Use this when working with hex-encoded block
-/// data that requires custom resource constraints.
+/// deserialization, providing both the convenience of hexadecimal input and
+/// fine-grained control over resource limits. Use this when working with
+/// hex-encoded block data that requires custom resource constraints.
 ///
-/// As with `decode_with_policy`, this policy controls block-level limits only.
+/// As with `deserialize_with_policy`, this policy controls block-level limits only.
 /// Contained transactions use the default transaction policy without its
 /// top-level `max_tx_size` limit.
 ///
 /// ## Returns
 ///
-/// - `Ok(Block(Decoded))`: Successfully decoded within the supplied policy limits.
+/// - `Ok(Block(Parsed))`: Successfully deserialized within the supplied policy limits.
 /// - `Error(InvalidHex)`: The hex string was invalid (odd length or
 ///   invalid characters).
 /// - `Error(DecodeFailed(error))`: The decoded bytes were not a well-formed
 ///   block encoding within the supplied policy limits.
-pub fn decode_hex_with_policy(
+pub fn deserialize_hex_with_policy(
   hex: String,
   policy: DecodePolicy,
-) -> Result(Block(Decoded), DecodeHexError) {
+) -> Result(Block(Parsed), DeserializeHexError) {
   use bytes <- result.try(
     hex
     |> bit_array.base16_decode
@@ -527,7 +532,7 @@ pub fn decode_hex_with_policy(
   )
 
   bytes
-  |> decode_with_policy(policy)
+  |> deserialize_with_policy(policy)
   |> result.map_error(DecodeFailed)
 }
 
@@ -537,7 +542,7 @@ pub fn decode_hex_with_policy(
 
 fn block_parser(
   policy: DecodePolicy,
-) -> Parser(ParseContext, Block(Decoded), DecodeError) {
+) -> Parser(ParseContext, Block(Parsed), DecodeError) {
   use block <- parser.then(block_body_parser(policy))
   use Nil <- parser.then(end_of_block_parser())
   parser.return(block)
@@ -545,7 +550,7 @@ fn block_parser(
 
 fn block_body_parser(
   policy: DecodePolicy,
-) -> Parser(ParseContext, Block(Decoded), DecodeError) {
+) -> Parser(ParseContext, Block(Parsed), DecodeError) {
   use header <- parser.then(parser.with_context(header_parser(), InHeader))
   use transaction_count <- parser.then(transaction_count_parser(
     policy.max_tx_count,
@@ -583,7 +588,7 @@ fn header_parser() -> Parser(ParseContext, Header, DecodeError) {
 
 fn transactions_parser(
   tx_count: Int,
-) -> Parser(ParseContext, List(Transaction(Decoded)), DecodeError) {
+) -> Parser(ParseContext, List(Transaction(Parsed)), DecodeError) {
   parser.indexed_repeat(tx_count, transaction_parser(), AtTransaction)
 }
 
@@ -604,7 +609,7 @@ fn transaction_count_parser(
 
 fn transaction_parser() -> Parser(
   ParseContext,
-  Transaction(Decoded),
+  Transaction(Parsed),
   DecodeError,
 ) {
   parser.new(fn(reader, ctx) {
@@ -742,11 +747,11 @@ fn hash32_parser(
 ///
 /// ## See Also
 ///
-/// - `header_to_wire_bytes` — produces the header serialization being hashed
-pub fn compute_block_hash(block: Block(s)) -> BitArray {
+/// - `serialize_header` — produces the header serialization being hashed
+pub fn compute_block_hash(block: Block(state)) -> BitArray {
   let assert <<_:256-bits>> =
     block.header
-    |> header_to_wire_bytes
+    |> serialize_header
     |> dsha256
 }
 
@@ -758,19 +763,19 @@ pub fn compute_block_hash(block: Block(s)) -> BitArray {
 ///
 /// ## See Also
 ///
-/// - `header_to_wire_bytes` — serializes only the fixed-size block header
-pub fn to_wire_bytes(block: Block(s)) -> BitArray {
+/// - `serialize_header` — serializes only the fixed-size block header
+pub fn serialize(block: Block(state)) -> BitArray {
   // safe: tx count is a non-negative Int parsed from the wire,
   // so it fits within Uint64 (and within JS safe integer bounds)
   let assert Ok(tx_count) = uint64.from_int(block.transaction_count)
 
   let tx_list_bytes =
     block.transactions
-    |> list.map(transaction.to_wire_bytes)
+    |> list.map(transaction.serialize)
     |> bit_array.concat
 
   <<
-    header_to_wire_bytes(block.header):bits,
+    serialize_header(block.header):bits,
     compact_size.write(tx_count):bits,
     tx_list_bytes:bits,
   >>
@@ -785,8 +790,8 @@ pub fn to_wire_bytes(block: Block(s)) -> BitArray {
 /// ## See Also
 ///
 /// - `compute_block_hash` — hashes this serialization to identify the block
-/// - `to_wire_bytes` — serializes the header and the block's transactions
-pub fn header_to_wire_bytes(header: Header) -> BitArray {
+/// - `serialize` — serializes the header and the block's transactions
+pub fn serialize_header(header: Header) -> BitArray {
   <<
     header.version:32-little,
     hash32.to_bytes_le(header.previous_block_hash):bits,

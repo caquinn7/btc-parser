@@ -1,7 +1,7 @@
 name = "btc_parser"
 version = "1.0.0"
 
-description = "Decode, inspect, and structurally validate Bitcoin wire-format data in Gleam."
+description = "Deserialize, inspect, and structurally validate Bitcoin wire-format data in Gleam."
 licences = ["MIT"]
 
 [repository]

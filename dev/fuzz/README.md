@@ -10,16 +10,16 @@ This includes malformed, adversarial, and edge-case data, not just valid Bitcoin
 transactions.
 
 > **Core Goal:**  
-> Catch unhandled exceptions while decoding, validating, inspecting, serializing,
-> and hashing mutated transaction input. Malformed input should return `Result`
-> errors from the library, not crash the process.
+> Catch unhandled exceptions while deserializing, validating, inspecting,
+> serializing, and hashing mutated transaction input. Malformed input should
+> return `Result` errors from the library, not crash the process.
 
 The harness is not a semantic oracle. It does not verify that every malformed
 input returns a specific decode error kind, nor does it prove that every
-successfully decoded mutated transaction is semantically "correct." Focused unit
+successfully deserialized mutated transaction is semantically "correct." Focused unit
 tests cover exact error shapes and consensus-validation behavior.
 
-The harness does enforce one structural oracle: every successfully decoded
+The harness does enforce one structural oracle: every successfully deserialized
 transaction must serialize back to its exact original wire bytes.
 
 ---
@@ -96,12 +96,12 @@ selects one mutation, and applies that mutation to the selected transaction.
 
 Fuzz testing checks that:
 
-- `transaction.decode` handles mutated transaction bytes without unhandled
+- `transaction.deserialize` handles mutated transaction bytes without unhandled
   exceptions
-- Successfully decoded transactions can flow through context-free consensus
+- Successfully deserialized transactions can flow through context-free consensus
   validation, output script classification, serialization, txid, and wtxid APIs
   without unhandled exceptions, regardless of the validation result
-- Successfully decoded transactions serialize back to their exact input bytes
+- Successfully deserialized transactions serialize back to their exact input bytes
 
 ---
 
@@ -127,18 +127,18 @@ These are often combinations that are:
 
 ### 3. Failure-Mode Smoke Testing
 
-Clean failure behavior is just as important as successful parsing.
+Clean failure behavior is just as important as successful deserialization.
 
 For each mutated input, the harness:
 
-- Calls `transaction.decode`
-- If decoding succeeds, calls `transaction.validate_context_free_consensus`
+- Calls `transaction.deserialize`
+- If deserialization succeeds, calls `transaction.validate_context_free_consensus`
 - Regardless of the validation result, classifies every output script
 - Serializes both stripped and full wire forms
 - Checks that the full wire serialization exactly matches the mutated input
 - Computes both txid and wtxid
 
-Any `Error(_)` returned by `decode` or `validate_context_free_consensus` is
+Any `Error(_)` returned by `deserialize` or `validate_context_free_consensus` is
 treated as a clean outcome. A validation error does not stop the remaining APIs
 from being exercised. Any unhandled exception or wire round-trip mismatch is
 reported as a fuzz failure with the mutated input hex needed for reproduction.
@@ -174,7 +174,7 @@ The current harness is not a performance or resource-usage test. It does not
 measure allocations, detect slow parsing paths, enforce timeouts, or fail based
 on elapsed time.
 
-The harness still runs through `transaction.decode`, so the library's default
+The harness still runs through `transaction.deserialize`, so the library's default
 decode policy is active during fuzzing. The harness does not assert the exact
 errors returned when policy limits or structural limits are hit. Use focused
 unit tests for policy-limit behavior and `gleam dev perf` for benchmark-style
@@ -206,10 +206,10 @@ Higher-quality fuzzing with better coverage of meaningful scenarios.
 Fuzz testing exercises the `btc_parser/transaction` parser and related
 transaction inspection APIs by:
 
-- Feeding mutated transaction bytes into `transaction.decode`
-- Treating `decode` and `validate_context_free_consensus` `Error(_)` results as
+- Feeding mutated transaction bytes into `transaction.deserialize`
+- Treating `deserialize` and `validate_context_free_consensus` `Error(_)` results as
   clean outcomes
-- Continuing every successful decode through context-free consensus validation,
+- Continuing every successful deserialization through context-free consensus validation,
   output script classification, serialization, and txid/wtxid computation
 - Checking exact full-wire serialization round trips
 - Recording any unhandled exception with the run's initial RNG state, iteration,

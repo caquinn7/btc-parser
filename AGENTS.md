@@ -3,12 +3,12 @@
 ## Project Purpose
 
 `btc_parser` is a Gleam library for working with Bitcoin data structures. Its
-transaction domain decodes wire bytes, exposes transaction fields, classifies
-output scripts, serializes transactions, and runs context-free consensus checks.
-Its block domain decodes and serializes complete blocks, exposes header fields
-and embedded transactions, and computes block hashes. It aims to mirror
-Bitcoin's wire format closely, expose malformed encodings as structured errors,
-and remain portable across Erlang and JavaScript targets.
+transaction domain deserializes wire bytes, exposes transaction fields,
+classifies output scripts, serializes transactions, and runs context-free
+consensus checks. Its block domain deserializes and serializes complete blocks,
+exposes header fields and embedded transactions, and computes block hashes. It
+aims to mirror Bitcoin's wire format closely, expose malformed encodings as
+structured errors, and remain portable across Erlang and JavaScript targets.
 
 This library does not perform full transaction or block validation. Do not add
 behavior that requires UTXO lookup, script execution, signature verification,
@@ -18,14 +18,16 @@ changes.
 ## Architecture
 
 - `src/btc_parser/transaction.gleam` defines the public transaction API and
-  transaction data model. It contains opaque transaction/input/output/script types,
-  decode policy, decode errors, output script classification, context-free consensus
-  validation, serialization, and txid/wtxid computation.
+  transaction data model. It contains opaque transaction/input/output/script
+  types, whole-value deserialization, decode policy, decode errors, output script
+  classification, context-free consensus validation, serialization, and
+  txid/wtxid computation.
 - `src/btc_parser/block.gleam` defines the public block API and block/header
-  data model. It decodes a complete block header, CompactSize transaction count,
-  and contained transactions; exposes header and transaction accessors; and owns
-  block decode policies and block-level decode errors. It serializes headers and
-  complete blocks and computes block hashes.
+  data model. It deserializes complete blocks by decoding a block header,
+  CompactSize transaction count, and contained transaction prefixes; exposes
+  header and transaction accessors; and owns block decode policies and
+  block-level decode errors. It serializes headers and complete blocks and
+  computes block hashes.
 - `src/btc_parser/internal/reader.gleam` is the byte reader. It owns offset
   tracking and byte-aligned reads.
 - `src/btc_parser/internal/parser.gleam` is a small parser combinator layer
@@ -41,7 +43,7 @@ changes.
   little-endian bytes for transaction identifiers, block-header hashes, and
   merkle roots.
 - `src/btc_parser/internal/lifecycle.gleam` provides the shared phantom types
-  that mark decoded values and values that passed available context-free
+  that mark parsed values and values that passed available context-free
   validation.
 - `dev/fuzz/transaction/` contains the transaction fuzz suite, report, and seed
   corpus; `dev/fuzz/internal/` contains shared fuzz utilities.
@@ -50,15 +52,24 @@ changes.
 - `docs/` currently documents transaction API behavior and output script
   classification.
 
-## Terminology
+## Serialization Terminology
 
-- Decoding is the public act of converting serialized Bitcoin data into typed
-  Gleam values.
-- Parsing is the internal implementation strategy used to perform decoding with
-  structured context and useful errors.
-- Prefer decode terminology for public APIs, source docs, examples, errors, and
-  type-state names. Keep parser terminology for internal parser combinators,
-  parser-returning functions, and parse-location context.
+Use these terms consistently across the public API and internal implementation:
+
+- **Serialize / deserialize** describe whole-value operations over canonical
+  Bitcoin wire-format serialization. Public deserialization must consume the
+  entire input. Wire-format canonicality describes the encoding, not consensus
+  validity; a `Parsed` value has not yet passed context-free consensus validation.
+- **Decode** describes interpreting one complete Bitcoin structure from the
+  beginning of an input, possibly leaving trailing bytes for an enclosing
+  decoder.
+- **Parse** refers to the internal, composable parser machinery used to implement
+  decoding.
+- **Parsed** is the phantom state for a structurally valid in-memory value that
+  has not yet passed context-free consensus validation.
+- Decoding behavior and failures use `DecodePolicy`, `DecodeError`, and related
+  names. Hex entry points use `DeserializeHexError` to distinguish invalid hex
+  from underlying decode failures.
 
 ## Build And Test Commands
 
@@ -97,13 +108,13 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - Preserve Bitcoin wire order and little-endian byte order. Public transaction
   hashes, outpoint txids, block-header hashes, and merkle roots are exposed in
   the same little-endian order used on the wire.
-- Preserve the phantom-type validation boundary. Block decoding produces
-  `Block(Decoded)` containing `Transaction(Decoded)` values; no block validation
+- Preserve the phantom-type validation boundary. Block deserialization produces
+  `Block(Parsed)` containing `Transaction(Parsed)` values; no block validation
   upgrade path exists yet. `transaction.validate_context_free_consensus` is the
   only public upgrade path to `Transaction(ContextFreeValidated)`, and APIs whose
   documented guarantees depend on context-free validation should keep that
   requirement.
-- Public full decoders must consume exactly one value. Extra bytes after a
+- Public deserializers must consume exactly one value. Extra bytes after a
   complete block or transaction must return `TrailingBytes`, not be ignored.
 - CompactSize integers, including block transaction counts, must reject
   non-minimal encodings.
@@ -126,7 +137,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - Extended SegWit serialization must contain at least one witness item across
   all input stacks. An all-empty witness record is superfluous; a zero-length
   item still counts as present.
-- `to_stripped_bytes` excludes SegWit marker/flag and witness data. `to_wire_bytes`
+- `serialize_stripped` excludes SegWit marker/flag and witness data. `serialize`
   includes them only for SegWit transactions.
 
 ## Domain Constraints
@@ -177,10 +188,11 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - Add focused unit tests near the behavior changed. Mirror source module paths
   under `test/`, adding the `_test` suffix for test modules; for example,
   `src/btc_parser/transaction.gleam` maps to `test/btc_parser/transaction_test.gleam`.
-  The block decoder is covered by `test/btc_parser/block/block_test.gleam` and
-  mainnet fixtures in `test/btc_parser/block/fixtures/`.
-- Test both success and exact failure shape for transaction and block decoder
-  changes: error kind, offset, and context stack.
+  The block module is covered by
+  `test/btc_parser/block/block_test.gleam` and mainnet fixtures in
+  `test/btc_parser/block/fixtures/`.
+- Test both success and exact failure shape for transaction and block
+  deserializer changes: error kind, offset, and context stack.
 - Include boundary tests for limits: exactly at limit, one over limit, truncated
   data, non-minimal CompactSize, and trailing bytes where relevant.
 - For consensus changes, test valid transactions, isolated violations, and
@@ -208,9 +220,9 @@ file/timer/CLI behavior, or a runtime-specific bug.
   witness stacks, and cumulative witness payload limits.
 - Avoid conversions that lose precision on JavaScript. Keep 64-bit values as
   byte-backed wrappers until a safe conversion is proven.
-- Avoid quadratic (O(n^2)) list or `BitArray` work in parser hot paths. Accumulate lists in
-  reverse and reverse once, as the parser helpers do.
-- Do not silently relax default policy limits. They protect callers decoding
+- Avoid quadratic (O(n^2)) list or `BitArray` work in parser hot paths.
+  Accumulate lists in reverse and reverse once, as the parser helpers do.
+- Do not silently relax default policy limits. They protect callers deserializing
   untrusted bytes even though some consensus-valid transactions may exceed them.
 - Keep the default perf suite selective. Add benchmark rows only when they cover
   a distinct public operation, scaling dimension, fail-fast path, or transaction
