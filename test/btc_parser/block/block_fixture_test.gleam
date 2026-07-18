@@ -64,19 +64,19 @@ const mainnet_519311_fixture = FixtureExpectation(
   segwit_tx_count: 15,
 )
 
-pub fn decode_mainnet_0_fixture_test() {
-  assert_fixture_decodes(mainnet_0_fixture)
+pub fn deserialize_mainnet_0_fixture_test() {
+  assert_fixture_deserializes(mainnet_0_fixture)
 }
 
-pub fn decode_mainnet_170_fixture_test() {
-  assert_fixture_decodes(mainnet_170_fixture)
+pub fn deserialize_mainnet_170_fixture_test() {
+  assert_fixture_deserializes(mainnet_170_fixture)
 }
 
-pub fn decode_mainnet_519311_fixture_test() {
-  assert_fixture_decodes(mainnet_519311_fixture)
+pub fn deserialize_mainnet_519311_fixture_test() {
+  assert_fixture_deserializes(mainnet_519311_fixture)
 }
 
-fn assert_fixture_decodes(expectation: FixtureExpectation) -> Nil {
+fn assert_fixture_deserializes(expectation: FixtureExpectation) -> Nil {
   let FixtureExpectation(
     file_name:,
     display_block_hash_hex: _,
@@ -97,26 +97,26 @@ fn assert_fixture_decodes(expectation: FixtureExpectation) -> Nil {
 
   assert string.length(fixture_hex) == expected_byte_length * 2
 
-  let assert Ok(decoded_block) = block.decode_hex(fixture_hex)
-  let header = block.get_header(decoded_block)
+  let assert Ok(block) = block.deserialize_hex(fixture_hex)
+  let header = block.get_header(block)
 
   assert block.get_header_version(header) == expected_version
   assert block.get_header_previous_block_hash(header)
-    == decode_fixture_hash(previous_block_hash_hex)
+    == fixture_hash_from_hex(previous_block_hash_hex)
   assert block.get_header_merkle_root(header)
-    == decode_fixture_hash(merkle_root_hex)
+    == fixture_hash_from_hex(merkle_root_hex)
   assert block.get_header_timestamp(header) == expected_timestamp
   assert block.get_header_target(header) == expected_target
   assert block.get_header_nonce(header) == expected_nonce
 
-  let txs = block.get_transactions(decoded_block)
+  let txs = block.get_transactions(block)
 
   assert count_transaction_encodings(txs)
     == #(expected_legacy_count, expected_segwit_count)
   assert list.length(txs) == expected_legacy_count + expected_segwit_count
 }
 
-fn decode_fixture_hash(hex: String) -> BitArray {
+fn fixture_hash_from_hex(hex: String) -> BitArray {
   let assert Ok(hash) = bit_array.base16_decode(hex)
   hash
 }
@@ -151,11 +151,11 @@ fn compare_compute_block_hash_against_known_vector(
 ) -> Nil {
   let assert Ok(fixture_hex) =
     simplifile.read("test/btc_parser/block/fixtures/" <> expectation.file_name)
-  let assert Ok(decoded_block) =
+  let assert Ok(block) =
     fixture_hex
     |> string.trim
-    |> block.decode_hex
+    |> block.deserialize_hex
 
-  let wire_block_hash = block.compute_block_hash(decoded_block)
+  let wire_block_hash = block.compute_block_hash(block)
   assert get_display_hex(wire_block_hash) == expectation.display_block_hash_hex
 }

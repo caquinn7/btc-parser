@@ -1,4 +1,4 @@
-//// Decode, inspect, validate, and serialize Bitcoin transactions.
+//// Deserialize, inspect, validate, and serialize Bitcoin transactions.
 
 import btc_parser/internal/compact_size
 import btc_parser/internal/decode
@@ -22,11 +22,11 @@ import gleam/result
 // Transaction types
 // ==============================================================================
 
-/// Phantom type indicating a transaction that has been successfully
-/// decoded from bytes but has not yet been validated against Bitcoin
-/// consensus rules.
-pub type Decoded =
-  lifecycle.Decoded
+/// Phantom type indicating a transaction that has been successfully parsed
+/// from its canonical Bitcoin wire-format serialization but has not yet been
+/// validated against Bitcoin consensus rules.
+pub type Parsed =
+  lifecycle.Parsed
 
 /// Phantom type indicating a transaction that has passed the context-free
 /// Bitcoin consensus checks performed by `validate_context_free_consensus`.
@@ -81,7 +81,7 @@ pub opaque type Transaction(state) {
 ///
 /// For example, raw version bytes `ff ff ff ff` are returned as
 /// `4_294_967_295`, not `-1`.
-pub fn get_version(tx: Transaction(s)) -> Int {
+pub fn get_version(tx: Transaction(state)) -> Int {
   tx.version
 }
 
@@ -92,7 +92,7 @@ pub fn get_version(tx: Transaction(s)) -> Int {
 /// transaction malleability fixes.
 ///
 /// Returns `True` for SegWit transactions, `False` for legacy transactions.
-pub fn is_segwit(tx: Transaction(s)) -> Bool {
+pub fn is_segwit(tx: Transaction(state)) -> Bool {
   case tx {
     Legacy(..) -> False
     Segwit(..) -> True
@@ -119,21 +119,21 @@ pub fn has_coinbase_shape(tx: Transaction(ContextFreeValidated)) -> Bool {
 }
 
 /// Return whether any input has the coinbase marker (null outpoint).
-fn has_coinbase_marker(tx: Transaction(s)) -> Bool {
+fn has_coinbase_marker(tx: Transaction(state)) -> Bool {
   list.any(tx.inputs, input_has_null_outpoint)
 }
 
 /// Get the transaction inputs.
 ///
 /// Returns the inputs in the same order they appear in the transaction serialization.
-pub fn get_inputs(tx: Transaction(s)) -> List(Input) {
+pub fn get_inputs(tx: Transaction(state)) -> List(Input) {
   tx.inputs
 }
 
 /// Get the transaction outputs.
 ///
 /// Returns the outputs in the same order they appear in the transaction serialization.
-pub fn get_outputs(tx: Transaction(s)) -> List(Output) {
+pub fn get_outputs(tx: Transaction(state)) -> List(Output) {
   tx.outputs
 }
 
@@ -146,7 +146,7 @@ pub fn get_outputs(tx: Transaction(s)) -> List(Output) {
 /// Whether this value constrains transaction finality also depends on the input
 /// sequence numbers and block context. This library exposes the value without
 /// evaluating finality.
-pub fn get_lock_time(tx: Transaction(s)) -> Int {
+pub fn get_lock_time(tx: Transaction(state)) -> Int {
   tx.lock_time
 }
 
@@ -160,7 +160,9 @@ pub fn get_lock_time(tx: Transaction(s)) -> Int {
 /// - `Ok(witnesses)`: The transaction uses SegWit serialization.
 /// - `Error(Nil)`: The transaction uses legacy serialization, which does not
 ///   contain witness data.
-pub fn get_witnesses(tx: Transaction(s)) -> Result(List(WitnessStack), Nil) {
+pub fn get_witnesses(
+  tx: Transaction(state),
+) -> Result(List(WitnessStack), Nil) {
   case tx {
     Segwit(witnesses:, ..) -> Ok(witnesses)
     Legacy(..) -> Error(Nil)
@@ -320,7 +322,7 @@ pub opaque type Output {
 
 /// Get the decoded value from a transaction output.
 ///
-/// For an output from a `Transaction(Decoded)`, this value may be negative or
+/// For an output from a `Transaction(Parsed)`, this value may be negative or
 /// exceed Bitcoin's consensus money range. Use
 /// `validate_context_free_consensus` to check the transaction's output values.
 pub fn get_output_value(output: Output) -> Int {
@@ -681,11 +683,11 @@ fn decode_small_int_opcode(opcode: Int) -> Int {
 // Error handling
 // ==============================================================================
 
-/// An error that occurred while decoding a Bitcoin transaction from hex.
+/// An error that occurred while deserializing a Bitcoin transaction from hex.
 ///
 /// Distinguishes failures during hex-to-bytes conversion from failures during
 /// transaction decoding.
-pub type DecodeHexError {
+pub type DeserializeHexError {
   /// The hexadecimal string could not be converted to bytes.
   ///
   /// This occurs before any transaction decoding begins, typically due to an
@@ -782,7 +784,8 @@ pub type DecodeErrorKind {
     max: Int,
   )
 
-  /// The transaction was successfully decoded, but extra bytes remain in the input.
+  /// One transaction was successfully decoded, but extra bytes remain, so
+  /// deserialization failed.
   ///
   /// This indicates the input buffer contains more data than a single valid transaction.
   /// The wrapped `Int` is the count of trailing bytes that were not consumed.
@@ -961,7 +964,7 @@ fn field_error(
 }
 
 // ==============================================================================
-// Decoding
+// Deserialization and Prefix Decoding
 // ==============================================================================
 
 /// Configuration policy for transaction decoding limits.
@@ -984,7 +987,7 @@ fn field_error(
 /// ## See Also
 ///
 /// - `default_decode_policy` for the standard decoding limits
-/// - `decode_with_policy` to apply a custom policy
+/// - `deserialize_with_policy` to apply a custom policy
 pub opaque type DecodePolicy {
   DecodePolicy(
     /// Maximum byte size accepted by the decoder, checked before decoding.
@@ -1007,9 +1010,9 @@ pub opaque type DecodePolicy {
 /// The default transaction decoding policy.
 ///
 /// Provides reasonable resource limits for transaction decoding, applied
-/// automatically when using `decode` or `decode_hex`. These defaults protect
-/// against malicious inputs while preventing excessive memory allocation and
-/// processing time. As these are policy limits rather than consensus rules,
+/// automatically when using `deserialize` or `deserialize_hex`. These defaults
+/// protect against malicious inputs while preventing excessive memory allocation
+/// and processing time. As these are policy limits rather than consensus rules,
 /// some valid Bitcoin transactions may be rejected by this configuration.
 /// 
 /// The overall transaction size limit (`max_tx_size`) serves as the primary
@@ -1128,47 +1131,51 @@ pub fn decode_policy_max_witness_stack_payload_size(
   policy.max_witness_stack_payload_size
 }
 
-/// Decode a Bitcoin transaction from its binary representation.
+/// Deserialize a Bitcoin transaction from its canonical Bitcoin wire-format
+/// serialization.
 ///
-/// This is the standard entry point for decoding Bitcoin transaction data
-/// serialized in the Bitcoin network protocol format.
+/// This is the standard entry point for converting a complete serialized
+/// Bitcoin transaction into a typed value. The entire input must contain
+/// exactly one transaction; trailing bytes are rejected.
 ///
 /// This function applies `default_decode_policy` to protect against malicious inputs
 /// by enforcing reasonable limits on transaction size, input/output counts, script
 /// sizes, and witness data.
 /// 
-/// For custom resource limits, use `decode_with_policy` instead.
+/// For custom resource limits, use `deserialize_with_policy` instead.
 ///
-/// The returned transaction is marked as `Decoded`, meaning it has been
-/// successfully decoded from bytes but has not yet been checked against
-/// Bitcoin consensus rules.
+/// The returned transaction is marked as `Parsed`, meaning its structure was
+/// successfully parsed but it has not yet been checked against Bitcoin
+/// consensus rules.
 ///
 /// ## Returns
 ///
-/// - `Ok(Transaction(Decoded))`: Successfully decoded within the default policy limits.
+/// - `Ok(Transaction(Parsed))`: Successfully deserialized within the default policy limits.
 /// - `Error(DecodeError)`: The bytes were not a well-formed transaction
 ///   encoding within the default policy limits.
-pub fn decode(bytes: BitArray) -> Result(Transaction(Decoded), DecodeError) {
-  decode_with_policy(bytes, default_decode_policy())
+pub fn deserialize(
+  bytes: BitArray,
+) -> Result(Transaction(Parsed), DecodeError) {
+  deserialize_with_policy(bytes, default_decode_policy())
 }
 
-/// Decode a Bitcoin transaction with custom resource limits.
+/// Deserialize a Bitcoin transaction with custom resource limits.
 ///
-/// Like `decode`, but accepts a `DecodePolicy` to override the resource limits
-/// applied during decoding. Use `default_decode_policy` and the `decode_policy_with_*`
-/// builder functions to construct custom policies. Limits that are exceeded
-/// produce a `PolicyLimitExceeded` error. See `DecodePolicy` and
-/// `default_decode_policy` for available options and defaults.
+/// Like `deserialize`, but accepts a `DecodePolicy` to override the resource
+/// limits applied during decoding. Use `default_decode_policy` and the
+/// `decode_policy_with_*` builder functions to construct custom policies.
+/// Limits that are exceeded produce a `PolicyLimitExceeded` error. See
+/// `DecodePolicy` and `default_decode_policy` for available options and defaults.
 ///
 /// ## Returns
 ///
-/// - `Ok(Transaction(Decoded))`: Successfully decoded within the supplied policy limits.
+/// - `Ok(Transaction(Parsed))`: Successfully deserialized within the supplied policy limits.
 /// - `Error(DecodeError)`: The bytes were not a well-formed transaction
 ///   encoding within the supplied policy limits.
-pub fn decode_with_policy(
+pub fn deserialize_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
-) -> Result(Transaction(Decoded), DecodeError) {
+) -> Result(Transaction(Parsed), DecodeError) {
   let tx_size = bit_array.byte_size(bytes)
   use <- bool.guard(
     tx_size > policy.max_tx_size,
@@ -1194,7 +1201,7 @@ pub fn decode_with_policy(
 pub fn decode_prefix_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
-) -> Result(#(Transaction(Decoded), Int), DecodeError) {
+) -> Result(#(Transaction(Parsed), Int), DecodeError) {
   policy
   |> tx_body_parser
   |> parser.try_with_reader(fn(tx, reader, _ctx) {
@@ -1204,45 +1211,47 @@ pub fn decode_prefix_with_policy(
   |> result.map(pair.second)
 }
 
-/// Decode a Bitcoin transaction from its hexadecimal string representation.
+/// Deserialize a Bitcoin transaction from its hexadecimal string representation.
 ///
 /// This is a convenience function that combines hex-to-bytes conversion with
-/// transaction decoding. It's useful when working with transaction data in
+/// transaction deserialization. It's useful when working with transaction data in
 /// hexadecimal format, such as from block explorers, RPC responses, or test
 /// vectors.
 ///
 /// This function applies `default_decode_policy` for resource limits.
-/// For custom resource limits, use `decode_hex_with_policy` instead.
+/// For custom resource limits, use `deserialize_hex_with_policy` instead.
 ///
 /// ## Returns
 ///
-/// - `Ok(Transaction(Decoded))`: Successfully decoded within the default policy limits.
+/// - `Ok(Transaction(Parsed))`: Successfully deserialized within the default policy limits.
 /// - `Error(InvalidHex)`: The hex string was invalid (odd length or
 ///   invalid characters).
 /// - `Error(DecodeFailed(error))`: The decoded bytes were not a well-formed
 ///   transaction encoding within the default policy limits.
-pub fn decode_hex(hex: String) -> Result(Transaction(Decoded), DecodeHexError) {
-  decode_hex_with_policy(hex, default_decode_policy())
+pub fn deserialize_hex(
+  hex: String,
+) -> Result(Transaction(Parsed), DeserializeHexError) {
+  deserialize_hex_with_policy(hex, default_decode_policy())
 }
 
-/// Decode a Bitcoin transaction from hexadecimal with custom resource limits.
+/// Deserialize a Bitcoin transaction from hexadecimal with custom resource limits.
 ///
 /// This function combines hex-to-bytes conversion with policy-based transaction
-/// decoding, providing both the convenience of hexadecimal input and fine-grained
-/// control over resource limits. Use this when working with hex-encoded transaction
-/// data that requires custom resource constraints.
+/// deserialization, providing both the convenience of hexadecimal input and
+/// fine-grained control over resource limits. Use this when working with
+/// hex-encoded transaction data that requires custom resource constraints.
 ///
 /// ## Returns
 ///
-/// - `Ok(Transaction(Decoded))`: Successfully decoded within the supplied policy limits.
+/// - `Ok(Transaction(Parsed))`: Successfully deserialized within the supplied policy limits.
 /// - `Error(InvalidHex)`: The hex string was invalid (odd length or
 ///   invalid characters).
 /// - `Error(DecodeFailed(error))`: The decoded bytes were not a well-formed
 ///   transaction encoding within the supplied policy limits.
-pub fn decode_hex_with_policy(
+pub fn deserialize_hex_with_policy(
   hex: String,
   policy: DecodePolicy,
-) -> Result(Transaction(Decoded), DecodeHexError) {
+) -> Result(Transaction(Parsed), DeserializeHexError) {
   use bytes <- result.try(
     hex
     |> bit_array.base16_decode
@@ -1250,7 +1259,7 @@ pub fn decode_hex_with_policy(
   )
 
   bytes
-  |> decode_with_policy(policy)
+  |> deserialize_with_policy(policy)
   |> result.map_error(DecodeFailed)
 }
 
@@ -1260,7 +1269,7 @@ pub fn decode_hex_with_policy(
 
 fn tx_parser(
   policy: DecodePolicy,
-) -> Parser(ParseContext, Transaction(Decoded), DecodeError) {
+) -> Parser(ParseContext, Transaction(Parsed), DecodeError) {
   use tx <- parser.then(tx_body_parser(policy))
   use Nil <- parser.then(end_of_tx_parser())
   parser.return(tx)
@@ -1268,7 +1277,7 @@ fn tx_parser(
 
 fn tx_body_parser(
   policy: DecodePolicy,
-) -> Parser(ParseContext, Transaction(Decoded), DecodeError) {
+) -> Parser(ParseContext, Transaction(Parsed), DecodeError) {
   use version <- parser.then(field_parser(Version, reader.read_u32_le))
   use is_segwit <- parser.then(segwit_detection_parser())
   use inputs <- parser.then(inputs_parser(
@@ -2014,7 +2023,7 @@ pub type ConsensusViolation {
 /// - `Error(violations)`: The transaction failed one or more context-free
 ///   consensus checks. The list contains the detected violations.
 pub fn validate_context_free_consensus(
-  tx: Transaction(Decoded),
+  tx: Transaction(Parsed),
 ) -> Result(Transaction(ContextFreeValidated), List(ConsensusViolation)) {
   // Validators are designed to run together; some Ok branches rely on a sibling covering that case.
   let validators = [
@@ -2041,7 +2050,7 @@ pub fn validate_context_free_consensus(
 }
 
 fn mark_as_context_free_validated(
-  tx: Transaction(Decoded),
+  tx: Transaction(Parsed),
 ) -> Transaction(ContextFreeValidated) {
   // Change the phantom type by reconstructing with identical data.
   case tx {
@@ -2051,7 +2060,7 @@ fn mark_as_context_free_validated(
 }
 
 fn validate_at_least_one_input(
-  tx: Transaction(Decoded),
+  tx: Transaction(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   case tx.inputs {
     [] -> Error(NoInputs)
@@ -2060,7 +2069,7 @@ fn validate_at_least_one_input(
 }
 
 fn validate_at_least_one_output(
-  tx: Transaction(Decoded),
+  tx: Transaction(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   case tx.outputs {
     [] -> Error(NoOutputs)
@@ -2069,7 +2078,7 @@ fn validate_at_least_one_output(
 }
 
 fn validate_output_values(
-  tx: Transaction(Decoded),
+  tx: Transaction(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   validate_output_values_loop(tx.outputs, 0, 0)
 }
@@ -2101,7 +2110,7 @@ fn validate_output_values_loop(
 }
 
 fn validate_coinbase_structure(
-  tx: Transaction(Decoded),
+  tx: Transaction(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   case has_coinbase_marker(tx) {
     True ->
@@ -2114,7 +2123,7 @@ fn validate_coinbase_structure(
 }
 
 fn validate_coinbase_script_sig_length(
-  tx: Transaction(Decoded),
+  tx: Transaction(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   case tx.inputs {
     [input] ->
@@ -2137,7 +2146,7 @@ fn validate_coinbase_script_sig_length(
 }
 
 fn validate_no_duplicate_inputs(
-  tx: Transaction(Decoded),
+  tx: Transaction(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   validate_no_duplicate_inputs_loop(tx.inputs, 0, dict.new())
 }
@@ -2188,10 +2197,10 @@ fn validate_no_duplicate_inputs_loop(
 /// The txid is the double SHA-256 hash of the transaction's stripped serialization.
 /// Returns the 32 bytes of the txid in little-endian byte order, as they
 /// appear in Bitcoin transactions and on the wire.
-pub fn compute_txid(tx: Transaction(s)) -> BitArray {
+pub fn compute_txid(tx: Transaction(state)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
-    |> to_stripped_bytes
+    |> serialize_stripped
     |> dsha256
 }
 
@@ -2201,10 +2210,10 @@ pub fn compute_txid(tx: Transaction(s)) -> BitArray {
 /// Returns the 32 bytes of the wtxid in little-endian byte order, as they
 /// appear in Bitcoin transactions and on the wire. For legacy transactions,
 /// the wtxid is identical to the txid.
-pub fn compute_wtxid(tx: Transaction(s)) -> BitArray {
+pub fn compute_wtxid(tx: Transaction(state)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
-    |> to_wire_bytes
+    |> serialize
     |> dsha256
 }
 
@@ -2220,8 +2229,8 @@ pub fn compute_wtxid(tx: Transaction(s)) -> BitArray {
 /// ## See Also
 ///
 /// - `compute_txid` — hashes this serialization to produce the txid
-/// - `to_wire_bytes` — the full wire serialization including witness data
-pub fn to_stripped_bytes(tx: Transaction(s)) -> BitArray {
+/// - `serialize` — the full wire serialization including witness data
+pub fn serialize_stripped(tx: Transaction(state)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(input_count) = uint64.from_int(list.length(tx.inputs))
@@ -2242,7 +2251,7 @@ pub fn to_stripped_bytes(tx: Transaction(s)) -> BitArray {
 /// Returns the complete serialization used when computing the `wtxid`:
 /// version, SegWit marker and flag (if applicable), inputs, outputs,
 /// witness stacks (if applicable), and lock_time. For legacy transactions,
-/// this is identical to `to_stripped_bytes`.
+/// this is identical to `serialize_stripped`.
 ///
 /// The byte size of the returned value is the `total_size` used in BIP 141
 /// weight and virtual size calculations:
@@ -2252,14 +2261,14 @@ pub fn to_stripped_bytes(tx: Transaction(s)) -> BitArray {
 /// vsize  = ceil(weight / 4)
 /// ```
 ///
-/// where `base_size = bit_array.byte_size(to_stripped_bytes(tx))` and
-/// `total_size = bit_array.byte_size(to_wire_bytes(tx))`.
+/// where `base_size = bit_array.byte_size(serialize_stripped(tx))` and
+/// `total_size = bit_array.byte_size(serialize(tx))`.
 ///
 /// ## See Also
 ///
 /// - `compute_wtxid` — hashes this serialization to produce the wtxid
-/// - `to_stripped_bytes` — the no-witness serialization used for the txid
-pub fn to_wire_bytes(tx: Transaction(s)) -> BitArray {
+/// - `serialize_stripped` — the no-witness serialization used for the txid
+pub fn serialize(tx: Transaction(state)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
   let assert Ok(input_count) = uint64.from_int(list.length(tx.inputs))

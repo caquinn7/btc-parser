@@ -3,7 +3,8 @@
 <!-- [![Package Version](https://img.shields.io/hexpm/v/btc_parser)](https://hex.pm/packages/btc_parser)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/btc_parser/) -->
 
-A Gleam library for decoding, inspecting, and structurally validating Bitcoin wire-format data in Gleam.
+A Gleam library for deserializing, inspecting, and structurally validating
+Bitcoin wire-format data in Gleam.
 
 `btc_parser` is designed to reflect Bitcoin's wire formats and protocol
 structures closely, expose malformed encodings as structured errors, and remain
@@ -13,11 +14,11 @@ portable across Erlang and JavaScript targets.
 
 The following Bitcoin wire-format data structures are currently implemented:
 
-- [`btc_parser/transaction`](docs/transaction/transaction.md) decodes and
+- [`btc_parser/transaction`](docs/transaction/transaction.md) deserializes and
   serializes legacy and SegWit transactions, exposes their fields and output
   script classifications, runs context-free consensus checks, and computes
   txids and wtxids.
-- [`btc_parser/block`](src/btc_parser/block.gleam) decodes and serializes
+- [`btc_parser/block`](src/btc_parser/block.gleam) deserializes and serializes
   complete blocks, exposes their headers and wire-order legacy and SegWit
   transactions, and computes block hashes.
 
@@ -35,7 +36,7 @@ gleam add btc_parser@1
 ### Correctness over convenience
 
 > Malformed or ambiguous encodings are surfaced explicitly rather than being
-> silently normalized or partially parsed.
+> silently normalized or accepted as partial values.
 
 ### Reference-grade intent
 
@@ -53,10 +54,10 @@ gleam add btc_parser@1
 
 ## Scope
 
-This project parses and models caller-provided Bitcoin data. It is not a wallet,
-full node, RPC client, or networking library. Domain-specific documentation
-describes the exact parsing, validation, and policy boundaries for each
-implemented module.
+This project deserializes and models caller-provided Bitcoin data. It is not a
+wallet, full node, RPC client, or networking library. Domain-specific
+documentation describes the exact deserialization, validation, and policy
+boundaries for each implemented module.
 
 No security guarantees are provided.
 
@@ -79,7 +80,7 @@ and structural mutations while sharing the project-level command workflow.
 
 ### Benchmarking
 
-The [performance harness](dev/perf/README.md) measures public decoding and
+The [performance harness](dev/perf/README.md) measures public deserialization and
 inspection workflows across representative inputs, scaling dimensions, and
 fail-fast paths. Domain-specific benchmark suites can be added as the library
 grows.

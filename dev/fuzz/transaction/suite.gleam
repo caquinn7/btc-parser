@@ -1,11 +1,12 @@
 ////  Fuzz testing harness for the `btc_parser/transaction` transaction parser.
 ////
-////  The goal is to guarantee that *any* byte input results in either a correct
-////  parse or a well-defined error — never an unhandled exception. Each run
-////  receives a corpus of real Bitcoin transactions, applies random structural
-////  mutations, and exercises decoding, validation, inspection, serialization,
-////  and txid/wtxid computation. Using real transactions as a baseline produces
-////  higher-quality mutations than pure random bytes: they are structurally
+////  The goal is to guarantee that *any* byte input results in either successful
+////  deserialization or a well-defined error — never an unhandled exception.
+////  Each run receives a corpus of real Bitcoin transactions, applies random
+////  structural mutations, and exercises deserialization, validation,
+////  inspection, serialization, and txid/wtxid computation. Using real
+////  transactions as a baseline produces higher-quality mutations than pure
+////  random bytes: they are structurally
 ////  plausible, so mutations are more likely to reach deep parser paths rather
 ////  than being rejected at early boundary checks.
 
@@ -43,7 +44,7 @@ pub type IterationFailure {
     mutated_tx: MutatedTx,
     /// Hex-encoded mutated transaction bytes for copying into regression tests.
     mutated_tx_hex: String,
-    /// Exception rescued while decoding, validating, inspecting, serializing,
+    /// Exception rescued while deserializing, validating, inspecting, serializing,
     /// or hashing the mutated transaction.
     exception: Exception,
   )
@@ -100,7 +101,7 @@ pub type Mutation {
 /// provided deterministic RNG.
 ///
 /// Each iteration draws one transaction from `seed_txs` uniformly at random,
-/// applies a structural mutation, and exercises decoding plus the related
+/// applies a structural mutation, and exercises deserialization plus the related
 /// validation, inspection, serialization, and hashing APIs. Any unhandled
 /// exception is recorded as an `IterationFailure` in the returned `FuzzResult`.
 ///
@@ -165,7 +166,7 @@ fn run_iterations(
       let trace = trace.update(trace, mutated_tx.bytes)
 
       let iteration_result =
-        exception.rescue(fn() { run_decode(mutated_tx.bytes) })
+        exception.rescue(fn() { run_deserialize(mutated_tx.bytes) })
 
       let acc = case iteration_result {
         Ok(_) -> acc
@@ -188,12 +189,12 @@ fn run_iterations(
   }
 }
 
-fn run_decode(mutated_tx_bytes: BitArray) -> Nil {
-  case transaction.decode(mutated_tx_bytes) {
-    Ok(decoded_tx) -> {
-      let _ = transaction.validate_context_free_consensus(decoded_tx)
+fn run_deserialize(mutated_tx_bytes: BitArray) -> Nil {
+  case transaction.deserialize(mutated_tx_bytes) {
+    Ok(tx) -> {
+      let _ = transaction.validate_context_free_consensus(tx)
 
-      decoded_tx
+      tx
       |> transaction.get_outputs
       |> list.each(fn(output) {
         output
@@ -201,11 +202,11 @@ fn run_decode(mutated_tx_bytes: BitArray) -> Nil {
         |> transaction.classify_output_script
       })
 
-      let _ = transaction.to_stripped_bytes(decoded_tx)
-      assert transaction.to_wire_bytes(decoded_tx) == mutated_tx_bytes
+      let _ = transaction.serialize_stripped(tx)
+      assert transaction.serialize(tx) == mutated_tx_bytes
 
-      let _ = transaction.compute_txid(decoded_tx)
-      let _ = transaction.compute_wtxid(decoded_tx)
+      let _ = transaction.compute_txid(tx)
+      let _ = transaction.compute_wtxid(tx)
 
       Nil
     }

@@ -59,46 +59,50 @@ gleam dev --target javascript --runtime bun perf
 The command exits with a nonzero status when its arguments are invalid or a
 requested report cannot be written.
 
-## Decode
+## Deserialization
 
-`decode / fixtures` measures real transaction fixtures. These rows are smoke
+`deserialize / fixtures` measures real transaction fixtures. These rows are smoke
 tests for common legacy, SegWit, and witness-heavy shapes that synthetic cases
 may not model exactly.
 
-`decode / synthetic inputs` measures decoder scaling as the legacy input vector
-grows. It is meant to catch input decoding regressions, accidental quadratic list
-or `BitArray` work, and CompactSize count handling issues.
+`deserialize / synthetic inputs` measures deserializer scaling as the legacy
+input vector grows. It is meant to catch input deserialization regressions,
+accidental quadratic list or `BitArray` work, and CompactSize count handling
+issues.
 
-`decode / synthetic outputs` measures decoder scaling as the legacy output vector
-grows. It is meant to catch output decoding regressions and scriptPubKey length
-handling problems while keeping the input side fixed.
+`deserialize / synthetic outputs` measures deserializer scaling as the legacy
+output vector grows. It is meant to catch output deserialization regressions and
+scriptPubKey length handling problems while keeping the input side fixed.
 
-`decode / synthetic segwit inputs` measures full SegWit transaction decoding as
-the input count and matching witness stack count grow together. It is meant to
-catch regressions in SegWit input/witness alignment and witness-list traversal.
+`deserialize / synthetic segwit inputs` measures full SegWit transaction
+deserialization as the input count and matching witness stack count grow
+together. It is meant to catch regressions in SegWit input/witness alignment and
+witness-list traversal.
 
-`decode / synthetic witness items` measures decoding one SegWit input while the
-number of witness stack items grows. It is meant to catch per-item overhead,
-CompactSize item count handling problems, and list-building regressions.
+`deserialize / synthetic witness items` measures deserializing one SegWit input
+while the number of witness stack items grows. It is meant to catch per-item
+overhead, CompactSize item count handling problems, and list-building
+regressions.
 
-`decode / synthetic witness payload` measures decoding while witness payload
-bytes grow but witness structure stays simple. Decode is expected to be mostly
-flat here because payload bytes are captured, not interpreted. A steep increase
-would suggest unexpected copying or byte-by-byte payload work.
+`deserialize / synthetic witness payload` measures deserialization while witness
+payload bytes grow but witness structure stays simple. Deserialization is
+expected to be mostly flat here because payload bytes are captured, not
+interpreted. A steep increase would suggest unexpected copying or byte-by-byte
+payload work.
 
-`decode / malformed` measures malformed inputs that fail after most of the
-transaction has already been decoded. These rows are meant to catch expensive
+`deserialize / malformed` measures malformed inputs that fail after most of the
+transaction has already been processed. These rows are meant to catch expensive
 late-failure paths and ensure truncation checks stay precise.
 
-`decode / policy limits` measures policy-limit rejection before unnecessary
+`deserialize / policy limits` measures policy-limit rejection before unnecessary
 payload work. This should remain cheap even when the serialized input includes
 large payload bytes.
 
 ## Inspection
 
 `inspection / coinbase shape` measures `has_coinbase_shape` over
-context-free-validated transactions with many ordinary inputs. Decoding and
-validation happen before timing begins, isolating the cost of the private
+context-free-validated transactions with many ordinary inputs. Deserialization
+and validation happen before timing begins, isolating the cost of the private
 coinbase-marker scan used by the public inspection helper.
 
 ## Context-Free Consensus Validation
@@ -149,15 +153,15 @@ serialization and double-SHA256 must read those bytes.
 
 ## Serialization
 
-`serialization / fixtures` measures `to_stripped_bytes` and `to_wire_bytes`
+`serialization / fixtures` measures `serialize_stripped` and `serialize`
 on real parsed fixtures. These rows cover common real shapes and confirm the
 legacy and SegWit serialization paths both stay healthy.
 
-`serialization / synthetic inputs` measures `to_stripped_bytes` as legacy input
+`serialization / synthetic inputs` measures `serialize_stripped` as legacy input
 count grows. It is meant to catch stripped serialization regressions over large
 input vectors.
 
-`serialization / synthetic outputs` measures `to_stripped_bytes` as legacy output
+`serialization / synthetic outputs` measures `serialize_stripped` as legacy output
 count grows. It is meant to catch output serialization regressions.
 
 `serialization / synthetic segwit inputs` measures both stripped and witness
@@ -165,17 +169,17 @@ serialization as SegWit input count grows. The stripped rows isolate non-witness
 serialization; the witness rows include witness stacks and should scale with
 witness data.
 
-`serialization / synthetic witness items` measures `to_wire_bytes` while the
+`serialization / synthetic witness items` measures `serialize` while the
 number of witness stack items grows. It is meant to catch list traversal and
 CompactSize item serialization regressions.
 
-`serialization / synthetic witness payload` measures `to_wire_bytes` while
+`serialization / synthetic witness payload` measures `serialize` while
 witness payload bytes grow. This should scale with payload size because the bytes
 are emitted into the serialized transaction.
 
 ## Reading Results
 
-The suite uses a lean set of scaling points by default. Count-based decode
+The suite uses a lean set of scaling points by default. Count-based deserialization
 curves use `1`, `100`, and `1000`; other count-based curves use `20`, `100`, and
 `1000`; witness payload curves use `64`, `10_000`, and `100_000` bytes.
 
@@ -205,7 +209,7 @@ The results table has these columns:
 - `us/op`: Estimated microseconds per logical operation.
 
 `ops/s` and `us/op` are normalized back to one logical operation, such as one
-`decode`, `validate_context_free_consensus`, `compute_txid`, or serialization
+`deserialize`, `validate_context_free_consensus`, `compute_txid`, or serialization
 call. That means rows with different `ops/call` values can still be compared.
 
 CSV output uses the same measurements as the table report, with one row per
@@ -217,7 +221,7 @@ milliseconds, operations per second, and microseconds per operation.
 
 ```csv
 run_target,run_runtime,run_os,run_architecture,section,case,bytes,warmup_ms,duration_ms,ops_per_timed_call,timed_call_count,measured_ms,operations_per_second,microseconds_per_operation
-"erlang","Erlang/OTP 28 (ERTS 16.4)","darwin","arm64","decode / fixtures","decode simple legacy tx",223,250,1000,100,11595,998.819,1160871.0,0.861
+"erlang","Erlang/OTP 28 (ERTS 16.4)","darwin","arm64","deserialize / fixtures","deserialize simple legacy tx",223,250,1000,100,11595,998.819,1160871.0,0.861
 ```
 
 Batching is chosen by operation shape. Very fast rows use larger batches to

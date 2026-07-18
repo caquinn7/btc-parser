@@ -1,12 +1,12 @@
 # `btc_parser/transaction`
 
-The transaction domain decodes, inspects, validates, and serializes Bitcoin
+The transaction domain deserializes, inspects, validates, and serializes Bitcoin
 transactions while preserving Bitcoin's wire representation.
 
 ## Features
 
-- **Safe decoding**: Configurable resource limits constrain work and allocation
-  when decoding untrusted transaction bytes.
+- **Safe deserialization**: Configurable resource limits constrain work and
+  allocation when deserializing untrusted transaction bytes.
 - **Rich decode diagnostics**: Decode errors include byte offsets and stable
   structural paths.
 - **Format detection**: Legacy and SegWit transaction encodings remain distinct.
@@ -17,7 +17,7 @@ transactions while preserving Bitcoin's wire representation.
 - **Context-free consensus validation**: Check transaction-local rules such as
   input/output presence, output value ranges, coinbase structure, and duplicate
   inputs.
-- **Validation-aware API**: Phantom types distinguish decoded transactions from
+- **Validation-aware API**: Phantom types distinguish parsed transactions from
   transactions that passed context-free consensus validation.
 - **Serialization and identifiers**: Produce stripped or full wire bytes and
   compute txids and wtxids.
@@ -32,25 +32,26 @@ pub fn txid_from_bytes(
   bytes: BitArray,
 ) -> Result(BitArray, transaction.DecodeError) {
   bytes
-  |> transaction.decode
+  |> transaction.deserialize
   |> result.map(transaction.compute_txid)
 }
 
 pub fn txid_from_hex(
   hex: String,
-) -> Result(BitArray, transaction.DecodeHexError) {
+) -> Result(BitArray, transaction.DeserializeHexError) {
   hex
-  |> transaction.decode_hex
+  |> transaction.deserialize_hex
   |> result.map(transaction.compute_txid)
 }
 ```
 
 ## Scope
 
-The module performs structural decoding, inspection, serialization, output script
-classification, and documented context-free consensus checks. It does not
-perform full transaction validation requiring UTXO lookup, script execution,
-signature verification, block context, mempool policy, or network/RPC access.
+The module performs whole-value deserialization, structural inspection,
+serialization, output script classification, and documented context-free
+consensus checks. It does not perform full transaction validation requiring UTXO
+lookup, script execution, signature verification, block context, mempool policy,
+or network/RPC access.
 
 ## Use Cases
 
@@ -58,7 +59,7 @@ signature verification, block context, mempool policy, or network/RPC access.
   bytes into structured data for display, search, and downstream analysis.
 - **Monitoring and research**: Examine caller-provided mempool feeds or datasets
   for transaction shapes, output types, and witness usage.
-- **Wallet and protocol tooling**: Add a decoding layer ahead of
+- **Wallet and protocol tooling**: Add a deserialization layer ahead of
   application-specific transaction processing.
 - **Testing and education**: Study Bitcoin transaction encoding and exercise
   software with malformed transaction data.
