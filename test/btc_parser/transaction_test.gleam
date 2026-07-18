@@ -293,8 +293,10 @@ pub fn deserialize_treats_zero_input_and_output_counts_as_empty_legacy_tx_test()
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
 
   assert !transaction.is_segwit(tx)
-  assert list.is_empty(transaction.get_inputs(tx))
-  assert list.is_empty(transaction.get_outputs(tx))
+  assert transaction.get_input_count(tx) == 0
+  assert transaction.get_inputs(tx) == []
+  assert transaction.get_output_count(tx) == 0
+  assert transaction.get_outputs(tx) == []
   assert transaction.get_lock_time(tx) == lock_time
 }
 
@@ -323,7 +325,7 @@ pub fn validate_input_count_minimum_succeeds_test() {
   let input_padding = <<0:little-size({ 1 * min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
 
-  let assert Ok(_) =
+  let assert Ok(tx) =
     transaction.deserialize(<<
       version1:bits,
       compact_size(input_count):bits,
@@ -331,6 +333,8 @@ pub fn validate_input_count_minimum_succeeds_test() {
       build_minimal_output():bits,
       lock_time:bits,
     >>)
+
+  assert transaction.get_input_count(tx) == input_count
 }
 
 pub fn validate_input_count_within_limits_succeeds_test() {
@@ -342,7 +346,7 @@ pub fn validate_input_count_within_limits_succeeds_test() {
   let input_padding = <<0:little-size({ 2 * min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
 
-  let assert Ok(_) =
+  let assert Ok(tx) =
     transaction.deserialize_with_policy(
       <<
         version1:bits,
@@ -353,6 +357,8 @@ pub fn validate_input_count_within_limits_succeeds_test() {
       >>,
       policy_with_max_input_count(10),
     )
+
+  assert transaction.get_input_count(tx) == input_count
 }
 
 pub fn validate_input_count_equals_policy_succeeds_test() {
@@ -364,7 +370,7 @@ pub fn validate_input_count_equals_policy_succeeds_test() {
   let input_padding = <<0:little-size({ 3 * min_input_size_bytes * 8 })>>
   let lock_time = <<0:little-size(32)>>
 
-  let assert Ok(_) =
+  let assert Ok(tx) =
     transaction.deserialize_with_policy(
       <<
         version1:bits,
@@ -375,6 +381,8 @@ pub fn validate_input_count_equals_policy_succeeds_test() {
       >>,
       policy_with_max_input_count(3),
     )
+
+  assert transaction.get_input_count(tx) == input_count
 }
 
 pub fn validate_input_count_exceeds_policy_error_test() {
@@ -440,7 +448,7 @@ pub fn validate_input_count_structural_boundary_succeeds_test() {
   >>
   let lock_time = <<0:little-size(32)>>
 
-  let assert Ok(_) =
+  let assert Ok(tx) =
     transaction.deserialize_with_policy(
       <<
         version1:bits,
@@ -451,6 +459,8 @@ pub fn validate_input_count_structural_boundary_succeeds_test() {
       >>,
       policy_with_max_input_count(100),
     )
+
+  assert transaction.get_input_count(tx) == input_count
 }
 
 pub fn validate_input_count_insufficient_bytes_for_inputs_test() {
@@ -538,6 +548,7 @@ pub fn deserialize_preserves_single_input_test() {
     >>)
 
   // Verify the transaction contains exactly one input.
+  assert transaction.get_input_count(tx) == 1
   let inputs = transaction.get_inputs(tx)
   let assert [first_input] = inputs
 
@@ -691,6 +702,7 @@ pub fn deserialize_preserves_multiple_inputs_test() {
       lock_time:bits,
     >>)
 
+  assert transaction.get_input_count(tx) == 3
   let inputs = transaction.get_inputs(tx)
   let assert [input1, input2, input3] = inputs
 
@@ -895,13 +907,15 @@ pub fn deserialize_reports_indexed_input_sequence_decode_error_path_test() {
 pub fn validate_output_count_minimum_succeeds_test() {
   let lock_time = <<0:little-size(32)>>
 
-  let assert Ok(_) =
+  let assert Ok(tx) =
     transaction.deserialize(<<
       version1:bits,
       build_minimal_input():bits,
       build_minimal_output():bits,
       lock_time:bits,
     >>)
+
+  assert transaction.get_output_count(tx) == 1
 }
 
 pub fn validate_output_count_within_limits_succeeds_test() {
@@ -912,7 +926,7 @@ pub fn validate_output_count_within_limits_succeeds_test() {
   let output2 = build_output(<<0:little-size(64)>>, <<>>)
   let lock_time = <<0:little-size(32)>>
 
-  let assert Ok(_) =
+  let assert Ok(tx) =
     transaction.deserialize_with_policy(
       <<
         version1:bits,
@@ -924,6 +938,8 @@ pub fn validate_output_count_within_limits_succeeds_test() {
       >>,
       policy_with_max_output_count(10),
     )
+
+  assert transaction.get_output_count(tx) == output_count
 }
 
 pub fn validate_output_count_equals_policy_succeeds_test() {
@@ -937,7 +953,7 @@ pub fn validate_output_count_equals_policy_succeeds_test() {
   let output3 = build_output(<<0:little-size(64)>>, <<>>)
   let lock_time = <<0:little-size(32)>>
 
-  let assert Ok(_) =
+  let assert Ok(tx) =
     transaction.deserialize_with_policy(
       <<
         version1:bits,
@@ -950,6 +966,8 @@ pub fn validate_output_count_equals_policy_succeeds_test() {
       >>,
       policy_with_max_output_count(3),
     )
+
+  assert transaction.get_output_count(tx) == output_count
 }
 
 pub fn validate_output_count_exceeds_policy_error_test() {
@@ -1027,7 +1045,7 @@ pub fn validate_output_count_structural_boundary_succeeds_test() {
   let output2 = build_output(<<0:little-size(64)>>, <<>>)
   let lock_time = <<0:little-size(32)>>
 
-  let assert Ok(_) =
+  let assert Ok(tx) =
     transaction.deserialize_with_policy(
       <<
         version1:bits,
@@ -1039,6 +1057,8 @@ pub fn validate_output_count_structural_boundary_succeeds_test() {
       >>,
       policy_with_max_output_count(100),
     )
+
+  assert transaction.get_output_count(tx) == output_count
 }
 
 pub fn validate_output_count_insufficient_bytes_for_outputs_test() {
@@ -1085,7 +1105,8 @@ pub fn deserialize_accepts_legacy_tx_with_zero_outputs_test() {
 
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
   assert !transaction.is_segwit(tx)
-  assert list.is_empty(transaction.get_outputs(tx))
+  assert transaction.get_output_count(tx) == 0
+  assert transaction.get_outputs(tx) == []
 }
 
 pub fn deserialize_reports_indexed_output_value_decode_error_path_test() {
@@ -1135,7 +1156,9 @@ pub fn deserialize_accepts_segwit_tx_with_zero_outputs_test() {
 
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
   assert transaction.is_segwit(tx)
-  assert list.is_empty(transaction.get_outputs(tx))
+  assert transaction.get_input_count(tx) == 1
+  assert transaction.get_output_count(tx) == 0
+  assert transaction.get_outputs(tx) == []
 }
 
 // ============================================================================
@@ -1160,6 +1183,7 @@ pub fn deserialize_preserves_single_output_test() {
     >>)
 
   // Verify the transaction contains exactly one output.
+  assert transaction.get_output_count(tx) == 1
   let outputs = transaction.get_outputs(tx)
   let assert [first_output] = outputs
 
@@ -1206,6 +1230,7 @@ pub fn deserialize_preserves_multiple_outputs_test() {
       lock_time:bits,
     >>)
 
+  assert transaction.get_output_count(tx) == 3
   let outputs = transaction.get_outputs(tx)
   let assert [output1, output2, output3] = outputs
 
@@ -1483,6 +1508,8 @@ pub fn deserialize_segwit_tx_preserves_witness_data_test() {
 
   // Verify basic transaction properties
   assert transaction.get_version(tx) == 1
+  assert transaction.get_input_count(tx) == 2
+  assert transaction.get_output_count(tx) == 2
 
   // Verify inputs were preserved correctly.
   let inputs = transaction.get_inputs(tx)
@@ -2282,10 +2309,12 @@ pub fn validate_context_free_consensus_accepts_valid_legacy_tx_test() {
   // Verify the context-free-validated transaction maintains the same properties
   assert !transaction.is_segwit(validated_tx)
   assert transaction.get_version(validated_tx) == transaction.get_version(tx)
-  assert list.length(transaction.get_inputs(validated_tx))
-    == list.length(transaction.get_inputs(tx))
-  assert list.length(transaction.get_outputs(validated_tx))
-    == list.length(transaction.get_outputs(tx))
+  assert transaction.get_input_count(validated_tx)
+    == transaction.get_input_count(tx)
+  assert transaction.get_inputs(validated_tx) == transaction.get_inputs(tx)
+  assert transaction.get_output_count(validated_tx)
+    == transaction.get_output_count(tx)
+  assert transaction.get_outputs(validated_tx) == transaction.get_outputs(tx)
   assert transaction.get_lock_time(validated_tx)
     == transaction.get_lock_time(tx)
 }
@@ -2300,10 +2329,12 @@ pub fn validate_context_free_consensus_accepts_valid_segwit_tx_test() {
   // Verify the context-free-validated transaction maintains the same properties
   assert transaction.is_segwit(validated_tx)
   assert transaction.get_version(validated_tx) == transaction.get_version(tx)
-  assert list.length(transaction.get_inputs(validated_tx))
-    == list.length(transaction.get_inputs(tx))
-  assert list.length(transaction.get_outputs(validated_tx))
-    == list.length(transaction.get_outputs(tx))
+  assert transaction.get_input_count(validated_tx)
+    == transaction.get_input_count(tx)
+  assert transaction.get_inputs(validated_tx) == transaction.get_inputs(tx)
+  assert transaction.get_output_count(validated_tx)
+    == transaction.get_output_count(tx)
+  assert transaction.get_outputs(validated_tx) == transaction.get_outputs(tx)
   assert transaction.get_lock_time(validated_tx)
     == transaction.get_lock_time(tx)
   assert transaction.get_witnesses(validated_tx)

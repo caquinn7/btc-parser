@@ -47,8 +47,12 @@ pub opaque type Transaction(state) {
   Legacy(
     /// The unsigned 32-bit transaction version.
     version: Int,
+    /// The number of transaction inputs.
+    input_count: Int,
     /// The transaction inputs in wire order.
     inputs: List(Input),
+    /// The number of transaction outputs.
+    output_count: Int,
     /// The transaction outputs in wire order.
     outputs: List(Output),
     /// The unsigned 32-bit lock-time value.
@@ -57,8 +61,12 @@ pub opaque type Transaction(state) {
   Segwit(
     /// The unsigned 32-bit transaction version.
     version: Int,
+    /// The number of transaction inputs.
+    input_count: Int,
     /// The transaction inputs in wire order.
     inputs: List(Input),
+    /// The number of transaction outputs.
+    output_count: Int,
     /// The transaction outputs in wire order.
     outputs: List(Output),
     /// The unsigned 32-bit lock-time value.
@@ -123,11 +131,25 @@ fn has_coinbase_marker(tx: Transaction(state)) -> Bool {
   list.any(tx.inputs, input_has_null_outpoint)
 }
 
+/// Get the number of inputs in a transaction.
+///
+/// Returns the decoded `CompactSize` input count from the transaction wire encoding.
+pub fn get_input_count(tx: Transaction(state)) -> Int {
+  tx.input_count
+}
+
 /// Get the transaction inputs.
 ///
 /// Returns the inputs in the same order they appear in the transaction serialization.
 pub fn get_inputs(tx: Transaction(state)) -> List(Input) {
   tx.inputs
+}
+
+/// Get the number of outputs in a transaction.
+///
+/// Returns the decoded `CompactSize` output count from the transaction wire encoding.
+pub fn get_output_count(tx: Transaction(state)) -> Int {
+  tx.output_count
 }
 
 /// Get the transaction outputs.
@@ -1280,12 +1302,11 @@ fn tx_body_parser(
 ) -> Parser(ParseContext, Transaction(Parsed), DecodeError) {
   use version <- parser.then(field_parser(Version, reader.read_u32_le))
   use is_segwit <- parser.then(segwit_detection_parser())
-  use inputs <- parser.then(inputs_parser(
-    policy.max_input_count,
-    policy.max_script_size,
-  ))
+  use input_count <- parser.then(input_count_parser(policy.max_input_count))
+  use inputs <- parser.then(inputs_parser(input_count, policy.max_script_size))
+  use output_count <- parser.then(output_count_parser(policy.max_output_count))
   use outputs <- parser.then(outputs_parser(
-    policy.max_output_count,
+    output_count,
     policy.max_script_size,
   ))
   use witnesses <- parser.then(witnesses_if_segwit_parser(
@@ -1297,9 +1318,25 @@ fn tx_body_parser(
 
   parser.return(case witnesses {
     Some(witnesses) ->
-      Segwit(version:, inputs:, outputs:, lock_time:, witnesses:)
+      Segwit(
+        version:,
+        input_count:,
+        inputs:,
+        output_count:,
+        outputs:,
+        lock_time:,
+        witnesses:,
+      )
 
-    None -> Legacy(version:, inputs:, outputs:, lock_time:)
+    None ->
+      Legacy(
+        version:,
+        input_count:,
+        inputs:,
+        output_count:,
+        outputs:,
+        lock_time:,
+      )
   })
 }
 
@@ -1429,12 +1466,24 @@ fn segwit_marker_and_flag_parser() -> Parser(ParseContext, Nil, DecodeError) {
 // ==============================================================================
 
 fn inputs_parser(
-  max_input_count_policy: Int,
+  input_count: Int,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, List(Input), DecodeError) {
-  max_input_count_policy
-  |> input_count_parser
-  |> parser.then(input_list_parser(_, max_script_size_policy))
+  // input_count
+  // ├─ Input #0
+  // │    ├─ outpoint txid (32 bytes)
+  // │    ├─ vout (4 bytes)
+  // │    ├─ scriptSig length (CompactSize)
+  // │    ├─ scriptSig bytes
+  // │    └─ sequence (4 bytes)
+  // ├─ Input #1
+  // │    ├─ ...
+  // └─ Input #(input_count - 1)
+  parser.indexed_repeat(
+    input_count,
+    input_parser(max_script_size_policy),
+    AtInput,
+  )
 }
 
 /// Validate and convert the input count from Uint64 to Int,
@@ -1457,27 +1506,6 @@ fn input_count_parser(
       on_invalid,
     )
   })
-}
-
-fn input_list_parser(
-  input_count: Int,
-  max_script_size_policy: Int,
-) -> Parser(ParseContext, List(Input), DecodeError) {
-  // input_count
-  // ├─ Input #0
-  // │    ├─ outpoint txid (32 bytes)
-  // │    ├─ vout (4 bytes)
-  // │    ├─ scriptSig length (CompactSize)
-  // │    ├─ scriptSig bytes
-  // │    └─ sequence (4 bytes)
-  // ├─ Input #1
-  // │    ├─ ...
-  // └─ Input #(input_count - 1)
-  parser.indexed_repeat(
-    input_count,
-    input_parser(max_script_size_policy),
-    AtInput,
-  )
 }
 
 fn input_parser(
@@ -1545,12 +1573,22 @@ fn validate_input_count(
 // ==============================================================================
 
 fn outputs_parser(
-  max_output_count_policy: Int,
+  output_count: Int,
   max_script_size_policy: Int,
 ) -> Parser(ParseContext, List(Output), DecodeError) {
-  max_output_count_policy
-  |> output_count_parser
-  |> parser.then(output_list_parser(_, max_script_size_policy))
+  // output_count
+  // ├─ Output #0
+  // │    ├─ value (8 bytes)
+  // │    ├─ scriptPubKey length (CompactSize)
+  // │    └─ scriptPubKey bytes
+  // ├─ Output #1
+  // │    ├─ ...
+  // └─ Output #(output_count - 1)
+  parser.indexed_repeat(
+    output_count,
+    output_parser(max_script_size_policy),
+    AtOutput,
+  )
 }
 
 /// Validate and convert the output count from Uint64 to Int, checking structural and policy limits.
@@ -1572,25 +1610,6 @@ fn output_count_parser(
       on_invalid,
     )
   })
-}
-
-fn output_list_parser(
-  output_count: Int,
-  max_script_size_policy: Int,
-) -> Parser(ParseContext, List(Output), DecodeError) {
-  // output_count
-  // ├─ Output #0
-  // │    ├─ value (8 bytes)
-  // │    ├─ scriptPubKey length (CompactSize)
-  // │    └─ scriptPubKey bytes
-  // ├─ Output #1
-  // │    ├─ ...
-  // └─ Output #(output_count - 1)
-  parser.indexed_repeat(
-    output_count,
-    output_parser(max_script_size_policy),
-    AtOutput,
-  )
 }
 
 fn output_parser(
@@ -2054,8 +2073,8 @@ fn mark_as_context_free_validated(
 ) -> Transaction(ContextFreeValidated) {
   // Change the phantom type by reconstructing with identical data.
   case tx {
-    Legacy(v, i, o, l) -> Legacy(v, i, o, l)
-    Segwit(v, i, o, l, w) -> Segwit(v, i, o, l, w)
+    Legacy(v, ic, i, oc, o, l) -> Legacy(v, ic, i, oc, o, l)
+    Segwit(v, ic, i, oc, o, l, w) -> Segwit(v, ic, i, oc, o, l, w)
   }
 }
 
@@ -2233,8 +2252,8 @@ pub fn compute_wtxid(tx: Transaction(state)) -> BitArray {
 pub fn serialize_stripped(tx: Transaction(state)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
-  let assert Ok(input_count) = uint64.from_int(list.length(tx.inputs))
-  let assert Ok(output_count) = uint64.from_int(list.length(tx.outputs))
+  let assert Ok(input_count) = uint64.from_int(tx.input_count)
+  let assert Ok(output_count) = uint64.from_int(tx.output_count)
 
   <<
     tx.version:32-little,
@@ -2271,8 +2290,8 @@ pub fn serialize_stripped(tx: Transaction(state)) -> BitArray {
 pub fn serialize(tx: Transaction(state)) -> BitArray {
   // safe: input/output counts are non-negative Ints parsed from the wire,
   // so they fit within Uint64 (and within JS safe integer bounds)
-  let assert Ok(input_count) = uint64.from_int(list.length(tx.inputs))
-  let assert Ok(output_count) = uint64.from_int(list.length(tx.outputs))
+  let assert Ok(input_count) = uint64.from_int(tx.input_count)
+  let assert Ok(output_count) = uint64.from_int(tx.output_count)
 
   let #(segwit_marker_and_flag, witnesses) = case tx {
     Legacy(..) -> #(<<>>, <<>>)
@@ -2355,8 +2374,8 @@ fn serialize_witnesses(witnesses: List(WitnessStack)) -> BitArray {
   |> bit_array.concat
 }
 
-fn serialize_witness(witness: WitnessStack) -> BitArray {
-  let witness_items = get_witness_items(witness)
+fn serialize_witness(stack: WitnessStack) -> BitArray {
+  let witness_items = get_witness_items(stack)
 
   let assert Ok(item_count) =
     witness_items
