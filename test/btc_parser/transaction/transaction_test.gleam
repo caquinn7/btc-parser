@@ -1,5 +1,6 @@
 import btc_parser/transaction.{
-  type Input, type OutPoint, type OutputScript, type ScriptBytes, BareMultisig,
+  type DecodeError, type DecodeErrorKind, type Input, type OutPoint,
+  type OutputScript, type OutputScriptType, type ScriptBytes, BareMultisig,
   CoinbaseWithMultipleInputs, DecodeFailed, DuplicateInput, InsufficientBytes,
   IntegerOutOfRange, InvalidCoinbaseScriptSigLength, InvalidHex,
   InvalidSegwitMarkerFlag, MaxInputCount, MaxOutputCount, MaxScriptSize,
@@ -1795,98 +1796,65 @@ pub fn is_null_outpoint_requires_zero_txid_and_max_vout_test() {
 pub fn classify_output_script_p2pkh_test() {
   let hash = repeat_byte(0xAA, 20)
   let script_bytes = <<0x76, 0xA9, 0x14, hash:bits, 0x88, 0xAC>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == P2PKH
+  check_output_script_classification(script_bytes, P2PKH)
 }
 
 pub fn classify_output_script_p2sh_test() {
   let hash = repeat_byte(0xBB, 20)
   let script_bytes = <<0xA9, 0x14, hash:bits, 0x87>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == P2SH
+  check_output_script_classification(script_bytes, P2SH)
 }
 
 pub fn classify_output_script_p2wpkh_test() {
   let hash = repeat_byte(0xCC, 20)
   let script_bytes = <<0x00, 0x14, hash:bits>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == P2WPKH
+  check_output_script_classification(script_bytes, P2WPKH)
 }
 
 pub fn classify_output_script_p2wsh_test() {
   let hash = repeat_byte(0xDD, 32)
   let script_bytes = <<0x00, 0x20, hash:bits>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == P2WSH
+  check_output_script_classification(script_bytes, P2WSH)
 }
 
 pub fn classify_output_script_p2tr_test() {
   let pubkey = repeat_byte(0xEE, 32)
   let script_bytes = <<0x51, 0x20, pubkey:bits>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == P2TR
+  check_output_script_classification(script_bytes, P2TR)
 }
 
 pub fn classify_output_script_p2pk_compressed_test() {
   let pubkey = repeat_byte(0x02, 33)
   let script_bytes = <<0x21, pubkey:bits, 0xAC>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == P2PK
+  check_output_script_classification(script_bytes, P2PK)
 }
 
 pub fn classify_output_script_p2pk_uncompressed_test() {
   let pubkey = repeat_byte(0x04, 65)
   let script_bytes = <<0x41, pubkey:bits, 0xAC>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == P2PK
+  check_output_script_classification(script_bytes, P2PK)
 }
 
 pub fn classify_output_script_nulldata_with_data_test() {
   let script_bytes = <<0x6A, 0x04, 0xDE, 0xAD, 0xBE, 0xEF>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == NullData
+  check_output_script_classification(script_bytes, NullData)
 }
 
 pub fn classify_output_script_nulldata_empty_test() {
   let script_bytes = <<0x6A>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == NullData
+  check_output_script_classification(script_bytes, NullData)
 }
 
 pub fn classify_output_script_nulldata_non_push_is_non_standard_test() {
   // OP_RETURN OP_ADD — non-push opcode after OP_RETURN is not a standard null-data script
   let script_bytes = <<0x6A, 0x93>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == NonStandard
+  check_output_script_classification(script_bytes, NonStandard)
 }
 
 pub fn classify_output_script_bare_multisig_1of1_test() {
   let pubkey = repeat_byte(0xAA, 33)
   let script_bytes = <<0x51, 0x21, pubkey:bits, 0x51, 0xAE>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == BareMultisig
+  check_output_script_classification(script_bytes, BareMultisig)
 }
 
 pub fn classify_output_script_bare_multisig_2of3_test() {
@@ -1896,10 +1864,7 @@ pub fn classify_output_script_bare_multisig_2of3_test() {
   let script_bytes = <<
     0x52, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x21, pubkey3:bits, 0x53, 0xAE,
   >>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == BareMultisig
+  check_output_script_classification(script_bytes, BareMultisig)
 }
 
 pub fn classify_output_script_bare_multisig_3of3_test() {
@@ -1909,54 +1874,45 @@ pub fn classify_output_script_bare_multisig_3of3_test() {
   let script_bytes = <<
     0x53, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x21, pubkey3:bits, 0x53, 0xAE,
   >>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == BareMultisig
+  check_output_script_classification(script_bytes, BareMultisig)
 }
 
 pub fn classify_output_script_unknown_witness_v1_non_taproot_test() {
   // OP_1 with a 20-byte program — valid witness v1 but not Taproot (which requires 32 bytes)
   let program = repeat_byte(0xFF, 20)
   let script_bytes = <<0x51, 0x14, program:bits>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == UnknownWitnessProgram(version: 1)
+  check_output_script_classification(
+    script_bytes,
+    UnknownWitnessProgram(version: 1),
+  )
 }
 
 pub fn classify_output_script_unknown_witness_v2_test() {
   let program = repeat_byte(0xFF, 32)
   let script_bytes = <<0x52, 0x20, program:bits>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == UnknownWitnessProgram(version: 2)
+  check_output_script_classification(
+    script_bytes,
+    UnknownWitnessProgram(version: 2),
+  )
 }
 
 pub fn classify_output_script_unknown_witness_v16_test() {
   let program = repeat_byte(0xFF, 20)
   let script_bytes = <<0x60, 0x14, program:bits>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == UnknownWitnessProgram(version: 16)
+  check_output_script_classification(
+    script_bytes,
+    UnknownWitnessProgram(version: 16),
+  )
 }
 
 pub fn classify_output_script_non_standard_test() {
   let script_bytes = <<0x00, 0x01, 0xAA>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == NonStandard
+  check_output_script_classification(script_bytes, NonStandard)
 }
 
 pub fn classify_output_script_empty_test() {
   let script_bytes = <<>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == NonStandard
+  check_output_script_classification(script_bytes, NonStandard)
 }
 
 pub fn classify_output_script_nulldata_at_max_size_test() {
@@ -1964,10 +1920,7 @@ pub fn classify_output_script_nulldata_at_max_size_test() {
   let data = repeat_byte(0xAB, 80)
   let script_bytes = <<0x6A, 0x4C, 80, data:bits>>
 
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == NullData
+  check_output_script_classification(script_bytes, NullData)
 }
 
 pub fn classify_output_script_nulldata_over_max_size_test() {
@@ -1975,10 +1928,7 @@ pub fn classify_output_script_nulldata_over_max_size_test() {
   let data = repeat_byte(0xAB, 81)
   let script_bytes = <<0x6A, 0x4C, 81, data:bits>>
 
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == NonStandard
+  check_output_script_classification(script_bytes, NonStandard)
 }
 
 pub fn classify_output_script_multisig_invalid_m_gt_n_test() {
@@ -1988,10 +1938,7 @@ pub fn classify_output_script_multisig_invalid_m_gt_n_test() {
   let script_bytes = <<
     0x53, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x52, 0xAE,
   >>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == NonStandard
+  check_output_script_classification(script_bytes, NonStandard)
 }
 
 pub fn classify_output_script_multisig_too_many_keys_test() {
@@ -2004,28 +1951,25 @@ pub fn classify_output_script_multisig_too_many_keys_test() {
     0x51, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x21, pubkey3:bits, 0x21,
     pubkey4:bits, 0x54, 0xAE,
   >>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == NonStandard
+  check_output_script_classification(script_bytes, NonStandard)
 }
 
 pub fn classify_output_script_unknown_witness_v1_min_program_test() {
   let program = repeat_byte(0xFF, 2)
   let script_bytes = <<0x51, 0x02, program:bits>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == UnknownWitnessProgram(version: 1)
+  check_output_script_classification(
+    script_bytes,
+    UnknownWitnessProgram(version: 1),
+  )
 }
 
 pub fn classify_output_script_unknown_witness_v1_max_program_test() {
   let program = repeat_byte(0xFF, 40)
   let script_bytes = <<0x51, 0x28, program:bits>>
-  assert transaction.classify_output_script(output_script_from_bytes(
-      script_bytes,
-    ))
-    == UnknownWitnessProgram(version: 1)
+  check_output_script_classification(
+    script_bytes,
+    UnknownWitnessProgram(version: 1),
+  )
 }
 
 // ============================================================================
@@ -2815,6 +2759,26 @@ fn output_script_from_bytes(
   transaction.get_output_script_pubkey(first_output)
 }
 
+fn check_output_script_classification(
+  script_bytes: BitArray,
+  expected: OutputScriptType,
+) -> Nil {
+  assert transaction.classify_output_script(output_script_from_bytes(
+      script_bytes,
+    ))
+    == expected
+}
+
+fn check_transaction_decode_error(
+  error: DecodeError,
+  expected_offset: Int,
+  expected_path: String,
+) -> DecodeErrorKind {
+  assert transaction.get_decode_error_offset(error) == expected_offset
+  assert transaction.get_decode_error_path(error) == expected_path
+  transaction.get_decode_error_kind(error)
+}
+
 // ============================================================================
 // Policy Builder Helpers
 // ============================================================================
@@ -2848,14 +2812,4 @@ fn policy_with_max_witness_stack_payload_size(
   |> transaction.decode_policy_with_max_witness_stack_payload_size(Some(
     max_witness_stack_payload_size,
   ))
-}
-
-fn check_transaction_decode_error(
-  error: transaction.DecodeError,
-  expected_offset: Int,
-  expected_path: String,
-) -> transaction.DecodeErrorKind {
-  assert transaction.get_decode_error_offset(error) == expected_offset
-  assert transaction.get_decode_error_path(error) == expected_path
-  transaction.get_decode_error_kind(error)
 }
