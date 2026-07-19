@@ -9,6 +9,11 @@ import gleam/crypto.{Sha256}
 import gleam/list
 import support/bitcoin_wire.{compact_size}
 import support/target
+import support/transaction_wire.{
+  assemble_segwit_transaction_bytes, build_input_bytes,
+  build_minimal_legacy_transaction_bytes, build_minimal_segwit_transaction_bytes,
+  build_output_bytes,
+}
 
 // ============================================================================
 // Header and empty-block deserialization success
@@ -83,7 +88,7 @@ pub fn deserialize_preserves_unsigned_header_timestamp_target_and_nonce_test() {
 
 pub fn deserialize_accepts_block_with_one_legacy_transaction_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
-  let bytes = build_block(header, [build_minimal_legacy_transaction(1)])
+  let bytes = build_block(header, [build_minimal_legacy_transaction_bytes(1)])
 
   let assert Ok(block) = block.deserialize(bytes)
   let assert [tx] = block.get_transactions(block)
@@ -94,7 +99,7 @@ pub fn deserialize_accepts_block_with_one_legacy_transaction_test() {
 
 pub fn deserialize_accepts_block_with_one_segwit_transaction_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
-  let bytes = build_block(header, [build_minimal_segwit_transaction()])
+  let bytes = build_block(header, [build_minimal_segwit_transaction_bytes()])
 
   let assert Ok(block) = block.deserialize(bytes)
   let assert [tx] = block.get_transactions(block)
@@ -107,8 +112,8 @@ pub fn deserialize_preserves_multiple_transactions_in_wire_order_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
   let bytes =
     build_block(header, [
-      build_minimal_legacy_transaction(1),
-      build_minimal_legacy_transaction(2),
+      build_minimal_legacy_transaction_bytes(1),
+      build_minimal_legacy_transaction_bytes(2),
     ])
 
   let assert Ok(block) = block.deserialize(bytes)
@@ -122,7 +127,7 @@ pub fn deserialize_preserves_multiple_transactions_in_wire_order_test() {
 pub fn deserialize_preserves_multibyte_compact_size_transaction_count_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
   let tx_count = 253
-  let txs = list.repeat(build_minimal_legacy_transaction(1), tx_count)
+  let txs = list.repeat(build_minimal_legacy_transaction_bytes(1), tx_count)
   let bytes = build_block(header, txs)
 
   let assert Ok(block) = block.deserialize(bytes)
@@ -185,8 +190,8 @@ pub fn deserialize_with_policy_rejects_tx_count_exceeding_max_tx_count_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
   let bytes =
     build_block(header, [
-      build_minimal_legacy_transaction(1),
-      build_minimal_legacy_transaction(2),
+      build_minimal_legacy_transaction_bytes(1),
+      build_minimal_legacy_transaction_bytes(2),
     ])
 
   let assert Error(error) =
@@ -215,8 +220,8 @@ pub fn deserialize_with_policy_accepts_tx_count_at_max_tx_count_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
   let bytes =
     build_block(header, [
-      build_minimal_legacy_transaction(1),
-      build_minimal_legacy_transaction(2),
+      build_minimal_legacy_transaction_bytes(1),
+      build_minimal_legacy_transaction_bytes(2),
     ])
 
   let assert Ok(block) =
@@ -423,7 +428,7 @@ pub fn deserialize_reports_error_in_second_transaction_with_transaction_index_in
   let incomplete_second_tx = <<1:32-little>>
   let bytes =
     build_block(header, [
-      build_minimal_legacy_transaction(1),
+      build_minimal_legacy_transaction_bytes(1),
       incomplete_second_tx,
     ])
 
@@ -500,7 +505,7 @@ pub fn deserialize_hex_accepts_block_with_one_legacy_transaction_test() {
       0x1D00FFFF,
       2_083_236_893,
     )
-  let bytes = build_block(header, [build_minimal_legacy_transaction(1)])
+  let bytes = build_block(header, [build_minimal_legacy_transaction_bytes(1)])
 
   let assert Ok(block) =
     bytes
@@ -659,8 +664,8 @@ pub fn serialize_encodes_zero_transaction_count_without_payload_test() {
 
 pub fn serialize_preserves_transaction_wire_order_test() {
   // Block serialization must concatenate contained transactions without reordering them.
-  let first_tx = build_minimal_legacy_transaction(1)
-  let second_tx = build_minimal_legacy_transaction(2)
+  let first_tx = build_minimal_legacy_transaction_bytes(1)
+  let second_tx = build_minimal_legacy_transaction_bytes(2)
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
   let assert Ok(block) =
     block.deserialize(build_block(header, [first_tx, second_tx]))
@@ -673,18 +678,17 @@ pub fn serialize_preserves_transaction_wire_order_test() {
 
 pub fn serialize_includes_segwit_witness_data_test() {
   // SegWit transactions must use their full wire form rather than stripped bytes.
-  let segwit_tx = <<
-    1:32-little,
-    0,
-    1,
-    build_minimal_transaction_body():bits,
-    1,
-    3,
+  let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
+  let output = build_output_bytes(<<0:little-size(64)>>, <<>>)
+  let witness_stack = <<
+    compact_size(1):bits,
+    compact_size(3):bits,
     0xAA,
     0xBB,
     0xCC,
-    0:32-little,
   >>
+  let segwit_tx =
+    assemble_segwit_transaction_bytes([input], [output], [witness_stack])
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
   let assert Ok(block) = block.deserialize(build_block(header, [segwit_tx]))
 
@@ -697,7 +701,7 @@ pub fn serialize_includes_segwit_witness_data_test() {
 pub fn serialize_encodes_multibyte_compact_size_transaction_count_test() {
   // The transaction count must use minimal CompactSize at the first multibyte boundary.
   let tx_count = 253
-  let txs = list.repeat(build_minimal_legacy_transaction(1), tx_count)
+  let txs = list.repeat(build_minimal_legacy_transaction_bytes(1), tx_count)
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
   let assert Ok(block) = block.deserialize(build_block(header, txs))
 
@@ -720,7 +724,7 @@ pub fn compute_block_hash_matches_manual_dsha256_test() {
       0x1D00FFFF,
       2_083_236_893,
     )
-  let tx = build_minimal_legacy_transaction(1)
+  let tx = build_minimal_legacy_transaction_bytes(1)
   let assert Ok(block) = block.deserialize(build_block(header_bytes, [tx]))
 
   let expected_hash =
@@ -782,41 +786,8 @@ fn build_block(header: BitArray, txs: List(BitArray)) -> BitArray {
   >>
 }
 
-fn build_minimal_legacy_transaction(version: Int) -> BitArray {
-  <<
-    version:32-little,
-    build_minimal_transaction_body():bits,
-    0:32-little,
-  >>
-}
-
 fn build_smallest_structurally_decodable_transaction() -> BitArray {
   <<1:32-little, 0, 0, 0:32-little>>
-}
-
-fn build_minimal_segwit_transaction() -> BitArray {
-  <<
-    1:32-little,
-    0,
-    1,
-    build_minimal_transaction_body():bits,
-    1,
-    0,
-    0:32-little,
-  >>
-}
-
-fn build_minimal_transaction_body() -> BitArray {
-  <<
-    1,
-    0:size(256),
-    0:32-little,
-    0,
-    0:32-little,
-    1,
-    0:64-little,
-    0,
-  >>
 }
 
 fn check_block_decode_error(
