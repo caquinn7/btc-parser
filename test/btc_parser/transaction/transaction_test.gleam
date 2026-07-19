@@ -620,33 +620,40 @@ pub fn deserialize_preserves_multiple_inputs_test() {
 // ScriptSig Validation
 // ============================================================================
 
-pub fn deserialize_rejects_scriptsig_exceeding_max_size_test() {
-  // Build a transaction with scriptSig length 10,001,
-  // exceeding the 10,000-byte limit.
-
+pub fn deserialize_rejects_scriptsig_exceeding_default_policy_max_size_test() {
+  let policy = transaction.default_decode_policy()
+  let max_script_size = transaction.decode_policy_max_script_size(policy)
+  let oversized_script_size = max_script_size + 1
   let input_count = compact_size(1)
 
   let outpoint_txid_bytes = <<0:size(256)>>
   let outpoint_vout = 0
-  let script_sig = <<0:size({ 10_001 * 8 })>>
+  let script_sig = <<0:size({ oversized_script_size * 8 })>>
   let sequence = 0
 
   let input_bytes =
     build_input_bytes(outpoint_txid_bytes, outpoint_vout, script_sig, sequence)
 
   let assert Error(decode_err) =
-    transaction.deserialize(<<
-      version1:bits,
-      input_count:bits,
-      input_bytes:bits,
-    >>)
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        input_count:bits,
+        input_bytes:bits,
+      >>,
+      policy,
+    )
 
   assert check_transaction_decode_error(
       decode_err,
       41,
       "transaction.inputs[0].script_sig.length",
     )
-    == PolicyLimitExceeded(MaxScriptSize, 10_001, 10_000)
+    == PolicyLimitExceeded(
+      MaxScriptSize,
+      oversized_script_size,
+      max_script_size,
+    )
 }
 
 pub fn deserialize_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
@@ -1194,48 +1201,60 @@ pub fn deserialize_handles_output_value_min_i64_for_target_test() {
 // ScriptPubKey Validation
 // ============================================================================
 
-pub fn deserialize_rejects_scriptpubkey_exceeding_max_size_test() {
-  // Build an output with scriptPubKey length 10,001,
-  // exceeding the 10,000-byte limit.
-
+pub fn deserialize_rejects_scriptpubkey_exceeding_default_policy_max_size_test() {
+  let policy = transaction.default_decode_policy()
+  let max_script_size = transaction.decode_policy_max_script_size(policy)
+  let oversized_script_size = max_script_size + 1
   let output_count = compact_size(1)
 
   let value = <<0:little-size(64)>>
-  let script_pubkey = <<0:size({ 10_001 * 8 })>>
+  let script_pubkey = <<0:size({ oversized_script_size * 8 })>>
 
   let output_bytes = build_output_bytes(value, script_pubkey)
 
   let assert Error(decode_err) =
-    transaction.deserialize(<<
-      version1:bits,
-      minimal_input_section_bytes():bits,
-      output_count:bits,
-      output_bytes:bits,
-    >>)
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        minimal_input_section_bytes():bits,
+        output_count:bits,
+        output_bytes:bits,
+      >>,
+      policy,
+    )
 
   assert check_transaction_decode_error(
       decode_err,
       55,
       "transaction.outputs[0].script_pubkey.length",
     )
-    == PolicyLimitExceeded(MaxScriptSize, 10_001, 10_000)
+    == PolicyLimitExceeded(
+      MaxScriptSize,
+      oversized_script_size,
+      max_script_size,
+    )
 }
 
-pub fn deserialize_preserves_scriptpubkey_at_max_size_test() {
+pub fn deserialize_preserves_scriptpubkey_at_default_policy_max_size_test() {
+  let policy = transaction.default_decode_policy()
+  let max_script_size = transaction.decode_policy_max_script_size(policy)
   let value_satoshis = 75_000_000
-  let script_pubkey_bytes = <<0:size({ 10_000 * 8 })>>
+  let script_pubkey_bytes = <<0:size({ max_script_size * 8 })>>
   let output =
     build_output_bytes(<<value_satoshis:little-size(64)>>, script_pubkey_bytes)
   let lock_time = <<0:little-size(32)>>
 
   let assert Ok(tx) =
-    transaction.deserialize(<<
-      version1:bits,
-      minimal_input_section_bytes():bits,
-      compact_size(1):bits,
-      output:bits,
-      lock_time:bits,
-    >>)
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        minimal_input_section_bytes():bits,
+        compact_size(1):bits,
+        output:bits,
+        lock_time:bits,
+      >>,
+      policy,
+    )
 
   let outputs = transaction.get_outputs(tx)
   let assert [first_output] = outputs
@@ -1251,7 +1270,7 @@ pub fn deserialize_preserves_scriptpubkey_at_max_size_test() {
     |> transaction.get_output_script_pubkey
     |> transaction.get_raw_script_bytes
 
-  assert bit_array.byte_size(actual_script_pubkey_bytes) == 10_000
+  assert bit_array.byte_size(actual_script_pubkey_bytes) == max_script_size
 }
 
 pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
