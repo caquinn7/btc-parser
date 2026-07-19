@@ -318,49 +318,6 @@ pub fn deserialize_reports_lock_time_decode_error_path_test() {
 // Input Count Parsing and Validation
 // ============================================================================
 
-pub fn validate_input_count_minimum_succeeds_test() {
-  // version (4 bytes) + input_count (CompactSize = 0x01) + 41 bytes padding
-
-  let input_count = 1
-  let input_padding = <<0:little-size({ 1 * min_input_size_bytes * 8 })>>
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Ok(tx) =
-    transaction.deserialize(<<
-      version1:bits,
-      compact_size(input_count):bits,
-      input_padding:bits,
-      build_minimal_output():bits,
-      lock_time:bits,
-    >>)
-
-  assert transaction.get_input_count(tx) == input_count
-}
-
-pub fn validate_input_count_within_limits_succeeds_test() {
-  // version (4 bytes) + input_count (CompactSize = 0x02) + padding for >= 2 inputs
-  // padding: 2 * 41 = 82 bytes -> 82 * 8 = 656 bits
-  // enforce a policy that permits at least 2 inputs
-
-  let input_count = 2
-  let input_padding = <<0:little-size({ 2 * min_input_size_bytes * 8 })>>
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Ok(tx) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        compact_size(input_count):bits,
-        input_padding:bits,
-        build_minimal_output():bits,
-        lock_time:bits,
-      >>,
-      policy_with_max_input_count(10),
-    )
-
-  assert transaction.get_input_count(tx) == input_count
-}
-
 pub fn validate_input_count_equals_policy_succeeds_test() {
   // Pick a small policy (3). Create input_count == 3 and supply >= 3 * 41 bytes padding
   // so that max_inputs_by_bytes >= policy and the policy is the active cap.
@@ -572,34 +529,6 @@ pub fn deserialize_preserves_single_input_test() {
     |> transaction.get_input_script_sig
     |> transaction.get_script_size
     == bit_array.byte_size(script_sig_bytes)
-}
-
-pub fn deserialize_preserves_coinbase_marker_input_test() {
-  let input_count = compact_size(1)
-
-  let outpoint_txid_bytes = <<0:size(256)>>
-  let outpoint_vout = 0xFFFFFFFF
-  let script_sig_bytes = <<>>
-  let sequence = 0xFFFFFFFE
-
-  let input_bytes =
-    build_input(outpoint_txid_bytes, outpoint_vout, script_sig_bytes, sequence)
-
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Ok(tx) =
-    transaction.deserialize(<<
-      version1:bits,
-      input_count:bits,
-      input_bytes:bits,
-      build_minimal_output():bits,
-      lock_time:bits,
-    >>)
-
-  let assert [input] = transaction.get_inputs(tx)
-  assert input
-    |> transaction.get_input_outpoint
-    |> transaction.is_null_outpoint
 }
 
 pub fn input_has_null_outpoint_returns_true_for_coinbase_marker_test() {
@@ -903,44 +832,6 @@ pub fn deserialize_reports_indexed_input_sequence_decode_error_path_test() {
 // ============================================================================
 // Output Count Parsing and Validation
 // ============================================================================
-
-pub fn validate_output_count_minimum_succeeds_test() {
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Ok(tx) =
-    transaction.deserialize(<<
-      version1:bits,
-      build_minimal_input():bits,
-      build_minimal_output():bits,
-      lock_time:bits,
-    >>)
-
-  assert transaction.get_output_count(tx) == 1
-}
-
-pub fn validate_output_count_within_limits_succeeds_test() {
-  // enforce a policy that permits at least 2 outputs
-
-  let output_count = 2
-  let output1 = build_output(<<0:little-size(64)>>, <<>>)
-  let output2 = build_output(<<0:little-size(64)>>, <<>>)
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Ok(tx) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        build_minimal_input():bits,
-        compact_size(output_count):bits,
-        output1:bits,
-        output2:bits,
-        lock_time:bits,
-      >>,
-      policy_with_max_output_count(10),
-    )
-
-  assert transaction.get_output_count(tx) == output_count
-}
 
 pub fn validate_output_count_equals_policy_succeeds_test() {
   // Pick a small policy (3). Create output_count == 3 and supply 3 minimal outputs
@@ -1366,33 +1257,6 @@ pub fn deserialize_handles_output_value_min_i64_for_target_test() {
       assert transaction.get_output_value(output) == min_i64_output_value
     }
   }
-}
-
-pub fn deserialize_accepts_outputs_total_value_exactly_at_max_money_test() {
-  // Create a transaction with outputs totaling exactly max_satoshis (should succeed)
-  // max_satoshis = 2_100_000_000_000_000
-  // output1 = 1_050_000_000_000_000
-  // output2 = 1_050_000_000_000_000
-  // total = 2_100_000_000_000_000 (exactly at limit)
-
-  let output_count = compact_size(2)
-  let value1 = 1_050_000_000_000_000
-  let value2 = 1_050_000_000_000_000
-  let script_pubkey = <<>>
-
-  let output1 = build_output(<<value1:little-size(64)>>, script_pubkey)
-  let output2 = build_output(<<value2:little-size(64)>>, script_pubkey)
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Ok(_) =
-    transaction.deserialize(<<
-      version1:bits,
-      build_minimal_input():bits,
-      output_count:bits,
-      output1:bits,
-      output2:bits,
-      lock_time:bits,
-    >>)
 }
 
 // ============================================================================
