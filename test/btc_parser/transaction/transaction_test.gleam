@@ -127,8 +127,6 @@ pub fn deserialize_with_policy_rejects_tx_exceeding_max_tx_size_test() {
 }
 
 pub fn deserialize_with_policy_rejects_tx_well_above_max_tx_size_test() {
-  // Confirm that a transaction well above max_tx_size reports the correct
-  // actual size and configured limit in the error.
   let assert Error(decode_err) =
     transaction.deserialize_with_policy(
       <<0:size({ 100 * 8 })>>,
@@ -188,12 +186,8 @@ pub fn deserialize_errors_when_input_shorter_than_4_bytes_test() {
 }
 
 pub fn deserialize_errors_on_non_byte_aligned_input_test() {
-  // Append a single trailing bit to a complete, valid transaction.
-  // byte_size rounds up (N bytes + 1 bit → N+1), so the transaction passes
-  // the size check and remaining appears larger than the 4 bytes needed for
-  // Version. However, the reader pattern `<<bytes:bytes-size(4), rest:bytes>>`
-  // requires the remainder to be byte-aligned; the 1 trailing bit makes that
-  // impossible, so the very first read fails even though remaining > bytes_needed.
+  // A trailing bit makes the remainder non-byte-aligned, so the first
+  // fixed-width read fails even though byte_size rounds up.
   let valid_bytes = minimal_legacy_transaction_bytes(1)
   let unaligned = <<valid_bytes:bits, 0:1>>
 
@@ -281,9 +275,7 @@ pub fn deserialize_reports_lock_time_decode_error_path_test() {
 // ============================================================================
 
 pub fn validate_input_count_equals_policy_succeeds_test() {
-  // Pick a small policy (3). Create input_count == 3 and supply >= 3 * 41 bytes padding
-  // so that max_inputs_by_bytes >= policy and the policy is the active cap.
-  // should succeed when enforcing a policy that allows exactly 3 inputs
+  // Supply enough bytes that policy, not structural feasibility, is the limit.
 
   let input_count = 3
   let input_padding = <<0:little-size({ 3 * min_input_size_bytes * 8 })>>
@@ -305,10 +297,7 @@ pub fn validate_input_count_equals_policy_succeeds_test() {
 }
 
 pub fn validate_input_count_exceeds_policy_error_test() {
-  // Use a small policy (2). Set input_count == 3 and provide padding for
-  // 3 inputs (3 * 41 = 123 bytes) so max_inputs_by_bytes == 3 (not the limiting factor).
-  // With policy == 2, the policy limit is stricter, so validator should reject
-  // input_count == 3 with PolicyLimitExceeded.
+  // Supply enough bytes that policy, not structural feasibility, rejects the count.
 
   let input_count = 3
   let input_padding = <<0:little-size({ 3 * min_input_size_bytes * 8 })>>
@@ -328,9 +317,7 @@ pub fn validate_input_count_exceeds_policy_error_test() {
 }
 
 pub fn validate_input_count_exceeds_structural_error_test() {
-  // Provide padding for exactly 2 inputs (2 * 41 = 82 bytes) so
-  // max_inputs_by_bytes == 2. Use a large policy so the structural
-  // limit is the active cap, then assert input_count == 3 is rejected.
+  // Only two inputs can fit, making structural feasibility the active limit.
 
   let input_count = 3
   let input_padding = <<0:little-size({ 2 * min_input_size_bytes * 8 })>>
@@ -357,9 +344,7 @@ pub fn validate_input_count_exceeds_structural_error_test() {
 }
 
 pub fn validate_input_count_structural_boundary_succeeds_test() {
-  // Provide padding for exactly 2 inputs (2 * 41 = 82 bytes) so
-  // max_inputs_by_bytes == 2. Use a large policy so the structural
-  // limit is the active cap, then assert input_count == 2 succeeds.
+  // Exactly two inputs can fit, exercising the structural boundary.
 
   let input_count = 2
   let input_padding = <<
@@ -383,9 +368,7 @@ pub fn validate_input_count_structural_boundary_succeeds_test() {
 }
 
 pub fn validate_input_count_insufficient_bytes_for_inputs_test() {
-  // Construct: version (4 bytes) + input_count (CompactSize = 0x01) + 40 bytes
-  // of padding so that `remaining < min_input_size` and the validator
-  // produces an InsufficientBytes error.
+  // Stop one byte short of the minimum encoded input size.
 
   let input_count = 1
   let input_padding = <<
@@ -446,7 +429,6 @@ pub fn deserialize_rejects_segwit_tx_with_zero_inputs_test() {
 pub fn deserialize_preserves_single_input_test() {
   let input_count = compact_size(1)
 
-  // Create a transaction with a single input with specific outpoint values
   let outpoint_txid_bytes = repeat_byte(1, 32)
   let outpoint_vout = 5
   let script_sig_bytes = <<0x48, 0x30, 0x45, 0x02, 0x21>>
@@ -471,21 +453,17 @@ pub fn deserialize_preserves_single_input_test() {
       lock_time:bits,
     >>)
 
-  // Verify the transaction contains exactly one input.
   assert transaction.get_input_count(tx) == 1
   let inputs = transaction.get_inputs(tx)
   let assert [first_input] = inputs
 
-  // Verify outpoint properties
   let outpoint = transaction.get_input_outpoint(first_input)
 
   assert transaction.get_outpoint_txid(outpoint) == outpoint_txid_bytes
   assert transaction.get_outpoint_vout(outpoint) == outpoint_vout
 
-  // Verify sequence
   assert transaction.get_input_sequence(first_input) == sequence
 
-  // Verify scriptSig
   let actual_script_sig_bytes =
     first_input
     |> transaction.get_input_script_sig
@@ -607,7 +585,6 @@ pub fn deserialize_preserves_multiple_inputs_test() {
   let inputs = transaction.get_inputs(tx)
   let assert [input1, input2, input3] = inputs
 
-  // input 1
   let outpoint1 = transaction.get_input_outpoint(input1)
 
   assert transaction.get_outpoint_txid(outpoint1) == outpoint1_txid_bytes
@@ -618,7 +595,6 @@ pub fn deserialize_preserves_multiple_inputs_test() {
     |> transaction.get_raw_script_bytes
     == sig1_bytes
 
-  // input 2
   let outpoint2 = transaction.get_input_outpoint(input2)
 
   assert transaction.get_outpoint_txid(outpoint2) == outpoint2_txid_bytes
@@ -629,7 +605,6 @@ pub fn deserialize_preserves_multiple_inputs_test() {
     |> transaction.get_raw_script_bytes
     == sig2_bytes
 
-  // input 3
   let outpoint3 = transaction.get_input_outpoint(input3)
 
   assert transaction.get_outpoint_txid(outpoint3) == outpoint3_txid_bytes
@@ -685,7 +660,6 @@ pub fn deserialize_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
 
   let script_sig_length = compact_size(100)
 
-  // Only provide 10 bytes of actual data (not enough for the claimed 100)
   let partial_script_sig = <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10>>
 
   let input_bytes = <<
@@ -711,17 +685,11 @@ pub fn deserialize_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
 }
 
 pub fn deserialize_returns_error_with_current_input_index_test() {
-  // Build a transaction with 2 inputs where the first parses successfully
-  // but the second one has an error, verifying that index appears in the
-  // public error path.
-
+  // Parse one complete input first so the failure path must retain index 1.
   let input_count = compact_size(2)
 
-  // First input: valid and complete (41 bytes)
   let input1_bytes = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
 
-  // Second input: claims 100 bytes for scriptSig but we only provide 4 more bytes.
-  // The failure should report the second input in its public error path.
   let input2_outpoint_txid_bytes = <<0:size(256)>>
   let input2_outpoint_vout_bytes = <<0:little-size(32)>>
   let input2_script_sig_length = compact_size(100)
@@ -730,7 +698,6 @@ pub fn deserialize_returns_error_with_current_input_index_test() {
     input2_outpoint_vout_bytes:bits,
     input2_script_sig_length:bits,
   >>
-  // Only provide 4 more bytes (for sequence) instead of 100 + 4
   let remaining_bytes = <<0:little-size(32)>>
 
   let assert Error(decode_err) =
@@ -815,9 +782,7 @@ pub fn deserialize_reports_indexed_input_sequence_decode_error_path_test() {
 // ============================================================================
 
 pub fn validate_output_count_equals_policy_succeeds_test() {
-  // Pick a small policy (3). Create output_count == 3 and supply 3 minimal outputs
-  // so that max_outputs_by_bytes >= policy and the policy is the active cap.
-  // should succeed when enforcing a policy that allows exactly 3 outputs
+  // Supply enough bytes that policy, not structural feasibility, is the limit.
 
   let output_count = 3
   let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
@@ -843,10 +808,7 @@ pub fn validate_output_count_equals_policy_succeeds_test() {
 }
 
 pub fn validate_output_count_exceeds_policy_error_test() {
-  // Use a small policy (2). Set output_count == 3 and provide 3 outputs
-  // (3 * 9 = 27 bytes) so max_outputs_by_bytes == 3 (not the limiting factor).
-  // With policy == 2, the policy limit is stricter, so validator should reject
-  // output_count == 3 with PolicyLimitExceeded.
+  // Supply enough bytes that policy, not structural feasibility, rejects the count.
 
   let output_count = 3
   let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
@@ -877,9 +839,7 @@ pub fn validate_output_count_exceeds_policy_error_test() {
 }
 
 pub fn validate_output_count_exceeds_structural_error_test() {
-  // Provide exactly 2 outputs (2 * 9 = 18 bytes) so max_outputs_by_bytes == 2.
-  // Use a large policy (100) so the structural limit is the active cap,
-  // then assert output_count == 3 is rejected.
+  // Only two outputs can fit, making structural feasibility the active limit.
 
   let output_count = 3
   let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
@@ -909,9 +869,7 @@ pub fn validate_output_count_exceeds_structural_error_test() {
 }
 
 pub fn validate_output_count_structural_boundary_succeeds_test() {
-  // Provide exactly 2 outputs (2 * 9 = 18 bytes) so max_outputs_by_bytes == 2.
-  // Use a large policy (100) so the structural limit is the active cap,
-  // then assert output_count == 2 succeeds.
+  // Exactly two outputs can fit, exercising the structural boundary.
 
   let output_count = 2
   let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
@@ -935,9 +893,7 @@ pub fn validate_output_count_structural_boundary_succeeds_test() {
 }
 
 pub fn validate_output_count_insufficient_bytes_for_outputs_test() {
-  // Construct: version (4 bytes) + input_count (1) + input (41 bytes) + output_count (1) + 8 bytes
-  // of padding so that `remaining < min_output_size` and the validator
-  // produces a InsufficientBytes error.
+  // Stop one byte short of the minimum encoded output size.
 
   let output_count = 1
   let output_padding = <<
@@ -964,9 +920,7 @@ pub fn validate_output_count_insufficient_bytes_for_outputs_test() {
 }
 
 pub fn deserialize_accepts_legacy_tx_with_zero_outputs_test() {
-  // Demonstrate that a legacy transaction with 0 outputs can be represented
-  // in bytes and successfully deserialized (though it would fail context-free
-  // consensus validation).
+  // Structural deserialization permits zero outputs; consensus validation does not.
   let output_count = compact_size(0)
   let lock_time = <<0:little-size(32)>>
 
@@ -1006,9 +960,7 @@ pub fn deserialize_reports_indexed_output_value_decode_error_path_test() {
 }
 
 pub fn deserialize_accepts_segwit_tx_with_zero_outputs_test() {
-  // Demonstrate that a SegWit transaction with 0 outputs can be represented
-  // in bytes and successfully deserialized (though it would fail context-free
-  // consensus validation).
+  // Structural deserialization permits zero outputs; consensus validation does not.
   let marker = <<0x00>>
   let flag = <<0x01>>
   let input_count = compact_size(1)
@@ -1044,7 +996,6 @@ pub fn deserialize_accepts_segwit_tx_with_zero_outputs_test() {
 // ============================================================================
 
 pub fn deserialize_preserves_single_output_test() {
-  // Create a transaction with a single output with specific properties
   let value_satoshis = 100_000_000
   let script_pubkey_bytes = <<0x76, 0xa9, 0x14>>
   let output =
@@ -1060,12 +1011,10 @@ pub fn deserialize_preserves_single_output_test() {
       lock_time:bits,
     >>)
 
-  // Verify the transaction contains exactly one output.
   assert transaction.get_output_count(tx) == 1
   let outputs = transaction.get_outputs(tx)
   let assert [first_output] = outputs
 
-  // Verify output properties
   let actual_value =
     first_output
     |> transaction.get_output_value
@@ -1112,7 +1061,6 @@ pub fn deserialize_preserves_multiple_outputs_test() {
   let outputs = transaction.get_outputs(tx)
   let assert [output1, output2, output3] = outputs
 
-  // output 1
   let actual_value1 =
     output1
     |> transaction.get_output_value
@@ -1126,7 +1074,6 @@ pub fn deserialize_preserves_multiple_outputs_test() {
 
   assert actual_script1_bytes == script1_bytes
 
-  // output 2
   let actual_value2 =
     output2
     |> transaction.get_output_value
@@ -1140,7 +1087,6 @@ pub fn deserialize_preserves_multiple_outputs_test() {
 
   assert actual_script2_bytes == script2_bytes
 
-  // output 3
   let actual_value3 =
     output3
     |> transaction.get_output_value
@@ -1156,7 +1102,6 @@ pub fn deserialize_preserves_multiple_outputs_test() {
 }
 
 pub fn deserialize_preserves_empty_scriptpubkey_test() {
-  // Create a transaction with an output that has empty scriptPubKey
   let value_satoshis = 50_000_000
   let script_pubkey_bytes = <<>>
   let output =
@@ -1172,11 +1117,9 @@ pub fn deserialize_preserves_empty_scriptpubkey_test() {
       lock_time:bits,
     >>)
 
-  // Verify the transaction contains exactly one output.
   let outputs = transaction.get_outputs(tx)
   let assert [first_output] = outputs
 
-  // Verify output properties
   let actual_value =
     first_output
     |> transaction.get_output_value
@@ -1279,7 +1222,6 @@ pub fn deserialize_rejects_scriptpubkey_exceeding_max_size_test() {
 }
 
 pub fn deserialize_preserves_scriptpubkey_at_max_size_test() {
-  // Create a transaction with an output that has a scriptPubKey of exactly 10,000 bytes (MAX_SCRIPT_SIZE)
   let value_satoshis = 75_000_000
   let script_pubkey_bytes = <<0:size({ 10_000 * 8 })>>
   let output =
@@ -1295,11 +1237,9 @@ pub fn deserialize_preserves_scriptpubkey_at_max_size_test() {
       lock_time:bits,
     >>)
 
-  // Verify the transaction contains exactly one output.
   let outputs = transaction.get_outputs(tx)
   let assert [first_output] = outputs
 
-  // Verify output properties
   let actual_value =
     first_output
     |> transaction.get_output_value
@@ -1323,7 +1263,6 @@ pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
   let value = <<0:little-size(64)>>
   let script_pubkey_length = compact_size(100)
 
-  // Only provide 10 bytes of actual data (not enough for the claimed 100)
   let partial_script_pubkey = <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10>>
 
   let output_bytes = <<
@@ -1353,15 +1292,13 @@ pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
 // ============================================================================
 
 pub fn deserialize_rejects_segwit_tx_with_all_empty_witness_stacks_test() {
-  // Build inputs
   let input1 = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   let input2 =
     build_input_bytes(repeat_byte(1, 32), 1, <<0x01, 0x02>>, 0xFFFFFFFF)
 
-  // Build output
   let output = build_output_bytes(<<1000:little-size(64)>>, <<0x76, 0xa9>>)
 
-  // Empty witness stacks: each input gets a witness stack with 0 items
+  // All-empty witness stacks make extended serialization superfluous.
   let witness_stack1 = compact_size(0)
   let witness_stack2 = compact_size(0)
   let expected_witness_offset =
@@ -1425,13 +1362,9 @@ pub fn deserialize_segwit_tx_allows_empty_stack_when_another_stack_has_item_test
 }
 
 pub fn deserialize_witness_stack_with_multiple_items_test() {
-  // Build input
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
-
-  // Build output
   let output = build_output_bytes(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness items with different sizes
   let witness_item1_data = <<0x48, 0x30, 0x45>>
   let witness_item2_data = <<0x21, 0x02, 0x03>>
   let witness_item3_data = <<0xAA, 0xBB, 0xCC, 0xDD>>
@@ -1461,18 +1394,14 @@ pub fn deserialize_witness_stack_with_multiple_items_test() {
 
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
 
-  // Verify it's SegWit
   assert transaction.is_segwit(tx)
 
-  // Get the witness stack
   let assert Ok(witnesses) = transaction.get_witnesses(tx)
   let assert [stack] = witnesses
 
-  // Verify it has 3 items
   let items = transaction.get_witness_items(stack)
   let assert [item1, item2, item3] = items
 
-  // Verify each item has the correct data
   let data1 = transaction.get_witness_item_bytes(item1)
   let data2 = transaction.get_witness_item_bytes(item2)
   let data3 = transaction.get_witness_item_bytes(item3)
@@ -1485,13 +1414,10 @@ pub fn deserialize_witness_stack_with_multiple_items_test() {
 }
 
 pub fn deserialize_witness_item_with_zero_length_test() {
-  // Build input
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
-
-  // Build output
   let output = build_output_bytes(<<1000:little-size(64)>>, <<>>)
 
-  // Build a witness stack with a single zero-length item
+  // A zero-length item still makes the witness record non-empty.
   let witness_stack = <<
     compact_size(1):bits,
     compact_size(0):bits,
@@ -1502,27 +1428,20 @@ pub fn deserialize_witness_item_with_zero_length_test() {
 
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
 
-  // Verify it's SegWit
   assert transaction.is_segwit(tx)
 
-  // Get the witness stack
   let assert Ok(witnesses) = transaction.get_witnesses(tx)
   let assert [stack] = witnesses
 
-  // Verify it has 1 item
   let items = transaction.get_witness_items(stack)
   let assert [item] = items
 
-  // Verify the item is zero-length
   let data = transaction.get_witness_item_bytes(item)
   assert bit_array.byte_size(data) == 0
 }
 
 pub fn deserialize_witness_item_length_exceeds_remaining_bytes_test() {
-  // Build input
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
-
-  // Build output
   let output = build_output_bytes(<<1000:little-size(64)>>, <<>>)
 
   // Build witness stack where item length exceeds remaining bytes
@@ -1624,11 +1543,9 @@ pub fn deserialize_rejects_non_minimal_witness_item_length_test() {
 pub fn deserialize_witness_stack_at_max_item_count_succeeds_test() {
   let max_witness_stack_item_count = 3
 
-  // Build input and output
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output_bytes(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with exactly max_witness_stack_item_count items
   let witness_items =
     int.range(0, max_witness_stack_item_count, with: <<>>, run: fn(acc, _) {
       <<acc:bits, compact_size(5):bits, 1, 2, 3, 4, 5>>
@@ -1647,7 +1564,6 @@ pub fn deserialize_witness_stack_at_max_item_count_succeeds_test() {
 
   let assert Ok(tx) = transaction.deserialize_with_policy(tx_bytes, policy)
 
-  // Verify the witness stack has the correct number of items
   let assert Ok(witnesses) = transaction.get_witnesses(tx)
   let assert [stack] = witnesses
 
@@ -1658,11 +1574,9 @@ pub fn deserialize_witness_stack_at_max_item_count_succeeds_test() {
 pub fn deserialize_witness_stack_exceeds_max_item_count_fails_test() {
   let max_witness_stack_item_count = 2
 
-  // Build input and output
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output_bytes(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with max_witness_stack_item_count + 1 items
   let witness_items =
     int.range(0, max_witness_stack_item_count + 1, with: <<>>, run: fn(acc, _) {
       <<acc:bits, compact_size(5):bits, 1, 2, 3, 4, 5>>
@@ -1682,7 +1596,6 @@ pub fn deserialize_witness_stack_exceeds_max_item_count_fails_test() {
   let assert Error(decode_err) =
     transaction.deserialize_with_policy(tx_bytes, policy)
 
-  // Verify the error kind indicates the count exceeded max_witness_stack_item_count
   assert check_transaction_decode_error(
       decode_err,
       58,
@@ -1702,12 +1615,10 @@ pub fn deserialize_witness_stack_exceeds_max_item_count_fails_test() {
 pub fn deserialize_witness_stack_at_max_payload_size_succeeds_test() {
   let max_witness_stack_payload_size = 50
 
-  // Build input and output
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output_bytes(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack with items totaling exactly max_witness_stack_payload_size
-  // 3 items: 20 bytes + 15 bytes + 15 bytes = 50 bytes total
+  // Payload sizes sum to the exact policy boundary: 20 + 15 + 15 = 50.
   let witness_items = <<
     compact_size(20):bits,
     repeat_byte(0xAA, 20):bits,
@@ -1727,14 +1638,12 @@ pub fn deserialize_witness_stack_at_max_payload_size_succeeds_test() {
 
   let assert Ok(tx) = transaction.deserialize_with_policy(tx_bytes, policy)
 
-  // Verify the witness stack was preserved correctly.
   let assert Ok(witnesses) = transaction.get_witnesses(tx)
   let assert [stack] = witnesses
 
   let items = transaction.get_witness_items(stack)
   assert list.length(items) == 3
 
-  // Verify total payload size
   let total_payload_size =
     items
     |> list.map(fn(item) {
@@ -1750,12 +1659,10 @@ pub fn deserialize_witness_stack_at_max_payload_size_succeeds_test() {
 pub fn deserialize_witness_stack_exceeds_max_payload_size_fails_test() {
   let max_witness_stack_payload_size = 50
 
-  // Build input and output
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output_bytes(<<1000:little-size(64)>>, <<>>)
 
-  // Build witness stack exceeding max_witness_stack_payload_size
-  // 3 items: 20 bytes + 15 bytes + 16 bytes = 51 bytes total (exceeds 50)
+  // The third item crosses the boundary: 20 + 15 + 16 = 51.
   let witness_items = <<
     compact_size(20):bits,
     repeat_byte(0xAA, 20):bits,
@@ -1795,7 +1702,6 @@ pub fn deserialize_witness_stack_exceeds_max_payload_size_fails_test() {
 pub fn deserialize_rejects_legacy_tx_with_trailing_byte_test() {
   let lock_time = <<0:little-size(32)>>
 
-  // Build a valid legacy transaction
   let valid_tx = <<
     version1:bits,
     minimal_input_section_bytes():bits,
@@ -2002,7 +1908,6 @@ pub fn classify_output_script_non_standard_test() {
 }
 
 pub fn classify_output_script_empty_test() {
-  // Zero-length script — no pattern matches → NonStandard
   let script_bytes = <<>>
   assert transaction.classify_output_script(output_script_from_bytes(
       script_bytes,
@@ -2011,7 +1916,7 @@ pub fn classify_output_script_empty_test() {
 }
 
 pub fn classify_output_script_nulldata_at_max_size_test() {
-  // OP_RETURN (1) + OP_PUSHDATA1 (1) + length byte (1) + 80 bytes = 83 bytes total → NullData
+  // The 80-byte payload keeps the full script at the 83-byte policy limit.
   let data = repeat_byte(0xAB, 80)
   let script_bytes = <<0x6A, 0x4C, 80, data:bits>>
 
@@ -2022,7 +1927,7 @@ pub fn classify_output_script_nulldata_at_max_size_test() {
 }
 
 pub fn classify_output_script_nulldata_over_max_size_test() {
-  // OP_RETURN (1) + OP_PUSHDATA1 (1) + length byte (1) + 81 bytes = 84 bytes total → NonStandard
+  // One more payload byte pushes the full script over the 83-byte policy limit.
   let data = repeat_byte(0xAB, 81)
   let script_bytes = <<0x6A, 0x4C, 81, data:bits>>
 
@@ -2062,7 +1967,6 @@ pub fn classify_output_script_multisig_too_many_keys_test() {
 }
 
 pub fn classify_output_script_unknown_witness_v1_min_program_test() {
-  // OP_1 + OP_DATA_2 + 2-byte program — minimum valid witness program length
   let program = repeat_byte(0xFF, 2)
   let script_bytes = <<0x51, 0x02, program:bits>>
   assert transaction.classify_output_script(output_script_from_bytes(
@@ -2072,7 +1976,6 @@ pub fn classify_output_script_unknown_witness_v1_min_program_test() {
 }
 
 pub fn classify_output_script_unknown_witness_v1_max_program_test() {
-  // OP_1 + OP_DATA_40 + 40-byte program — maximum valid witness program length
   let program = repeat_byte(0xFF, 40)
   let script_bytes = <<0x51, 0x28, program:bits>>
   assert transaction.classify_output_script(output_script_from_bytes(
@@ -2100,7 +2003,6 @@ pub fn validate_context_free_consensus_collects_no_inputs_and_no_outputs_test() 
 }
 
 pub fn validate_context_free_consensus_rejects_tx_with_no_outputs_test() {
-  // Build a legacy transaction with 1 input and 0 outputs
   let input_count = compact_size(1)
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   let output_count = compact_size(0)
@@ -2145,8 +2047,6 @@ pub fn validate_context_free_consensus_rejects_tx_with_negative_output_value_tes
 }
 
 pub fn validate_context_free_consensus_rejects_tx_with_output_exceeding_supply_test() {
-  // Build a transaction with single output > max_satoshis (2_100_000_000_000_000)
-  // Use 2_100_000_000_000_001 which exceeds the max supply
   let input_count = compact_size(1)
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   let output_count = compact_size(1)
@@ -2171,7 +2071,6 @@ pub fn validate_context_free_consensus_rejects_tx_with_output_exceeding_supply_t
 }
 
 pub fn validate_context_free_consensus_accepts_tx_with_total_outputs_equal_to_supply_test() {
-  // Build a transaction with two valid outputs totaling exactly max_satoshis.
   let input_count = compact_size(1)
   let input = build_input_bytes(<<1:size(256)>>, 0, <<>>, 0)
   let output_count = compact_size(2)
@@ -2197,8 +2096,7 @@ pub fn validate_context_free_consensus_accepts_tx_with_total_outputs_equal_to_su
 }
 
 pub fn validate_context_free_consensus_rejects_tx_with_total_outputs_exceeding_supply_test() {
-  // Build a transaction with two outputs that individually are valid but total exceeds max_satoshis
-  // Each output: 1_100_000_000_000_000, Total: 2_200_000_000_000_000 > 2_100_000_000_000_000
+  // Both outputs are individually valid; only their cumulative value is excessive.
   let input_count = compact_size(1)
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   let output_count = compact_size(2)
@@ -2226,15 +2124,11 @@ pub fn validate_context_free_consensus_rejects_tx_with_total_outputs_exceeding_s
 }
 
 pub fn validate_context_free_consensus_rejects_coinbase_with_multiple_inputs_test() {
-  // Build a transaction with 1 coinbase input and 1 regular input
-  // Coinbase transactions must have exactly 1 input, so this should fail
   let input_count = compact_size(2)
 
-  // Coinbase input (outpoint txid=all zeros, vout=0xFFFFFFFF)
   let coinbase_input =
     build_input_bytes(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
 
-  // Regular input (non-zero outpoint txid)
   let regular_input = build_input_bytes(<<1:size(256)>>, 0, <<>>, 0)
 
   let output_count = compact_size(1)
@@ -2260,11 +2154,8 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_multiple_inputs_tes
 }
 
 pub fn validate_context_free_consensus_rejects_multiple_coinbase_inputs_test() {
-  // Build a transaction with 2 coinbase inputs
-  // This should be rejected as coinbase transactions must have exactly 1 input
   let input_count = compact_size(2)
 
-  // Two coinbase inputs (both have outpoint txid=all zeros, vout=0xFFFFFFFF)
   let coinbase_input1 =
     build_input_bytes(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
   let coinbase_input2 =
@@ -2293,9 +2184,7 @@ pub fn validate_context_free_consensus_rejects_multiple_coinbase_inputs_test() {
 }
 
 pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_short_test() {
-  // Build a coinbase transaction with scriptSig of 1 byte (minimum is 2 bytes)
   let input_count = compact_size(1)
-  // Coinbase input with 1-byte scriptSig (too short)
   let coinbase_input =
     build_input_bytes(<<0:size(256)>>, 0xFFFFFFFF, <<0x01>>, 0)
   let output_count = compact_size(1)
@@ -2322,7 +2211,6 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_short
 pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_long_test() {
   let input_count = compact_size(1)
 
-  // Coinbase input with 101-byte (808-bit) scriptSig
   let coinbase_input =
     build_input_bytes(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(808)>>, 0)
 
@@ -2350,7 +2238,6 @@ pub fn validate_context_free_consensus_rejects_coinbase_with_scriptsig_too_long_
 pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_min_length_test() {
   let input_count = compact_size(1)
 
-  // Coinbase input with 2-byte scriptSig
   let coinbase_input =
     build_input_bytes(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(16)>>, 0)
 
@@ -2376,7 +2263,6 @@ pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_min_lengt
 pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_max_length_test() {
   let input_count = compact_size(1)
 
-  // Coinbase input with 100-byte scriptSig
   let coinbase_input =
     build_input_bytes(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(800)>>, 0)
 
@@ -2400,18 +2286,14 @@ pub fn validate_context_free_consensus_accepts_coinbase_with_scriptsig_max_lengt
 }
 
 pub fn validate_context_free_consensus_returns_multiple_errors_test() {
-  // Build a transaction that violates multiple consensus rules:
-  // 1. Coinbase with multiple inputs (should trigger CoinbaseWithMultipleInputs)
-  // 2. Negative output value (should trigger OutputValueOutOfRange)
+  // Combine independent coinbase-shape and output-value violations.
   let input_count = compact_size(2)
 
-  // Coinbase input + regular input (violates "exactly one input" rule)
   let coinbase_input1 =
     build_input_bytes(<<0:size(256)>>, 0xFFFFFFFF, <<0, 0>>, 0)
   let regular_input = build_input_bytes(<<1:size(256)>>, 0, <<0, 0>>, 0)
 
   let output_count = compact_size(1)
-  // Negative value: 0xFFFFFFFFFFFFFFFF = -1 as signed int64
   let negative_value = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
   let script_pubkey_length = compact_size(0)
   let lock_time = <<0:little-size(32)>>
@@ -2429,17 +2311,14 @@ pub fn validate_context_free_consensus_returns_multiple_errors_test() {
 
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
 
-  // Validate consensus rules - should fail with multiple errors
   let assert Error(errors) = transaction.validate_context_free_consensus(tx)
 
-  // Should contain both CoinbaseWithMultipleInputs and OutputValueOutOfRange
   assert list.contains(errors, CoinbaseWithMultipleInputs)
   assert list.contains(errors, OutputValueOutOfRange(0, -1))
   assert list.length(errors) == 2
 }
 
 pub fn validate_context_free_consensus_rejects_tx_with_duplicate_inputs_test() {
-  // Two inputs referencing the same previous output (txid + vout)
   let input_count = compact_size(2)
   let shared_txid = repeat_byte(0xAB, 32)
   let input0 = build_input_bytes(shared_txid, 0, <<>>, 0xFFFFFFFF)
@@ -2469,7 +2348,6 @@ pub fn validate_context_free_consensus_rejects_tx_with_duplicate_inputs_test() {
 }
 
 pub fn validate_context_free_consensus_rejects_duplicate_input_at_non_adjacent_indices_test() {
-  // Inputs at index 0 and 2 share the same previous output; input 1 is distinct
   let input_count = compact_size(3)
   let shared_txid = repeat_byte(0xAB, 32)
   let other_txid = repeat_byte(0xCD, 32)
@@ -2528,7 +2406,6 @@ pub fn validate_context_free_consensus_accepts_inputs_with_same_txid_but_differe
 }
 
 pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_errors_test() {
-  // Duplicate inputs combined with a negative output value: both errors reported
   let input_count = compact_size(2)
   let shared_txid = repeat_byte(0xAB, 32)
   let input0 = build_input_bytes(shared_txid, 0, <<>>, 0xFFFFFFFF)
@@ -2607,7 +2484,6 @@ pub fn hashing_and_serialization_accept_context_free_invalid_segwit_tx_test() {
 // ============================================================================
 
 pub fn has_coinbase_shape_regular_transaction_returns_false_test() {
-  // Regular (non-coinbase) transaction with valid inputs and outputs
   let input_count = compact_size(1)
   let regular_input =
     build_input_bytes(repeat_byte(1, 32), 42, <<0, 1, 2>>, 0xFFFFFFFE)
@@ -2630,7 +2506,6 @@ pub fn has_coinbase_shape_regular_transaction_returns_false_test() {
 }
 
 pub fn has_coinbase_shape_coinbase_transaction_test() {
-  // Valid coinbase: exactly 1 input with coinbase marker and 50-byte scriptSig
   let input_count = compact_size(1)
   let coinbase_input =
     build_input_bytes(<<0:size(256)>>, 0xFFFFFFFF, <<0:size(400)>>, 0)
@@ -2657,7 +2532,6 @@ pub fn has_coinbase_shape_coinbase_transaction_test() {
 // ============================================================================
 
 pub fn compute_txid_matches_manual_dsha256_test() {
-  // Construct a known minimal legacy transaction from scratch
   let input_count = compact_size(1)
   let input = build_input_bytes(repeat_byte(1, 32), 0, <<>>, 0xFFFFFFFF)
   let output_count = compact_size(1)
@@ -2685,11 +2559,9 @@ pub fn compute_txid_matches_manual_dsha256_test() {
 }
 
 pub fn compute_wtxid_matches_manual_dsha256_test() {
-  // Construct a known minimal SegWit transaction from scratch
   let input = build_input_bytes(repeat_byte(1, 32), 0, <<>>, 0xFFFFFFFF)
   let output = build_output_bytes(<<1000:little-size(64)>>, <<>>)
 
-  // Single-item witness stack with one byte of data
   let witness_item = <<0x42>>
   let witness_item_length = bit_array.byte_size(witness_item)
   let witness_stack = <<
@@ -2701,7 +2573,7 @@ pub fn compute_wtxid_matches_manual_dsha256_test() {
   let tx_bytes =
     assemble_segwit_transaction_bytes([input], [output], [witness_stack])
 
-  // wtxid is dsha256 of the full serialized bytes (including marker, flag, witness)
+  // wtxid hashes extended serialization, including witness data.
   let expected_wtxid =
     tx_bytes
     |> crypto.hash(Sha256, _)
