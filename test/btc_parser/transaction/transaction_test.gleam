@@ -40,6 +40,36 @@ pub fn deserialize_hex_errors_on_string_with_whitespace_test() {
 }
 
 // ============================================================================
+// deserialize_hex_with_policy
+// ============================================================================
+
+pub fn deserialize_hex_with_policy_accepts_tx_at_max_tx_size_test() {
+  let bytes = minimal_legacy_transaction_bytes(1)
+  let policy = policy_with_max_tx_size(bit_array.byte_size(bytes))
+
+  let assert Ok(tx) =
+    bytes
+    |> bit_array.base16_encode
+    |> transaction.deserialize_hex_with_policy(policy)
+
+  assert transaction.serialize(tx) == bytes
+}
+
+pub fn deserialize_hex_with_policy_wraps_policy_limit_error_test() {
+  let bytes = minimal_legacy_transaction_bytes(1)
+  let tx_size = bit_array.byte_size(bytes)
+  let policy = policy_with_max_tx_size(tx_size - 1)
+
+  let assert Error(DecodeFailed(error)) =
+    bytes
+    |> bit_array.base16_encode
+    |> transaction.deserialize_hex_with_policy(policy)
+
+  assert check_transaction_decode_error(error, 0, "transaction")
+    == PolicyLimitExceeded(MaxTransactionSize, tx_size, tx_size - 1)
+}
+
+// ============================================================================
 // Decode policy configuration
 // ============================================================================
 
