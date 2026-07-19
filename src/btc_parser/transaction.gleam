@@ -1312,7 +1312,7 @@ fn tx_body_parser(
   ))
   use witnesses <- parser.then(witnesses_if_segwit_parser(
     is_segwit,
-    list.length(inputs),
+    input_count,
     policy,
   ))
   use lock_time <- parser.then(field_parser(LockTime, reader.read_u32_le))
