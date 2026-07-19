@@ -291,15 +291,19 @@ pub fn is_null_outpoint(outpoint: OutPoint) -> Bool {
 /// conditions. This library exposes the items without executing or validating
 /// them.
 pub opaque type WitnessStack {
-  WitnessStack(List(WitnessItem))
+  WitnessStack(
+    /// The number of witness items recorded in the stack.
+    item_count: Int,
+    /// The witness items in wire order.
+    items: List(WitnessItem),
+  )
 }
 
 /// Get the witness items from a witness stack.
 ///
 /// Returns the witness items in order as they appear in the serialization.
 pub fn get_witness_items(stack: WitnessStack) -> List(WitnessItem) {
-  let WitnessStack(items) = stack
-  items
+  stack.items
 }
 
 /// Check whether a witness stack contains no items.
@@ -307,10 +311,7 @@ pub fn get_witness_items(stack: WitnessStack) -> List(WitnessItem) {
 /// A stack containing a zero-length item is not empty. Emptiness refers to the
 /// number of items, not the number of bytes contained in those items.
 pub fn is_witness_stack_empty(stack: WitnessStack) -> Bool {
-  case stack {
-    WitnessStack([]) -> True
-    _ -> False
-  }
+  stack.item_count == 0
 }
 
 /// A single item from a witness stack.
@@ -1818,15 +1819,14 @@ fn witness_parser(
   // ├─ WitnessItem #1
   // │    ├─ ...
   // └─ WitnessItem #(item_count - 1)
-  max_witness_stack_item_count
-  |> witness_item_count_parser
-  |> parser.then(fn(item_count) {
-    case max_witness_stack_payload_size {
-      Some(max_size) -> tracked_witness_items_parser(item_count, max_size)
-      None -> witness_items_parser(item_count)
-    }
+  use item_count <- parser.then(witness_item_count_parser(
+    max_witness_stack_item_count,
+  ))
+  use items <- parser.then(case max_witness_stack_payload_size {
+    Some(max_size) -> tracked_witness_items_parser(item_count, max_size)
+    None -> witness_items_parser(item_count)
   })
-  |> parser.map(WitnessStack)
+  parser.return(WitnessStack(item_count:, items:))
 }
 
 /// Construct a parser for a validated witness item count field.
@@ -2375,16 +2375,13 @@ fn serialize_witnesses(witnesses: List(WitnessStack)) -> BitArray {
 }
 
 fn serialize_witness(stack: WitnessStack) -> BitArray {
-  let witness_items = get_witness_items(stack)
-
-  let assert Ok(item_count) =
-    witness_items
-    |> list.length
-    |> uint64.from_int
+  // safe: the item count is a non-negative Int parsed from the wire,
+  // so it fits within Uint64 (and within JS safe integer bounds)
+  let assert Ok(item_count) = uint64.from_int(stack.item_count)
 
   <<
     compact_size.write(item_count):bits,
-    serialize_witness_items(witness_items):bits,
+    serialize_witness_items(stack.items):bits,
   >>
 }
 

@@ -1587,12 +1587,16 @@ pub fn deserialize_segwit_tx_allows_empty_stack_when_another_stack_has_item_test
   let assert Ok(witnesses) = transaction.get_witnesses(tx)
   let assert [stack1, stack2] = witnesses
 
+  assert transaction.is_witness_stack_empty(stack1)
   let items1 = transaction.get_witness_items(stack1)
-  let items2 = transaction.get_witness_items(stack2)
-
   assert items1 == []
+
+  assert !transaction.is_witness_stack_empty(stack2)
+  let items2 = transaction.get_witness_items(stack2)
   let assert [empty_item] = items2
   assert transaction.get_witness_item_bytes(empty_item) == <<>>
+
+  assert transaction.serialize(tx) == tx_bytes
 }
 
 pub fn deserialize_witness_stack_with_multiple_items_test() {
@@ -1650,6 +1654,8 @@ pub fn deserialize_witness_stack_with_multiple_items_test() {
   assert data1 == witness_item1_data
   assert data2 == witness_item2_data
   assert data3 == witness_item3_data
+
+  assert transaction.serialize(tx) == tx_bytes
 }
 
 pub fn deserialize_witness_item_with_zero_length_test() {
