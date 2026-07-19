@@ -1604,75 +1604,35 @@ pub fn deserialize_witness_item_length_exceeds_remaining_bytes_test() {
     == "transaction.witnesses[0].items[0].length"
 }
 
-pub fn deserialize_witness_invalid_compact_size_in_item_count_test() {
-  // Build input and output normally
+pub fn deserialize_rejects_non_minimal_witness_item_count_test() {
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output_bytes(<<1000:little-size(64)>>, <<>>)
-
-  // Manually construct transaction with invalid CompactSize witness item count
-  // CompactSize 0xFD requires 2 bytes following, but provide only 1 (truncated)
-  let marker = <<0x00>>
-  let flag = <<0x01>>
-  let input_count = compact_size(1)
-  let output_count = compact_size(1)
-  let lock_time = <<0:little-size(32)>>
-
-  // Invalid witness stack: 0xFD followed by only 1 byte (truncated CompactSize)
-  let invalid_witness_stack = <<0xFD, 0x01>>
-
-  let tx_bytes = <<
-    version1:bits,
-    marker:bits,
-    flag:bits,
-    input_count:bits,
-    input:bits,
-    output_count:bits,
-    output:bits,
-    invalid_witness_stack:bits,
-    lock_time:bits,
-  >>
+  let non_minimal_item_count = <<0xFD, 0x01, 0x00>>
+  let tx_bytes =
+    assemble_segwit_transaction_bytes([input], [output], [
+      non_minimal_item_count,
+    ])
 
   let assert Error(decode_err) = transaction.deserialize(tx_bytes)
 
   assert transaction.get_decode_error_kind(decode_err)
     == NonMinimalCompactSize(3, 1)
 
-  // Verify the error path indicates witness item count decoding.
   assert transaction.get_decode_error_path(decode_err)
     == "transaction.witnesses[0].items.count"
 }
 
-pub fn deserialize_witness_invalid_compact_size_in_item_length_test() {
-  // Build input and output normally
+pub fn deserialize_rejects_non_minimal_witness_item_length_test() {
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output_bytes(<<1000:little-size(64)>>, <<>>)
-
-  // Manually construct transaction with invalid CompactSize in witness item length
-  let marker = <<0x00>>
-  let flag = <<0x01>>
-  let input_count = compact_size(1)
-  let output_count = compact_size(1)
-  let lock_time = <<0:little-size(32)>>
-
-  // Valid witness stack count (1 item), but invalid item length CompactSize
-  // 0xFD requires 2 bytes following, but provide only 1 (truncated)
-  let invalid_witness_stack = <<
+  let witness_stack = <<
     compact_size(1):bits,
     0xFD,
     0x01,
+    0x00,
   >>
-
-  let tx_bytes = <<
-    version1:bits,
-    marker:bits,
-    flag:bits,
-    input_count:bits,
-    input:bits,
-    output_count:bits,
-    output:bits,
-    invalid_witness_stack:bits,
-    lock_time:bits,
-  >>
+  let tx_bytes =
+    assemble_segwit_transaction_bytes([input], [output], [witness_stack])
 
   let assert Error(decode_err) = transaction.deserialize(tx_bytes)
 
