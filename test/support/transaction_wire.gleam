@@ -1,4 +1,13 @@
 //// Test-only helpers for constructing transaction wire encodings.
+////
+//// Helper names describe the abstraction they return:
+////
+//// - `build_*_bytes` constructs an encoded component from field values.
+//// - `build_minimal_*_section_bytes` returns a count-prefixed minimal fixture.
+//// - `assemble_*_bytes` combines existing encodings into a container.
+////
+//// Names use full domain terminology and an explicit `_bytes` suffix when
+//// returning wire bytes so their result is clear at the call site.
 
 import gleam/bit_array
 import gleam/list
@@ -39,27 +48,38 @@ pub fn build_output_bytes(
 }
 
 /// Return an input section containing a count and one minimal encoded input.
-pub fn minimal_input_section_bytes() -> BitArray {
+pub fn build_minimal_input_section_bytes() -> BitArray {
   let input_count = compact_size(1)
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   <<input_count:bits, input:bits>>
 }
 
 /// Return an output section containing a count and one minimal encoded output.
-pub fn minimal_output_section_bytes() -> BitArray {
+pub fn build_minimal_output_section_bytes() -> BitArray {
   let output_count = compact_size(1)
   let output = build_output_bytes(<<0:little-size(64)>>, <<>>)
   <<output_count:bits, output:bits>>
 }
 
 /// Build a minimal legacy transaction with the supplied version.
-pub fn minimal_legacy_transaction_bytes(version: Int) -> BitArray {
+pub fn build_minimal_legacy_transaction_bytes(version: Int) -> BitArray {
   <<
     version:little-size(32),
-    minimal_input_section_bytes():bits,
-    minimal_output_section_bytes():bits,
+    build_minimal_input_section_bytes():bits,
+    build_minimal_output_section_bytes():bits,
     0:little-size(32),
   >>
+}
+
+/// Build a minimal SegWit transaction with one zero-length witness item.
+pub fn build_minimal_segwit_transaction_bytes() -> BitArray {
+  let witness_stack = <<compact_size(1):bits, compact_size(0):bits>>
+
+  assemble_segwit_transaction_bytes(
+    [build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)],
+    [build_output_bytes(<<0:little-size(64)>>, <<>>)],
+    [witness_stack],
+  )
 }
 
 /// Assemble SegWit transaction bytes from encoded components without validating them.
@@ -82,15 +102,4 @@ pub fn assemble_segwit_transaction_bytes(
     bit_array.concat(witness_stacks):bits,
     0:little-size(32),
   >>
-}
-
-/// Build a minimal SegWit transaction with one zero-length witness item.
-pub fn minimal_segwit_transaction_bytes() -> BitArray {
-  let witness_stack = <<compact_size(1):bits, compact_size(0):bits>>
-
-  assemble_segwit_transaction_bytes(
-    [build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)],
-    [build_output_bytes(<<0:little-size(64)>>, <<>>)],
-    [witness_stack],
-  )
 }

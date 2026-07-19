@@ -18,9 +18,9 @@ import gleam/option.{None, Some}
 import support/bitcoin_wire.{compact_size}
 import support/target
 import support/transaction_wire.{
-  assemble_segwit_transaction_bytes, build_input_bytes, build_output_bytes,
-  minimal_input_section_bytes, minimal_legacy_transaction_bytes,
-  minimal_output_section_bytes,
+  assemble_segwit_transaction_bytes, build_input_bytes,
+  build_minimal_input_section_bytes, build_minimal_legacy_transaction_bytes,
+  build_minimal_output_section_bytes, build_output_bytes,
 }
 
 const version1 = <<1:little-size(32)>>
@@ -50,7 +50,7 @@ pub fn deserialize_hex_errors_on_string_with_whitespace_test() {
 // ============================================================================
 
 pub fn deserialize_hex_with_policy_accepts_tx_at_max_tx_size_test() {
-  let bytes = minimal_legacy_transaction_bytes(1)
+  let bytes = build_minimal_legacy_transaction_bytes(1)
   let policy = policy_with_max_tx_size(bit_array.byte_size(bytes))
 
   let assert Ok(tx) =
@@ -62,7 +62,7 @@ pub fn deserialize_hex_with_policy_accepts_tx_at_max_tx_size_test() {
 }
 
 pub fn deserialize_hex_with_policy_wraps_policy_limit_error_test() {
-  let bytes = minimal_legacy_transaction_bytes(1)
+  let bytes = build_minimal_legacy_transaction_bytes(1)
   let tx_size = bit_array.byte_size(bytes)
   let policy = policy_with_max_tx_size(tx_size - 1)
 
@@ -117,21 +117,21 @@ pub fn decode_policy_builder_overrides_default_limits_test() {
 
 pub fn deserialize_version_at_signed_max_as_unsigned_test() {
   let assert Ok(result) =
-    transaction.deserialize(minimal_legacy_transaction_bytes(0x7FFFFFFF))
+    transaction.deserialize(build_minimal_legacy_transaction_bytes(0x7FFFFFFF))
 
   assert transaction.get_version(result) == 2_147_483_647
 }
 
 pub fn deserialize_version_above_signed_max_as_unsigned_test() {
   let assert Ok(result) =
-    transaction.deserialize(minimal_legacy_transaction_bytes(0x80000000))
+    transaction.deserialize(build_minimal_legacy_transaction_bytes(0x80000000))
 
   assert transaction.get_version(result) == 2_147_483_648
 }
 
 pub fn deserialize_max_unsigned_version_as_unsigned_test() {
   let assert Ok(result) =
-    transaction.deserialize(minimal_legacy_transaction_bytes(0xFFFFFFFF))
+    transaction.deserialize(build_minimal_legacy_transaction_bytes(0xFFFFFFFF))
 
   assert transaction.get_version(result) == 4_294_967_295
 }
@@ -154,7 +154,7 @@ pub fn deserialize_errors_when_input_shorter_than_4_bytes_test() {
 pub fn deserialize_errors_on_non_byte_aligned_input_test() {
   // A trailing bit makes the remainder non-byte-aligned, so the first
   // fixed-width read fails even though byte_size rounds up.
-  let valid_bytes = minimal_legacy_transaction_bytes(1)
+  let valid_bytes = build_minimal_legacy_transaction_bytes(1)
   let unaligned = <<valid_bytes:bits, 0:1>>
 
   let assert Error(decode_err) = transaction.deserialize(unaligned)
@@ -226,8 +226,8 @@ pub fn deserialize_treats_zero_input_and_output_counts_as_empty_legacy_tx_test()
 pub fn deserialize_reports_lock_time_decode_error_path_test() {
   let tx_without_lock_time = <<
     version1:bits,
-    minimal_input_section_bytes():bits,
-    minimal_output_section_bytes():bits,
+    build_minimal_input_section_bytes():bits,
+    build_minimal_output_section_bytes():bits,
   >>
 
   let assert Error(decode_err) = transaction.deserialize(tx_without_lock_time)
@@ -241,8 +241,8 @@ pub fn deserialize_rejects_legacy_tx_with_trailing_byte_test() {
 
   let valid_tx = <<
     version1:bits,
-    minimal_input_section_bytes():bits,
-    minimal_output_section_bytes():bits,
+    build_minimal_input_section_bytes():bits,
+    build_minimal_output_section_bytes():bits,
     lock_time:bits,
   >>
 
@@ -363,7 +363,7 @@ pub fn deserialize_preserves_single_input_test() {
       version1:bits,
       input_count:bits,
       input_bytes:bits,
-      minimal_output_section_bytes():bits,
+      build_minimal_output_section_bytes():bits,
       lock_time:bits,
     >>)
 
@@ -413,7 +413,7 @@ pub fn deserialize_preserves_empty_scriptsig_test() {
       version1:bits,
       input_count:bits,
       input_bytes:bits,
-      minimal_output_section_bytes():bits,
+      build_minimal_output_section_bytes():bits,
       lock_time:bits,
     >>)
 
@@ -463,7 +463,7 @@ pub fn deserialize_preserves_multiple_inputs_test() {
       input1_bytes:bits,
       input2_bytes:bits,
       input3_bytes:bits,
-      minimal_output_section_bytes():bits,
+      build_minimal_output_section_bytes():bits,
       lock_time:bits,
     >>)
 
@@ -645,7 +645,7 @@ pub fn deserialize_rejects_output_count_when_minimum_output_bytes_are_unavailabl
   let assert Error(decode_err) =
     transaction.deserialize(<<
       version1:bits,
-      minimal_input_section_bytes():bits,
+      build_minimal_input_section_bytes():bits,
       compact_size(output_count):bits,
       output_padding:bits,
     >>)
@@ -668,7 +668,7 @@ pub fn deserialize_accepts_legacy_tx_with_zero_outputs_test() {
 
   let tx_bytes = <<
     version1:bits,
-    minimal_input_section_bytes():bits,
+    build_minimal_input_section_bytes():bits,
     output_count:bits,
     lock_time:bits,
   >>
@@ -687,7 +687,7 @@ pub fn deserialize_reports_indexed_output_value_decode_error_path_test() {
   let assert Error(decode_err) =
     transaction.deserialize(<<
       version1:bits,
-      minimal_input_section_bytes():bits,
+      build_minimal_input_section_bytes():bits,
       compact_size(2):bits,
       first_output:bits,
       partial_second_output_value:bits,
@@ -743,7 +743,7 @@ pub fn deserialize_preserves_single_output_test() {
   let assert Ok(tx) =
     transaction.deserialize(<<
       version1:bits,
-      minimal_input_section_bytes():bits,
+      build_minimal_input_section_bytes():bits,
       compact_size(1):bits,
       output:bits,
       lock_time:bits,
@@ -787,7 +787,7 @@ pub fn deserialize_preserves_multiple_outputs_test() {
   let assert Ok(tx) =
     transaction.deserialize(<<
       version1:bits,
-      minimal_input_section_bytes():bits,
+      build_minimal_input_section_bytes():bits,
       output_count:bits,
       output1_bytes:bits,
       output2_bytes:bits,
@@ -849,7 +849,7 @@ pub fn deserialize_preserves_empty_scriptpubkey_test() {
   let assert Ok(tx) =
     transaction.deserialize(<<
       version1:bits,
-      minimal_input_section_bytes():bits,
+      build_minimal_input_section_bytes():bits,
       compact_size(1):bits,
       output:bits,
       lock_time:bits,
@@ -891,7 +891,7 @@ pub fn deserialize_handles_output_value_min_i64_for_target_test() {
 
   let tx_bytes = <<
     version1:bits,
-    minimal_input_section_bytes():bits,
+    build_minimal_input_section_bytes():bits,
     output_count:bits,
     output_bytes:bits,
     lock_time:bits,
@@ -944,7 +944,7 @@ pub fn deserialize_rejects_scriptpubkey_length_exceeding_remaining_bytes_test() 
   let assert Error(decode_err) =
     transaction.deserialize(<<
       version1:bits,
-      minimal_input_section_bytes():bits,
+      build_minimal_input_section_bytes():bits,
       output_count:bits,
       output_bytes:bits,
     >>)
@@ -1220,7 +1220,7 @@ pub fn deserialize_with_policy_accepts_tx_at_max_tx_size_test() {
     version1:bits,
     compact_size(input_count):bits,
     input_padding:bits,
-    minimal_output_section_bytes():bits,
+    build_minimal_output_section_bytes():bits,
     lock_time:bits,
   >>
   let tx_size = bit_array.byte_size(tx_bytes)
@@ -1242,7 +1242,7 @@ pub fn deserialize_with_policy_rejects_tx_exceeding_max_tx_size_test() {
     version1:bits,
     compact_size(input_count):bits,
     input_padding:bits,
-    minimal_output_section_bytes():bits,
+    build_minimal_output_section_bytes():bits,
     lock_time:bits,
   >>
   let tx_size = bit_array.byte_size(tx_bytes)
@@ -1291,7 +1291,7 @@ pub fn deserialize_with_policy_accepts_input_count_at_max_input_count_test() {
         version1:bits,
         compact_size(input_count):bits,
         input_padding:bits,
-        minimal_output_section_bytes():bits,
+        build_minimal_output_section_bytes():bits,
         lock_time:bits,
       >>,
       policy_with_max_input_count(max_input_count),
@@ -1370,7 +1370,7 @@ pub fn deserialize_with_policy_accepts_input_count_at_structural_boundary_test()
         version1:bits,
         compact_size(input_count):bits,
         input_padding:bits,
-        minimal_output_section_bytes():bits,
+        build_minimal_output_section_bytes():bits,
         lock_time:bits,
       >>,
       policy_with_max_input_count(non_limiting_max_input_count),
@@ -1393,7 +1393,7 @@ pub fn deserialize_with_policy_accepts_output_count_at_max_output_count_test() {
     transaction.deserialize_with_policy(
       <<
         version1:bits,
-        minimal_input_section_bytes():bits,
+        build_minimal_input_section_bytes():bits,
         compact_size(output_count):bits,
         output1:bits,
         output2:bits,
@@ -1420,7 +1420,7 @@ pub fn deserialize_with_policy_rejects_output_count_exceeding_max_output_count_t
     transaction.deserialize_with_policy(
       <<
         version1:bits,
-        minimal_input_section_bytes():bits,
+        build_minimal_input_section_bytes():bits,
         compact_size(output_count):bits,
         output1:bits,
         output2:bits,
@@ -1451,7 +1451,7 @@ pub fn deserialize_with_policy_prioritizes_structural_output_count_error_test() 
     transaction.deserialize_with_policy(
       <<
         version1:bits,
-        minimal_input_section_bytes():bits,
+        build_minimal_input_section_bytes():bits,
         compact_size(output_count):bits,
         output1:bits,
         output2:bits,
@@ -1483,7 +1483,7 @@ pub fn deserialize_with_policy_accepts_output_count_at_structural_boundary_test(
     transaction.deserialize_with_policy(
       <<
         version1:bits,
-        minimal_input_section_bytes():bits,
+        build_minimal_input_section_bytes():bits,
         compact_size(output_count):bits,
         output1:bits,
         output2:bits,
@@ -1550,7 +1550,7 @@ pub fn deserialize_with_policy_rejects_scriptpubkey_exceeding_max_script_size_te
     transaction.deserialize_with_policy(
       <<
         version1:bits,
-        minimal_input_section_bytes():bits,
+        build_minimal_input_section_bytes():bits,
         output_count:bits,
         output_bytes:bits,
       >>,
@@ -1582,7 +1582,7 @@ pub fn deserialize_with_policy_accepts_scriptpubkey_at_max_script_size_test() {
     transaction.deserialize_with_policy(
       <<
         version1:bits,
-        minimal_input_section_bytes():bits,
+        build_minimal_input_section_bytes():bits,
         compact_size(1):bits,
         output:bits,
         lock_time:bits,
@@ -2435,7 +2435,7 @@ pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_
 // ============================================================================
 
 pub fn serialize_round_trips_high_bit_version_wire_bytes_test() {
-  let original_bytes = minimal_legacy_transaction_bytes(0x80000000)
+  let original_bytes = build_minimal_legacy_transaction_bytes(0x80000000)
   let assert Ok(result) = transaction.deserialize(original_bytes)
 
   assert transaction.serialize_stripped(result) == original_bytes
@@ -2607,7 +2607,7 @@ pub fn compute_txid_differs_from_wtxid_for_segwit_test() {
 
 pub fn compute_txid_equals_compute_wtxid_for_legacy_tx_test() {
   let assert Ok(tx) =
-    transaction.deserialize(minimal_legacy_transaction_bytes(1))
+    transaction.deserialize(build_minimal_legacy_transaction_bytes(1))
 
   let txid = transaction.compute_txid(tx)
   let wtxid = transaction.compute_wtxid(tx)
@@ -2632,7 +2632,7 @@ fn input_from_outpoint_fields(
       version1:bits,
       compact_size(1):bits,
       input:bits,
-      minimal_output_section_bytes():bits,
+      build_minimal_output_section_bytes():bits,
       lock_time:bits,
     >>)
 
@@ -2667,7 +2667,7 @@ fn output_script_from_bytes(
   let assert Ok(tx) =
     transaction.deserialize(<<
       version1:bits,
-      minimal_input_section_bytes():bits,
+      build_minimal_input_section_bytes():bits,
       compact_size(1):bits,
       output:bits,
       lock_time:bits,
