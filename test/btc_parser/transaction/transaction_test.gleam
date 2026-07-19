@@ -115,26 +115,29 @@ pub fn deserialize_with_policy_rejects_tx_exceeding_max_tx_size_test() {
     lock_time:bits,
   >>
   let tx_size = bit_array.byte_size(tx_bytes)
+  let max_tx_size = tx_size - 1
 
   let assert Error(decode_err) =
     transaction.deserialize_with_policy(
       tx_bytes,
-      policy_with_max_tx_size(tx_size - 1),
+      policy_with_max_tx_size(max_tx_size),
     )
 
   assert check_transaction_decode_error(decode_err, 0, "transaction")
-    == PolicyLimitExceeded(MaxTransactionSize, tx_size, tx_size - 1)
+    == PolicyLimitExceeded(MaxTransactionSize, tx_size, max_tx_size)
 }
 
 pub fn deserialize_with_policy_rejects_tx_well_above_max_tx_size_test() {
+  let tx_size = 100
+  let max_tx_size = 10
   let assert Error(decode_err) =
     transaction.deserialize_with_policy(
-      <<0:size({ 100 * 8 })>>,
-      policy_with_max_tx_size(10),
+      <<0:size({ tx_size * 8 })>>,
+      policy_with_max_tx_size(max_tx_size),
     )
 
   assert check_transaction_decode_error(decode_err, 0, "transaction")
-    == PolicyLimitExceeded(MaxTransactionSize, 100, 10)
+    == PolicyLimitExceeded(MaxTransactionSize, tx_size, max_tx_size)
 }
 
 // ============================================================================
@@ -277,76 +280,8 @@ pub fn deserialize_reports_lock_time_decode_error_path_test() {
 pub fn validate_input_count_equals_policy_succeeds_test() {
   // Supply enough bytes that policy, not structural feasibility, is the limit.
 
-  let input_count = 3
-  let input_padding = <<0:little-size({ 3 * min_input_size_bytes * 8 })>>
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Ok(tx) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        compact_size(input_count):bits,
-        input_padding:bits,
-        minimal_output_section_bytes():bits,
-        lock_time:bits,
-      >>,
-      policy_with_max_input_count(3),
-    )
-
-  assert transaction.get_input_count(tx) == input_count
-}
-
-pub fn validate_input_count_exceeds_policy_error_test() {
-  // Supply enough bytes that policy, not structural feasibility, rejects the count.
-
-  let input_count = 3
-  let input_padding = <<0:little-size({ 3 * min_input_size_bytes * 8 })>>
-
-  let assert Error(decode_err) =
-    transaction.deserialize_with_policy(
-      <<version1:bits, input_count:size(8), input_padding:bits>>,
-      policy_with_max_input_count(2),
-    )
-
-  assert check_transaction_decode_error(
-      decode_err,
-      4,
-      "transaction.inputs.count",
-    )
-    == PolicyLimitExceeded(MaxInputCount, input_count, 2)
-}
-
-pub fn validate_input_count_exceeds_structural_error_test() {
-  // Only two inputs can fit, making structural feasibility the active limit.
-
-  let input_count = 3
-  let input_padding = <<0:little-size({ 2 * min_input_size_bytes * 8 })>>
-
-  let assert Error(decode_err) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        compact_size(input_count):bits,
-        input_padding:bits,
-      >>,
-      policy_with_max_input_count(100),
-    )
-
-  assert check_transaction_decode_error(
-      decode_err,
-      4,
-      "transaction.inputs.count",
-    )
-    == InsufficientBytes(
-      claimed: 2 * min_input_size_bytes + 1,
-      remaining: 2 * min_input_size_bytes,
-    )
-}
-
-pub fn validate_input_count_structural_boundary_succeeds_test() {
-  // Exactly two inputs can fit, exercising the structural boundary.
-
-  let input_count = 2
+  let max_input_count = 3
+  let input_count = max_input_count
   let input_padding = <<
     0:little-size({ input_count * min_input_size_bytes * 8 }),
   >>
@@ -361,7 +296,86 @@ pub fn validate_input_count_structural_boundary_succeeds_test() {
         minimal_output_section_bytes():bits,
         lock_time:bits,
       >>,
-      policy_with_max_input_count(100),
+      policy_with_max_input_count(max_input_count),
+    )
+
+  assert transaction.get_input_count(tx) == input_count
+}
+
+pub fn validate_input_count_exceeds_policy_error_test() {
+  // Supply enough bytes that policy, not structural feasibility, rejects the count.
+
+  let max_input_count = 2
+  let input_count = max_input_count + 1
+  let input_padding = <<
+    0:little-size({ input_count * min_input_size_bytes * 8 }),
+  >>
+
+  let assert Error(decode_err) =
+    transaction.deserialize_with_policy(
+      <<version1:bits, input_count:size(8), input_padding:bits>>,
+      policy_with_max_input_count(max_input_count),
+    )
+
+  assert check_transaction_decode_error(
+      decode_err,
+      4,
+      "transaction.inputs.count",
+    )
+    == PolicyLimitExceeded(MaxInputCount, input_count, max_input_count)
+}
+
+pub fn validate_input_count_exceeds_structural_error_test() {
+  // Only two inputs can fit, making structural feasibility the active limit.
+
+  let available_input_count = 2
+  let input_count = available_input_count + 1
+  let non_limiting_max_input_count = input_count
+  let input_padding = <<
+    0:little-size({ available_input_count * min_input_size_bytes * 8 }),
+  >>
+
+  let assert Error(decode_err) =
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        compact_size(input_count):bits,
+        input_padding:bits,
+      >>,
+      policy_with_max_input_count(non_limiting_max_input_count),
+    )
+
+  assert check_transaction_decode_error(
+      decode_err,
+      4,
+      "transaction.inputs.count",
+    )
+    == InsufficientBytes(
+      claimed: available_input_count * min_input_size_bytes + 1,
+      remaining: available_input_count * min_input_size_bytes,
+    )
+}
+
+pub fn validate_input_count_structural_boundary_succeeds_test() {
+  // Exactly two inputs can fit, exercising the structural boundary.
+
+  let input_count = 2
+  let non_limiting_max_input_count = input_count + 1
+  let input_padding = <<
+    0:little-size({ input_count * min_input_size_bytes * 8 }),
+  >>
+  let lock_time = <<0:little-size(32)>>
+
+  let assert Ok(tx) =
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        compact_size(input_count):bits,
+        input_padding:bits,
+        minimal_output_section_bytes():bits,
+        lock_time:bits,
+      >>,
+      policy_with_max_input_count(non_limiting_max_input_count),
     )
 
   assert transaction.get_input_count(tx) == input_count
@@ -791,7 +805,8 @@ pub fn deserialize_reports_indexed_input_sequence_decode_error_path_test() {
 pub fn validate_output_count_equals_policy_succeeds_test() {
   // Supply enough bytes that policy, not structural feasibility, is the limit.
 
-  let output_count = 3
+  let max_output_count = 3
+  let output_count = max_output_count
   let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
   let output2 = build_output_bytes(<<0:little-size(64)>>, <<>>)
   let output3 = build_output_bytes(<<0:little-size(64)>>, <<>>)
@@ -808,7 +823,7 @@ pub fn validate_output_count_equals_policy_succeeds_test() {
         output3:bits,
         lock_time:bits,
       >>,
-      policy_with_max_output_count(3),
+      policy_with_max_output_count(max_output_count),
     )
 
   assert transaction.get_output_count(tx) == output_count
@@ -817,7 +832,8 @@ pub fn validate_output_count_equals_policy_succeeds_test() {
 pub fn validate_output_count_exceeds_policy_error_test() {
   // Supply enough bytes that policy, not structural feasibility, rejects the count.
 
-  let output_count = 3
+  let max_output_count = 2
+  let output_count = max_output_count + 1
   let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
   let output2 = build_output_bytes(<<0:little-size(64)>>, <<>>)
   let output3 = build_output_bytes(<<0:little-size(64)>>, <<>>)
@@ -834,7 +850,7 @@ pub fn validate_output_count_exceeds_policy_error_test() {
         output3:bits,
         lock_time:bits,
       >>,
-      policy_with_max_output_count(2),
+      policy_with_max_output_count(max_output_count),
     )
 
   assert check_transaction_decode_error(
@@ -842,13 +858,15 @@ pub fn validate_output_count_exceeds_policy_error_test() {
       46,
       "transaction.outputs.count",
     )
-    == PolicyLimitExceeded(MaxOutputCount, output_count, 2)
+    == PolicyLimitExceeded(MaxOutputCount, output_count, max_output_count)
 }
 
 pub fn validate_output_count_exceeds_structural_error_test() {
   // Only two outputs can fit, making structural feasibility the active limit.
 
-  let output_count = 3
+  let available_output_count = 2
+  let output_count = available_output_count + 1
+  let non_limiting_max_output_count = output_count
   let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
   let output2 = build_output_bytes(<<0:little-size(64)>>, <<>>)
 
@@ -861,7 +879,7 @@ pub fn validate_output_count_exceeds_structural_error_test() {
         output1:bits,
         output2:bits,
       >>,
-      policy_with_max_output_count(100),
+      policy_with_max_output_count(non_limiting_max_output_count),
     )
 
   assert check_transaction_decode_error(
@@ -870,8 +888,8 @@ pub fn validate_output_count_exceeds_structural_error_test() {
       "transaction.outputs.count",
     )
     == InsufficientBytes(
-      claimed: 2 * min_output_size_bytes + 1,
-      remaining: 2 * min_output_size_bytes,
+      claimed: available_output_count * min_output_size_bytes + 1,
+      remaining: available_output_count * min_output_size_bytes,
     )
 }
 
@@ -879,6 +897,7 @@ pub fn validate_output_count_structural_boundary_succeeds_test() {
   // Exactly two outputs can fit, exercising the structural boundary.
 
   let output_count = 2
+  let non_limiting_max_output_count = output_count + 1
   let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
   let output2 = build_output_bytes(<<0:little-size(64)>>, <<>>)
   let lock_time = <<0:little-size(32)>>
@@ -893,7 +912,7 @@ pub fn validate_output_count_structural_boundary_succeeds_test() {
         output2:bits,
         lock_time:bits,
       >>,
-      policy_with_max_output_count(100),
+      policy_with_max_output_count(non_limiting_max_output_count),
     )
 
   assert transaction.get_output_count(tx) == output_count
