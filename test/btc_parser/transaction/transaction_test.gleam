@@ -1552,6 +1552,34 @@ pub fn deserialize_rejects_non_minimal_witness_item_count_test() {
     == "transaction.witnesses[0].items.count"
 }
 
+pub fn deserialize_reports_truncated_witness_item_count_test() {
+  let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
+  let output = build_output_bytes(<<1000:little-size(64)>>, <<>>)
+
+  // End the byte stream inside the CompactSize value so later fields cannot
+  // complete the encoding.
+  let truncated_item_count = <<0xFD, 0x01>>
+  let tx_bytes = <<
+    version1:bits,
+    0x00,
+    0x01,
+    compact_size(1):bits,
+    input:bits,
+    compact_size(1):bits,
+    output:bits,
+    truncated_item_count:bits,
+  >>
+
+  let assert Error(decode_err) = transaction.deserialize(tx_bytes)
+
+  assert check_transaction_decode_error(
+      decode_err,
+      58,
+      "transaction.witnesses[0].items.count",
+    )
+    == UnexpectedEof(bytes_needed: 2, remaining: 1)
+}
+
 pub fn deserialize_rejects_non_minimal_witness_item_length_test() {
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output_bytes(<<1000:little-size(64)>>, <<>>)
@@ -2166,6 +2194,32 @@ pub fn validate_context_free_consensus_rejects_tx_with_output_exceeding_supply_t
 
   assert transaction.validate_context_free_consensus(tx)
     == Error([OutputValueOutOfRange(0, 2_100_000_000_000_001)])
+}
+
+pub fn validate_context_free_consensus_accepts_tx_with_total_outputs_equal_to_supply_test() {
+  // Build a transaction with two valid outputs totaling exactly max_satoshis.
+  let input_count = compact_size(1)
+  let input = build_input_bytes(<<1:size(256)>>, 0, <<>>, 0)
+  let output_count = compact_size(2)
+  let value1 = <<1_100_000_000_000_000:little-size(64)>>
+  let value2 = <<1_000_000_000_000_000:little-size(64)>>
+  let script_pubkey_length = compact_size(0)
+  let lock_time = <<0:little-size(32)>>
+
+  let tx_bytes = <<
+    version1:bits,
+    input_count:bits,
+    input:bits,
+    output_count:bits,
+    value1:bits,
+    script_pubkey_length:bits,
+    value2:bits,
+    script_pubkey_length:bits,
+    lock_time:bits,
+  >>
+
+  let assert Ok(tx) = transaction.deserialize(tx_bytes)
+  let assert Ok(_) = transaction.validate_context_free_consensus(tx)
 }
 
 pub fn validate_context_free_consensus_rejects_tx_with_total_outputs_exceeding_supply_test() {
