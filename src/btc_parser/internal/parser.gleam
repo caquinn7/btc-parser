@@ -327,16 +327,19 @@ fn indexed_repeat_loop(
     True -> Ok(#(reader, list.reverse(items)))
     False -> {
       let contextualized = with_context(item_parser, index_to_context(index))
-      use #(reader, item) <- result.try(run(contextualized, reader, context))
-      indexed_repeat_loop(
-        index + 1,
-        count,
-        reader,
-        [item, ..items],
-        context,
-        item_parser,
-        index_to_context,
-      )
+      case run(contextualized, reader, context) {
+        Ok(#(reader, item)) ->
+          indexed_repeat_loop(
+            index + 1,
+            count,
+            reader,
+            [item, ..items],
+            context,
+            item_parser,
+            index_to_context,
+          )
+        Error(err) -> Error(err)
+      }
     }
   }
 }
@@ -397,31 +400,30 @@ fn indexed_repeat_with_limit_loop(
       let contextualized = with_context(item_parser, index_ctx)
       let start_offset = reader.get_offset(reader)
 
-      use #(reader, #(item, item_val)) <- result.try(run(
-        contextualized,
-        reader,
-        context,
-      ))
-
-      let acc_val = acc_val + item_val
-      case acc_val > limit {
-        True -> {
-          let ctx = [index_ctx, ..context]
-          Error(on_limit_exceeded(acc_val, start_offset, ctx))
+      case run(contextualized, reader, context) {
+        Ok(#(reader, #(item, item_val))) -> {
+          let acc_val = acc_val + item_val
+          case acc_val > limit {
+            True -> {
+              let ctx = [index_ctx, ..context]
+              Error(on_limit_exceeded(acc_val, start_offset, ctx))
+            }
+            False ->
+              indexed_repeat_with_limit_loop(
+                index + 1,
+                count,
+                reader,
+                [item, ..items],
+                acc_val,
+                context,
+                item_parser,
+                index_to_context,
+                limit,
+                on_limit_exceeded,
+              )
+          }
         }
-        False ->
-          indexed_repeat_with_limit_loop(
-            index + 1,
-            count,
-            reader,
-            [item, ..items],
-            acc_val,
-            context,
-            item_parser,
-            index_to_context,
-            limit,
-            on_limit_exceeded,
-          )
+        Error(error) -> Error(error)
       }
     }
   }

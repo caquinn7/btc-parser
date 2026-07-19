@@ -225,6 +225,30 @@ pub fn deserialize_with_policy_accepts_tx_count_at_max_tx_count_test() {
   assert list.length(block.get_transactions(block)) == 2
 }
 
+pub fn deserialize_accepts_default_max_tx_count_without_stack_overflow_test() {
+  let policy = block.default_decode_policy()
+  let tx_count = block.decode_policy_max_tx_count(policy)
+  let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let tx = build_smallest_structurally_decodable_transaction()
+  let bytes = build_block(header, list.repeat(tx, tx_count))
+
+  let tx_size = bit_array.byte_size(tx)
+  let expected_block_size =
+    bit_array.byte_size(header)
+    + bit_array.byte_size(compact_size(tx_count))
+    + tx_count
+    * tx_size
+
+  assert tx_size == 10
+  assert bit_array.byte_size(bytes) == expected_block_size
+  assert expected_block_size <= block.decode_policy_max_block_size(policy)
+
+  let assert Ok(block) = block.deserialize(bytes)
+
+  assert block.get_transaction_count(block) == tx_count
+  assert list.length(block.get_transactions(block)) == tx_count
+}
+
 // ============================================================================
 // Input shape errors
 // ============================================================================
@@ -764,6 +788,10 @@ fn build_minimal_legacy_transaction(version: Int) -> BitArray {
     build_minimal_transaction_body():bits,
     0:32-little,
   >>
+}
+
+fn build_smallest_structurally_decodable_transaction() -> BitArray {
+  <<1:32-little, 0, 0, 0:32-little>>
 }
 
 fn build_minimal_segwit_transaction() -> BitArray {

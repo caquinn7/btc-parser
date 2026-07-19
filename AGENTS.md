@@ -195,6 +195,9 @@ file/timer/CLI behavior, or a runtime-specific bug.
   deserializer changes: error kind, offset, and context stack.
 - Include boundary tests for limits: exactly at limit, one over limit, truncated
   data, non-minimal CompactSize, and trailing bytes where relevant.
+- When changing repeated parser helpers, include a JavaScript test at the
+  relevant policy maximum to catch stack-exhaustion regressions that small
+  fixtures do not expose.
 - For consensus changes, test valid transactions, isolated violations, and
   multiple-error collection when validators can report together.
 - For serialization or hashing changes, include known vectors or manual double
@@ -222,6 +225,11 @@ file/timer/CLI behavior, or a runtime-specific bug.
   byte-backed wrappers until a safe conversion is proven.
 - Avoid quadratic (O(n^2)) list or `BitArray` work in parser hot paths.
   Accumulate lists in reverse and reverse once, as the parser helpers do.
+- Keep recursive parser loops syntactically tail-recursive. Do not place the
+  recursive call inside a `use` continuation, `result.try` callback, or other
+  closure; the JavaScript backend cannot optimize hidden recursion and may
+  exhaust the call stack. Pattern-match the `Result` directly and recurse from
+  the successful branch.
 - Do not silently relax default policy limits. They protect callers deserializing
   untrusted bytes even though some consensus-valid transactions may exceed them.
 - Keep the default perf suite selective. Add benchmark rows only when they cover

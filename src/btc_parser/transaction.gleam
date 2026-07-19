@@ -1495,17 +1495,11 @@ fn input_count_parser(
   InputCount
   |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(input_count, start_offset, reader, ctx) {
-    let on_invalid = fn(kind) {
+    validate_input_count(input_count, reader, max_input_count_policy, fn(kind) {
       kind
       |> field_error(InputCount, start_offset, ctx)
       |> Error
-    }
-    validate_input_count(
-      input_count,
-      reader,
-      max_input_count_policy,
-      on_invalid,
-    )
+    })
   })
 }
 
@@ -1554,19 +1548,21 @@ fn validate_input_count(
   // Upper bound implied by remaining bytes (each input is at least 41 bytes)
   let max_inputs_by_bytes = remaining / min_input_size
 
-  case input_count > max_inputs_by_bytes, input_count > max_input_count_policy {
-    // Structural limit: count exceeds what remaining bytes can accommodate
-    True, _ ->
-      InsufficientBytes(claimed: remaining + 1, remaining:)
-      |> on_invalid
+  use <- bool.guard(
+    input_count > max_inputs_by_bytes,
+    on_invalid(InsufficientBytes(claimed: remaining + 1, remaining:)),
+  )
 
-    // Policy limit: count exceeds configured maximum
-    _, True ->
-      PolicyLimitExceeded(MaxInputCount, input_count, max_input_count_policy)
-      |> on_invalid
+  use <- bool.guard(
+    input_count > max_input_count_policy,
+    on_invalid(PolicyLimitExceeded(
+      MaxInputCount,
+      input_count,
+      max_input_count_policy,
+    )),
+  )
 
-    _, _ -> Ok(input_count)
-  }
+  Ok(input_count)
 }
 
 // ==============================================================================
@@ -1599,16 +1595,15 @@ fn output_count_parser(
   OutputCount
   |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(output_count, start_offset, reader, ctx) {
-    let on_invalid = fn(kind) {
-      kind
-      |> field_error(OutputCount, start_offset, ctx)
-      |> Error
-    }
     validate_output_count(
       output_count,
       reader,
       max_output_count_policy,
-      on_invalid,
+      fn(kind) {
+        kind
+        |> field_error(OutputCount, start_offset, ctx)
+        |> Error
+      },
     )
   })
 }
@@ -1659,22 +1654,21 @@ fn validate_output_count(
   // Upper bound implied by remaining bytes (each output is at least 9 bytes)
   let max_outputs_by_bytes = remaining / min_output_size
 
-  case
+  use <- bool.guard(
     output_count > max_outputs_by_bytes,
-    output_count > max_output_count_policy
-  {
-    // Structural limit: count exceeds what remaining bytes can accommodate
-    True, _ ->
-      InsufficientBytes(claimed: remaining + 1, remaining:)
-      |> on_invalid
+    on_invalid(InsufficientBytes(claimed: remaining + 1, remaining:)),
+  )
 
-    // Policy limit: count exceeds configured maximum
-    _, True ->
-      PolicyLimitExceeded(MaxOutputCount, output_count, max_output_count_policy)
-      |> on_invalid
+  use <- bool.guard(
+    output_count > max_output_count_policy,
+    on_invalid(PolicyLimitExceeded(
+      MaxOutputCount,
+      output_count,
+      max_output_count_policy,
+    )),
+  )
 
-    _, _ -> Ok(output_count)
-  }
+  Ok(output_count)
 }
 
 // ==============================================================================
@@ -1710,16 +1704,15 @@ fn script_length_parser(
   field
   |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(script_length, start_offset, reader, ctx) {
-    let on_invalid = fn(kind) {
-      kind
-      |> field_error(field, start_offset, ctx)
-      |> Error
-    }
     validate_script_length(
       script_length,
       reader,
       max_script_size_policy,
-      on_invalid,
+      fn(kind) {
+        kind
+        |> field_error(field, start_offset, ctx)
+        |> Error
+      },
     )
   })
 }
@@ -1747,19 +1740,21 @@ fn validate_script_length(
 ) -> Result(Int, DecodeError) {
   let remaining = reader.bytes_remaining(reader)
 
-  case script_length > remaining, script_length > max_script_size_policy {
-    // Structural limit: length exceeds remaining bytes
-    True, _ ->
-      InsufficientBytes(claimed: script_length, remaining:)
-      |> on_invalid
+  use <- bool.guard(
+    script_length > remaining,
+    on_invalid(InsufficientBytes(claimed: script_length, remaining:)),
+  )
 
-    // Policy limit: length exceeds configured maximum
-    _, True ->
-      PolicyLimitExceeded(MaxScriptSize, script_length, max_script_size_policy)
-      |> on_invalid
+  use <- bool.guard(
+    script_length > max_script_size_policy,
+    on_invalid(PolicyLimitExceeded(
+      MaxScriptSize,
+      script_length,
+      max_script_size_policy,
+    )),
+  )
 
-    _, _ -> Ok(script_length)
-  }
+  Ok(script_length)
 }
 
 // ==============================================================================
@@ -1917,12 +1912,11 @@ fn witness_item_length_parser() -> Parser(ParseContext, Int, DecodeError) {
   WitnessItemLength
   |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(item_length, start_offset, reader, ctx) {
-    let on_invalid = fn(kind) {
+    validate_witness_item_length(item_length, reader, fn(kind) {
       kind
       |> field_error(WitnessItemLength, start_offset, ctx)
       |> Error
-    }
-    validate_witness_item_length(item_length, reader, on_invalid)
+    })
   })
 }
 
@@ -1934,10 +1928,7 @@ fn validate_witness_item_length(
   let remaining = reader.bytes_remaining(reader)
 
   case item_length > remaining {
-    True ->
-      InsufficientBytes(claimed: item_length, remaining:)
-      |> on_invalid
-
+    True -> on_invalid(InsufficientBytes(claimed: item_length, remaining:))
     False -> Ok(item_length)
   }
 }
