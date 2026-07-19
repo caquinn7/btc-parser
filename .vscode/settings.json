@@ -1,14 +1,11 @@
 {
-    "editor.formatOnSave": false,
     "js/ts.format.semicolons": "insert",
-    "[javascript]": {
-        "editor.formatOnSave": true,
-        "editor.defaultFormatter": "vscode.typescript-language-features",
+    "[gleam]": {
         "editor.insertSpaces": true,
         "editor.tabSize": 2,
         "editor.detectIndentation": false
     },
-    "[javascript.mjs]": {
+    "[javascript]": {
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "vscode.typescript-language-features",
         "editor.insertSpaces": true,
