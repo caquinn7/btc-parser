@@ -40,7 +40,7 @@ pub fn deserialize_hex_errors_on_string_with_whitespace_test() {
 }
 
 // ============================================================================
-// Decode Policy Builder
+// Decode policy configuration
 // ============================================================================
 
 pub fn default_decode_policy_returns_expected_values_test() {
@@ -76,72 +76,7 @@ pub fn decode_policy_builder_overrides_default_limits_test() {
 }
 
 // ============================================================================
-// Transaction Size (max_tx_size) Policy
-// ============================================================================
-
-pub fn deserialize_with_policy_accepts_tx_at_max_tx_size_test() {
-  // Build a minimal valid tx and confirm it deserializes when max_tx_size
-  // exactly equals its byte length.
-  let input_count = 1
-  let input_padding = <<0:little-size({ min_input_size_bytes * 8 })>>
-  let lock_time = <<0:little-size(32)>>
-  let tx_bytes = <<
-    version1:bits,
-    compact_size(input_count):bits,
-    input_padding:bits,
-    minimal_output_section_bytes():bits,
-    lock_time:bits,
-  >>
-  let tx_size = bit_array.byte_size(tx_bytes)
-
-  let assert Ok(_) =
-    transaction.deserialize_with_policy(
-      tx_bytes,
-      policy_with_max_tx_size(tx_size),
-    )
-}
-
-pub fn deserialize_with_policy_rejects_tx_exceeding_max_tx_size_test() {
-  // Build a minimal valid tx and confirm it is rejected when max_tx_size is
-  // one byte less than its actual size.
-  let input_count = 1
-  let input_padding = <<0:little-size({ min_input_size_bytes * 8 })>>
-  let lock_time = <<0:little-size(32)>>
-  let tx_bytes = <<
-    version1:bits,
-    compact_size(input_count):bits,
-    input_padding:bits,
-    minimal_output_section_bytes():bits,
-    lock_time:bits,
-  >>
-  let tx_size = bit_array.byte_size(tx_bytes)
-  let max_tx_size = tx_size - 1
-
-  let assert Error(decode_err) =
-    transaction.deserialize_with_policy(
-      tx_bytes,
-      policy_with_max_tx_size(max_tx_size),
-    )
-
-  assert check_transaction_decode_error(decode_err, 0, "transaction")
-    == PolicyLimitExceeded(MaxTransactionSize, tx_size, max_tx_size)
-}
-
-pub fn deserialize_with_policy_rejects_tx_well_above_max_tx_size_test() {
-  let tx_size = 100
-  let max_tx_size = 10
-  let assert Error(decode_err) =
-    transaction.deserialize_with_policy(
-      <<0:size({ tx_size * 8 })>>,
-      policy_with_max_tx_size(max_tx_size),
-    )
-
-  assert check_transaction_decode_error(decode_err, 0, "transaction")
-    == PolicyLimitExceeded(MaxTransactionSize, tx_size, max_tx_size)
-}
-
-// ============================================================================
-// Version and SegWit Detection
+// deserialize: transaction framing
 // ============================================================================
 
 pub fn deserialize_version_at_signed_max_as_unsigned_test() {
@@ -163,14 +98,6 @@ pub fn deserialize_max_unsigned_version_as_unsigned_test() {
     transaction.deserialize(minimal_legacy_transaction_bytes(0xFFFFFFFF))
 
   assert transaction.get_version(result) == 4_294_967_295
-}
-
-pub fn high_bit_version_round_trips_wire_bytes_test() {
-  let original_bytes = minimal_legacy_transaction_bytes(0x80000000)
-  let assert Ok(result) = transaction.deserialize(original_bytes)
-
-  assert transaction.serialize_stripped(result) == original_bytes
-  assert transaction.serialize(result) == original_bytes
 }
 
 pub fn deserialize_errors_on_empty_string_test() {
@@ -273,115 +200,56 @@ pub fn deserialize_reports_lock_time_decode_error_path_test() {
     == UnexpectedEof(4, 0)
 }
 
-// ============================================================================
-// Input Count Parsing and Validation
-// ============================================================================
-
-pub fn validate_input_count_equals_policy_succeeds_test() {
-  // Supply enough bytes that policy, not structural feasibility, is the limit.
-
-  let max_input_count = 3
-  let input_count = max_input_count
-  let input_padding = <<
-    0:little-size({ input_count * min_input_size_bytes * 8 }),
-  >>
+pub fn deserialize_rejects_legacy_tx_with_trailing_byte_test() {
   let lock_time = <<0:little-size(32)>>
 
-  let assert Ok(tx) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        compact_size(input_count):bits,
-        input_padding:bits,
-        minimal_output_section_bytes():bits,
-        lock_time:bits,
-      >>,
-      policy_with_max_input_count(max_input_count),
-    )
-
-  assert transaction.get_input_count(tx) == input_count
-}
-
-pub fn validate_input_count_exceeds_policy_error_test() {
-  // Supply enough bytes that policy, not structural feasibility, rejects the count.
-
-  let max_input_count = 2
-  let input_count = max_input_count + 1
-  let input_padding = <<
-    0:little-size({ input_count * min_input_size_bytes * 8 }),
+  let valid_tx = <<
+    version1:bits,
+    minimal_input_section_bytes():bits,
+    minimal_output_section_bytes():bits,
+    lock_time:bits,
   >>
 
   let assert Error(decode_err) =
-    transaction.deserialize_with_policy(
-      <<version1:bits, input_count:size(8), input_padding:bits>>,
-      policy_with_max_input_count(max_input_count),
-    )
+    transaction.deserialize(<<valid_tx:bits, 0x42:size(8)>>)
 
+  let expected_offset = bit_array.byte_size(valid_tx)
   assert check_transaction_decode_error(
       decode_err,
-      4,
-      "transaction.inputs.count",
+      expected_offset,
+      "transaction",
     )
-    == PolicyLimitExceeded(MaxInputCount, input_count, max_input_count)
+    == TrailingBytes(1)
 }
 
-pub fn validate_input_count_exceeds_structural_error_test() {
-  // Only two inputs can fit, making structural feasibility the active limit.
-
-  let available_input_count = 2
-  let input_count = available_input_count + 1
-  let non_limiting_max_input_count = input_count
-  let input_padding = <<
-    0:little-size({ available_input_count * min_input_size_bytes * 8 }),
+pub fn deserialize_rejects_segwit_tx_with_trailing_byte_test() {
+  let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
+  let output = build_output_bytes(<<0:little-size(64)>>, <<>>)
+  let witness_stack = <<
+    compact_size(1):bits,
+    compact_size(0):bits,
   >>
+
+  let valid_tx =
+    assemble_segwit_transaction_bytes([input], [output], [witness_stack])
 
   let assert Error(decode_err) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        compact_size(input_count):bits,
-        input_padding:bits,
-      >>,
-      policy_with_max_input_count(non_limiting_max_input_count),
-    )
+    transaction.deserialize(<<valid_tx:bits, 0xFF:size(8)>>)
 
+  let expected_offset = bit_array.byte_size(valid_tx)
   assert check_transaction_decode_error(
       decode_err,
-      4,
-      "transaction.inputs.count",
+      expected_offset,
+      "transaction",
     )
-    == InsufficientBytes(
-      claimed: available_input_count * min_input_size_bytes + 1,
-      remaining: available_input_count * min_input_size_bytes,
-    )
+    == TrailingBytes(1)
 }
 
-pub fn validate_input_count_structural_boundary_succeeds_test() {
-  // Exactly two inputs can fit, exercising the structural boundary.
+// ============================================================================
+// deserialize: inputs
+// ============================================================================
 
-  let input_count = 2
-  let non_limiting_max_input_count = input_count + 1
-  let input_padding = <<
-    0:little-size({ input_count * min_input_size_bytes * 8 }),
-  >>
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Ok(tx) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        compact_size(input_count):bits,
-        input_padding:bits,
-        minimal_output_section_bytes():bits,
-        lock_time:bits,
-      >>,
-      policy_with_max_input_count(non_limiting_max_input_count),
-    )
-
-  assert transaction.get_input_count(tx) == input_count
-}
-
-pub fn validate_input_count_insufficient_bytes_for_inputs_test() {
+pub fn deserialize_rejects_input_count_when_minimum_input_bytes_are_unavailable_test() {
   // Stop one byte short of the minimum encoded input size.
 
   let input_count = 1
@@ -436,10 +304,6 @@ pub fn deserialize_rejects_segwit_tx_with_zero_inputs_test() {
     == SuperfluousWitnessRecord
 }
 
-// ============================================================================
-// Input Structure Parsing
-// ============================================================================
-
 pub fn deserialize_preserves_single_input_test() {
   let input_count = compact_size(1)
 
@@ -488,34 +352,6 @@ pub fn deserialize_preserves_single_input_test() {
     |> transaction.get_input_script_sig
     |> transaction.get_script_size
     == bit_array.byte_size(script_sig_bytes)
-}
-
-pub fn input_has_null_outpoint_returns_true_for_coinbase_marker_test() {
-  let input = input_from_outpoint_fields(<<0:size(256)>>, 0xFFFFFFFF)
-  assert transaction.input_has_null_outpoint(input)
-}
-
-pub fn input_has_null_outpoint_returns_false_for_regular_input_test() {
-  let input = input_from_outpoint_fields(repeat_byte(1, 32), 0)
-  assert !transaction.input_has_null_outpoint(input)
-}
-
-pub fn is_null_outpoint_returns_true_for_coinbase_marker_test() {
-  let outpoint = outpoint_from_fields(<<0:size(256)>>, 0xFFFFFFFF)
-  assert transaction.is_null_outpoint(outpoint)
-}
-
-pub fn is_null_outpoint_returns_false_for_regular_outpoint_test() {
-  let outpoint = outpoint_from_fields(repeat_byte(1, 32), 0)
-  assert !transaction.is_null_outpoint(outpoint)
-}
-
-pub fn is_null_outpoint_requires_zero_txid_and_max_vout_test() {
-  let zero_txid_outpoint = outpoint_from_fields(<<0:size(256)>>, 0)
-  let max_vout_outpoint = outpoint_from_fields(repeat_byte(1, 32), 0xFFFFFFFF)
-
-  assert !transaction.is_null_outpoint(zero_txid_outpoint)
-  assert !transaction.is_null_outpoint(max_vout_outpoint)
 }
 
 pub fn deserialize_preserves_empty_scriptsig_test() {
@@ -628,46 +464,6 @@ pub fn deserialize_preserves_multiple_inputs_test() {
     |> transaction.get_input_script_sig
     |> transaction.get_raw_script_bytes
     == sig3_bytes
-}
-
-// ============================================================================
-// ScriptSig Validation
-// ============================================================================
-
-pub fn deserialize_rejects_scriptsig_exceeding_default_policy_max_size_test() {
-  let policy = transaction.default_decode_policy()
-  let max_script_size = transaction.decode_policy_max_script_size(policy)
-  let oversized_script_size = max_script_size + 1
-  let input_count = compact_size(1)
-
-  let outpoint_txid_bytes = <<0:size(256)>>
-  let outpoint_vout = 0
-  let script_sig = <<0:size({ oversized_script_size * 8 })>>
-  let sequence = 0
-
-  let input_bytes =
-    build_input_bytes(outpoint_txid_bytes, outpoint_vout, script_sig, sequence)
-
-  let assert Error(decode_err) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        input_count:bits,
-        input_bytes:bits,
-      >>,
-      policy,
-    )
-
-  assert check_transaction_decode_error(
-      decode_err,
-      41,
-      "transaction.inputs[0].script_sig.length",
-    )
-    == PolicyLimitExceeded(
-      MaxScriptSize,
-      oversized_script_size,
-      max_script_size,
-    )
 }
 
 pub fn deserialize_rejects_scriptsig_length_exceeds_remaining_bytes_test() {
@@ -799,126 +595,10 @@ pub fn deserialize_reports_indexed_input_sequence_decode_error_path_test() {
 }
 
 // ============================================================================
-// Output Count Parsing and Validation
+// deserialize: outputs
 // ============================================================================
 
-pub fn validate_output_count_equals_policy_succeeds_test() {
-  // Supply enough bytes that policy, not structural feasibility, is the limit.
-
-  let max_output_count = 3
-  let output_count = max_output_count
-  let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
-  let output2 = build_output_bytes(<<0:little-size(64)>>, <<>>)
-  let output3 = build_output_bytes(<<0:little-size(64)>>, <<>>)
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Ok(tx) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        minimal_input_section_bytes():bits,
-        compact_size(output_count):bits,
-        output1:bits,
-        output2:bits,
-        output3:bits,
-        lock_time:bits,
-      >>,
-      policy_with_max_output_count(max_output_count),
-    )
-
-  assert transaction.get_output_count(tx) == output_count
-}
-
-pub fn validate_output_count_exceeds_policy_error_test() {
-  // Supply enough bytes that policy, not structural feasibility, rejects the count.
-
-  let max_output_count = 2
-  let output_count = max_output_count + 1
-  let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
-  let output2 = build_output_bytes(<<0:little-size(64)>>, <<>>)
-  let output3 = build_output_bytes(<<0:little-size(64)>>, <<>>)
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Error(decode_err) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        minimal_input_section_bytes():bits,
-        compact_size(output_count):bits,
-        output1:bits,
-        output2:bits,
-        output3:bits,
-        lock_time:bits,
-      >>,
-      policy_with_max_output_count(max_output_count),
-    )
-
-  assert check_transaction_decode_error(
-      decode_err,
-      46,
-      "transaction.outputs.count",
-    )
-    == PolicyLimitExceeded(MaxOutputCount, output_count, max_output_count)
-}
-
-pub fn validate_output_count_exceeds_structural_error_test() {
-  // Only two outputs can fit, making structural feasibility the active limit.
-
-  let available_output_count = 2
-  let output_count = available_output_count + 1
-  let non_limiting_max_output_count = output_count
-  let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
-  let output2 = build_output_bytes(<<0:little-size(64)>>, <<>>)
-
-  let assert Error(decode_err) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        minimal_input_section_bytes():bits,
-        compact_size(output_count):bits,
-        output1:bits,
-        output2:bits,
-      >>,
-      policy_with_max_output_count(non_limiting_max_output_count),
-    )
-
-  assert check_transaction_decode_error(
-      decode_err,
-      46,
-      "transaction.outputs.count",
-    )
-    == InsufficientBytes(
-      claimed: available_output_count * min_output_size_bytes + 1,
-      remaining: available_output_count * min_output_size_bytes,
-    )
-}
-
-pub fn validate_output_count_structural_boundary_succeeds_test() {
-  // Exactly two outputs can fit, exercising the structural boundary.
-
-  let output_count = 2
-  let non_limiting_max_output_count = output_count + 1
-  let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
-  let output2 = build_output_bytes(<<0:little-size(64)>>, <<>>)
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Ok(tx) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        minimal_input_section_bytes():bits,
-        compact_size(output_count):bits,
-        output1:bits,
-        output2:bits,
-        lock_time:bits,
-      >>,
-      policy_with_max_output_count(non_limiting_max_output_count),
-    )
-
-  assert transaction.get_output_count(tx) == output_count
-}
-
-pub fn validate_output_count_insufficient_bytes_for_outputs_test() {
+pub fn deserialize_rejects_output_count_when_minimum_output_bytes_are_unavailable_test() {
   // Stop one byte short of the minimum encoded output size.
 
   let output_count = 1
@@ -1016,10 +696,6 @@ pub fn deserialize_accepts_segwit_tx_with_zero_outputs_test() {
   assert transaction.get_output_count(tx) == 0
   assert transaction.get_outputs(tx) == []
 }
-
-// ============================================================================
-// Output Structure Parsing
-// ============================================================================
 
 pub fn deserialize_preserves_single_output_test() {
   let value_satoshis = 100_000_000
@@ -1160,10 +836,6 @@ pub fn deserialize_preserves_empty_scriptpubkey_test() {
   assert actual_script_pubkey_bytes == <<>>
 }
 
-// ============================================================================
-// Output Value Validation
-// ============================================================================
-
 pub fn deserialize_handles_output_value_min_i64_for_target_test() {
   // Create an output with value = minimum i64 (-9223372036854775808)
   // This value exceeds JavaScript's MIN_SAFE_INTEGER, so conversion fails.
@@ -1216,83 +888,7 @@ pub fn deserialize_handles_output_value_min_i64_for_target_test() {
   }
 }
 
-// ============================================================================
-// ScriptPubKey Validation
-// ============================================================================
-
-pub fn deserialize_rejects_scriptpubkey_exceeding_default_policy_max_size_test() {
-  let policy = transaction.default_decode_policy()
-  let max_script_size = transaction.decode_policy_max_script_size(policy)
-  let oversized_script_size = max_script_size + 1
-  let output_count = compact_size(1)
-
-  let value = <<0:little-size(64)>>
-  let script_pubkey = <<0:size({ oversized_script_size * 8 })>>
-
-  let output_bytes = build_output_bytes(value, script_pubkey)
-
-  let assert Error(decode_err) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        minimal_input_section_bytes():bits,
-        output_count:bits,
-        output_bytes:bits,
-      >>,
-      policy,
-    )
-
-  assert check_transaction_decode_error(
-      decode_err,
-      55,
-      "transaction.outputs[0].script_pubkey.length",
-    )
-    == PolicyLimitExceeded(
-      MaxScriptSize,
-      oversized_script_size,
-      max_script_size,
-    )
-}
-
-pub fn deserialize_preserves_scriptpubkey_at_default_policy_max_size_test() {
-  let policy = transaction.default_decode_policy()
-  let max_script_size = transaction.decode_policy_max_script_size(policy)
-  let value_satoshis = 75_000_000
-  let script_pubkey_bytes = <<0:size({ max_script_size * 8 })>>
-  let output =
-    build_output_bytes(<<value_satoshis:little-size(64)>>, script_pubkey_bytes)
-  let lock_time = <<0:little-size(32)>>
-
-  let assert Ok(tx) =
-    transaction.deserialize_with_policy(
-      <<
-        version1:bits,
-        minimal_input_section_bytes():bits,
-        compact_size(1):bits,
-        output:bits,
-        lock_time:bits,
-      >>,
-      policy,
-    )
-
-  let outputs = transaction.get_outputs(tx)
-  let assert [first_output] = outputs
-
-  let actual_value =
-    first_output
-    |> transaction.get_output_value
-
-  assert actual_value == value_satoshis
-
-  let actual_script_pubkey_bytes =
-    first_output
-    |> transaction.get_output_script_pubkey
-    |> transaction.get_raw_script_bytes
-
-  assert bit_array.byte_size(actual_script_pubkey_bytes) == max_script_size
-}
-
-pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
+pub fn deserialize_rejects_scriptpubkey_length_exceeding_remaining_bytes_test() {
   // Build an output where the scriptPubKey length claims 100 bytes
   // but only 10 remain.
 
@@ -1326,7 +922,7 @@ pub fn validate_scriptpubkey_insufficient_bytes_error_test() {
 }
 
 // ============================================================================
-// Witness Data Parsing
+// deserialize: witnesses
 // ============================================================================
 
 pub fn deserialize_rejects_segwit_tx_with_all_empty_witness_stacks_test() {
@@ -1575,10 +1171,411 @@ pub fn deserialize_rejects_non_minimal_witness_item_length_test() {
 }
 
 // ============================================================================
-// Witness Stack Item Count Policy Enforcement
+// deserialize_with_policy: transaction size
 // ============================================================================
 
-pub fn deserialize_witness_stack_at_max_item_count_succeeds_test() {
+pub fn deserialize_with_policy_accepts_tx_at_max_tx_size_test() {
+  // Build a minimal valid tx and confirm it deserializes when max_tx_size
+  // exactly equals its byte length.
+  let input_count = 1
+  let input_padding = <<0:little-size({ min_input_size_bytes * 8 })>>
+  let lock_time = <<0:little-size(32)>>
+  let tx_bytes = <<
+    version1:bits,
+    compact_size(input_count):bits,
+    input_padding:bits,
+    minimal_output_section_bytes():bits,
+    lock_time:bits,
+  >>
+  let tx_size = bit_array.byte_size(tx_bytes)
+
+  let assert Ok(_) =
+    transaction.deserialize_with_policy(
+      tx_bytes,
+      policy_with_max_tx_size(tx_size),
+    )
+}
+
+pub fn deserialize_with_policy_rejects_tx_exceeding_max_tx_size_test() {
+  // Build a minimal valid tx and confirm it is rejected when max_tx_size is
+  // one byte less than its actual size.
+  let input_count = 1
+  let input_padding = <<0:little-size({ min_input_size_bytes * 8 })>>
+  let lock_time = <<0:little-size(32)>>
+  let tx_bytes = <<
+    version1:bits,
+    compact_size(input_count):bits,
+    input_padding:bits,
+    minimal_output_section_bytes():bits,
+    lock_time:bits,
+  >>
+  let tx_size = bit_array.byte_size(tx_bytes)
+  let max_tx_size = tx_size - 1
+
+  let assert Error(decode_err) =
+    transaction.deserialize_with_policy(
+      tx_bytes,
+      policy_with_max_tx_size(max_tx_size),
+    )
+
+  assert check_transaction_decode_error(decode_err, 0, "transaction")
+    == PolicyLimitExceeded(MaxTransactionSize, tx_size, max_tx_size)
+}
+
+pub fn deserialize_with_policy_rejects_tx_well_above_max_tx_size_test() {
+  let tx_size = 100
+  let max_tx_size = 10
+  let assert Error(decode_err) =
+    transaction.deserialize_with_policy(
+      <<0:size({ tx_size * 8 })>>,
+      policy_with_max_tx_size(max_tx_size),
+    )
+
+  assert check_transaction_decode_error(decode_err, 0, "transaction")
+    == PolicyLimitExceeded(MaxTransactionSize, tx_size, max_tx_size)
+}
+
+// ============================================================================
+// deserialize_with_policy: input and output counts
+// ============================================================================
+
+pub fn deserialize_with_policy_accepts_input_count_at_max_input_count_test() {
+  // Supply enough bytes that policy, not structural feasibility, is the limit.
+
+  let max_input_count = 3
+  let input_count = max_input_count
+  let input_padding = <<
+    0:little-size({ input_count * min_input_size_bytes * 8 }),
+  >>
+  let lock_time = <<0:little-size(32)>>
+
+  let assert Ok(tx) =
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        compact_size(input_count):bits,
+        input_padding:bits,
+        minimal_output_section_bytes():bits,
+        lock_time:bits,
+      >>,
+      policy_with_max_input_count(max_input_count),
+    )
+
+  assert transaction.get_input_count(tx) == input_count
+}
+
+pub fn deserialize_with_policy_rejects_input_count_exceeding_max_input_count_test() {
+  // Supply enough bytes that policy, not structural feasibility, rejects the count.
+
+  let max_input_count = 2
+  let input_count = max_input_count + 1
+  let input_padding = <<
+    0:little-size({ input_count * min_input_size_bytes * 8 }),
+  >>
+
+  let assert Error(decode_err) =
+    transaction.deserialize_with_policy(
+      <<version1:bits, input_count:size(8), input_padding:bits>>,
+      policy_with_max_input_count(max_input_count),
+    )
+
+  assert check_transaction_decode_error(
+      decode_err,
+      4,
+      "transaction.inputs.count",
+    )
+    == PolicyLimitExceeded(MaxInputCount, input_count, max_input_count)
+}
+
+pub fn deserialize_with_policy_prioritizes_structural_input_count_error_test() {
+  // Only two inputs can fit, making structural feasibility the active limit.
+
+  let available_input_count = 2
+  let input_count = available_input_count + 1
+  let non_limiting_max_input_count = input_count
+  let input_padding = <<
+    0:little-size({ available_input_count * min_input_size_bytes * 8 }),
+  >>
+
+  let assert Error(decode_err) =
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        compact_size(input_count):bits,
+        input_padding:bits,
+      >>,
+      policy_with_max_input_count(non_limiting_max_input_count),
+    )
+
+  assert check_transaction_decode_error(
+      decode_err,
+      4,
+      "transaction.inputs.count",
+    )
+    == InsufficientBytes(
+      claimed: available_input_count * min_input_size_bytes + 1,
+      remaining: available_input_count * min_input_size_bytes,
+    )
+}
+
+pub fn deserialize_with_policy_accepts_input_count_at_structural_boundary_test() {
+  // Exactly two inputs can fit, exercising the structural boundary.
+
+  let input_count = 2
+  let non_limiting_max_input_count = input_count + 1
+  let input_padding = <<
+    0:little-size({ input_count * min_input_size_bytes * 8 }),
+  >>
+  let lock_time = <<0:little-size(32)>>
+
+  let assert Ok(tx) =
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        compact_size(input_count):bits,
+        input_padding:bits,
+        minimal_output_section_bytes():bits,
+        lock_time:bits,
+      >>,
+      policy_with_max_input_count(non_limiting_max_input_count),
+    )
+
+  assert transaction.get_input_count(tx) == input_count
+}
+
+pub fn deserialize_with_policy_accepts_output_count_at_max_output_count_test() {
+  // Supply enough bytes that policy, not structural feasibility, is the limit.
+
+  let max_output_count = 3
+  let output_count = max_output_count
+  let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
+  let output2 = build_output_bytes(<<0:little-size(64)>>, <<>>)
+  let output3 = build_output_bytes(<<0:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let assert Ok(tx) =
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        minimal_input_section_bytes():bits,
+        compact_size(output_count):bits,
+        output1:bits,
+        output2:bits,
+        output3:bits,
+        lock_time:bits,
+      >>,
+      policy_with_max_output_count(max_output_count),
+    )
+
+  assert transaction.get_output_count(tx) == output_count
+}
+
+pub fn deserialize_with_policy_rejects_output_count_exceeding_max_output_count_test() {
+  // Supply enough bytes that policy, not structural feasibility, rejects the count.
+
+  let max_output_count = 2
+  let output_count = max_output_count + 1
+  let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
+  let output2 = build_output_bytes(<<0:little-size(64)>>, <<>>)
+  let output3 = build_output_bytes(<<0:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let assert Error(decode_err) =
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        minimal_input_section_bytes():bits,
+        compact_size(output_count):bits,
+        output1:bits,
+        output2:bits,
+        output3:bits,
+        lock_time:bits,
+      >>,
+      policy_with_max_output_count(max_output_count),
+    )
+
+  assert check_transaction_decode_error(
+      decode_err,
+      46,
+      "transaction.outputs.count",
+    )
+    == PolicyLimitExceeded(MaxOutputCount, output_count, max_output_count)
+}
+
+pub fn deserialize_with_policy_prioritizes_structural_output_count_error_test() {
+  // Only two outputs can fit, making structural feasibility the active limit.
+
+  let available_output_count = 2
+  let output_count = available_output_count + 1
+  let non_limiting_max_output_count = output_count
+  let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
+  let output2 = build_output_bytes(<<0:little-size(64)>>, <<>>)
+
+  let assert Error(decode_err) =
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        minimal_input_section_bytes():bits,
+        compact_size(output_count):bits,
+        output1:bits,
+        output2:bits,
+      >>,
+      policy_with_max_output_count(non_limiting_max_output_count),
+    )
+
+  assert check_transaction_decode_error(
+      decode_err,
+      46,
+      "transaction.outputs.count",
+    )
+    == InsufficientBytes(
+      claimed: available_output_count * min_output_size_bytes + 1,
+      remaining: available_output_count * min_output_size_bytes,
+    )
+}
+
+pub fn deserialize_with_policy_accepts_output_count_at_structural_boundary_test() {
+  // Exactly two outputs can fit, exercising the structural boundary.
+
+  let output_count = 2
+  let non_limiting_max_output_count = output_count + 1
+  let output1 = build_output_bytes(<<0:little-size(64)>>, <<>>)
+  let output2 = build_output_bytes(<<0:little-size(64)>>, <<>>)
+  let lock_time = <<0:little-size(32)>>
+
+  let assert Ok(tx) =
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        minimal_input_section_bytes():bits,
+        compact_size(output_count):bits,
+        output1:bits,
+        output2:bits,
+        lock_time:bits,
+      >>,
+      policy_with_max_output_count(non_limiting_max_output_count),
+    )
+
+  assert transaction.get_output_count(tx) == output_count
+}
+
+// ============================================================================
+// deserialize_with_policy: script size
+// ============================================================================
+
+pub fn deserialize_with_policy_rejects_scriptsig_exceeding_max_script_size_test() {
+  let policy = transaction.default_decode_policy()
+  let max_script_size = transaction.decode_policy_max_script_size(policy)
+  let oversized_script_size = max_script_size + 1
+  let input_count = compact_size(1)
+
+  let outpoint_txid_bytes = <<0:size(256)>>
+  let outpoint_vout = 0
+  let script_sig = <<0:size({ oversized_script_size * 8 })>>
+  let sequence = 0
+
+  let input_bytes =
+    build_input_bytes(outpoint_txid_bytes, outpoint_vout, script_sig, sequence)
+
+  let assert Error(decode_err) =
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        input_count:bits,
+        input_bytes:bits,
+      >>,
+      policy,
+    )
+
+  assert check_transaction_decode_error(
+      decode_err,
+      41,
+      "transaction.inputs[0].script_sig.length",
+    )
+    == PolicyLimitExceeded(
+      MaxScriptSize,
+      oversized_script_size,
+      max_script_size,
+    )
+}
+
+pub fn deserialize_with_policy_rejects_scriptpubkey_exceeding_max_script_size_test() {
+  let policy = transaction.default_decode_policy()
+  let max_script_size = transaction.decode_policy_max_script_size(policy)
+  let oversized_script_size = max_script_size + 1
+  let output_count = compact_size(1)
+
+  let value = <<0:little-size(64)>>
+  let script_pubkey = <<0:size({ oversized_script_size * 8 })>>
+
+  let output_bytes = build_output_bytes(value, script_pubkey)
+
+  let assert Error(decode_err) =
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        minimal_input_section_bytes():bits,
+        output_count:bits,
+        output_bytes:bits,
+      >>,
+      policy,
+    )
+
+  assert check_transaction_decode_error(
+      decode_err,
+      55,
+      "transaction.outputs[0].script_pubkey.length",
+    )
+    == PolicyLimitExceeded(
+      MaxScriptSize,
+      oversized_script_size,
+      max_script_size,
+    )
+}
+
+pub fn deserialize_with_policy_accepts_scriptpubkey_at_max_script_size_test() {
+  let policy = transaction.default_decode_policy()
+  let max_script_size = transaction.decode_policy_max_script_size(policy)
+  let value_satoshis = 75_000_000
+  let script_pubkey_bytes = <<0:size({ max_script_size * 8 })>>
+  let output =
+    build_output_bytes(<<value_satoshis:little-size(64)>>, script_pubkey_bytes)
+  let lock_time = <<0:little-size(32)>>
+
+  let assert Ok(tx) =
+    transaction.deserialize_with_policy(
+      <<
+        version1:bits,
+        minimal_input_section_bytes():bits,
+        compact_size(1):bits,
+        output:bits,
+        lock_time:bits,
+      >>,
+      policy,
+    )
+
+  let outputs = transaction.get_outputs(tx)
+  let assert [first_output] = outputs
+
+  let actual_value =
+    first_output
+    |> transaction.get_output_value
+
+  assert actual_value == value_satoshis
+
+  let actual_script_pubkey_bytes =
+    first_output
+    |> transaction.get_output_script_pubkey
+    |> transaction.get_raw_script_bytes
+
+  assert bit_array.byte_size(actual_script_pubkey_bytes) == max_script_size
+}
+
+// ============================================================================
+// deserialize_with_policy: witness limits
+// ============================================================================
+
+pub fn deserialize_with_policy_accepts_witness_stack_at_max_item_count_test() {
   let max_witness_stack_item_count = 3
 
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
@@ -1609,7 +1606,7 @@ pub fn deserialize_witness_stack_at_max_item_count_succeeds_test() {
   assert list.length(items) == max_witness_stack_item_count
 }
 
-pub fn deserialize_witness_stack_exceeds_max_item_count_fails_test() {
+pub fn deserialize_with_policy_rejects_witness_stack_exceeding_max_item_count_test() {
   let max_witness_stack_item_count = 2
 
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
@@ -1646,11 +1643,7 @@ pub fn deserialize_witness_stack_exceeds_max_item_count_fails_test() {
     )
 }
 
-// ============================================================================
-// Witness Stack Payload Size Policy Enforcement
-// ============================================================================
-
-pub fn deserialize_witness_stack_at_max_payload_size_succeeds_test() {
+pub fn deserialize_with_policy_accepts_witness_stack_at_max_payload_size_test() {
   let max_witness_stack_payload_size = 50
 
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
@@ -1694,7 +1687,7 @@ pub fn deserialize_witness_stack_at_max_payload_size_succeeds_test() {
   assert total_payload_size == max_witness_stack_payload_size
 }
 
-pub fn deserialize_witness_stack_exceeds_max_payload_size_fails_test() {
+pub fn deserialize_with_policy_rejects_witness_stack_exceeding_max_payload_size_test() {
   let max_witness_stack_payload_size = 50
 
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
@@ -1734,52 +1727,35 @@ pub fn deserialize_witness_stack_exceeds_max_payload_size_fails_test() {
 }
 
 // ============================================================================
-// Trailing Bytes Detection
+// input_has_null_outpoint and is_null_outpoint
 // ============================================================================
 
-pub fn deserialize_rejects_legacy_tx_with_trailing_byte_test() {
-  let lock_time = <<0:little-size(32)>>
-
-  let valid_tx = <<
-    version1:bits,
-    minimal_input_section_bytes():bits,
-    minimal_output_section_bytes():bits,
-    lock_time:bits,
-  >>
-
-  let assert Error(decode_err) =
-    transaction.deserialize(<<valid_tx:bits, 0x42:size(8)>>)
-
-  let expected_offset = bit_array.byte_size(valid_tx)
-  assert check_transaction_decode_error(
-      decode_err,
-      expected_offset,
-      "transaction",
-    )
-    == TrailingBytes(1)
+pub fn input_has_null_outpoint_returns_true_for_coinbase_marker_test() {
+  let input = input_from_outpoint_fields(<<0:size(256)>>, 0xFFFFFFFF)
+  assert transaction.input_has_null_outpoint(input)
 }
 
-pub fn deserialize_rejects_segwit_tx_with_trailing_byte_test() {
-  let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
-  let output = build_output_bytes(<<0:little-size(64)>>, <<>>)
-  let witness_stack = <<
-    compact_size(1):bits,
-    compact_size(0):bits,
-  >>
+pub fn input_has_null_outpoint_returns_false_for_regular_input_test() {
+  let input = input_from_outpoint_fields(repeat_byte(1, 32), 0)
+  assert !transaction.input_has_null_outpoint(input)
+}
 
-  let valid_tx =
-    assemble_segwit_transaction_bytes([input], [output], [witness_stack])
+pub fn is_null_outpoint_returns_true_for_coinbase_marker_test() {
+  let outpoint = outpoint_from_fields(<<0:size(256)>>, 0xFFFFFFFF)
+  assert transaction.is_null_outpoint(outpoint)
+}
 
-  let assert Error(decode_err) =
-    transaction.deserialize(<<valid_tx:bits, 0xFF:size(8)>>)
+pub fn is_null_outpoint_returns_false_for_regular_outpoint_test() {
+  let outpoint = outpoint_from_fields(repeat_byte(1, 32), 0)
+  assert !transaction.is_null_outpoint(outpoint)
+}
 
-  let expected_offset = bit_array.byte_size(valid_tx)
-  assert check_transaction_decode_error(
-      decode_err,
-      expected_offset,
-      "transaction",
-    )
-    == TrailingBytes(1)
+pub fn is_null_outpoint_requires_zero_txid_and_max_vout_test() {
+  let zero_txid_outpoint = outpoint_from_fields(<<0:size(256)>>, 0)
+  let max_vout_outpoint = outpoint_from_fields(repeat_byte(1, 32), 0xFFFFFFFF)
+
+  assert !transaction.is_null_outpoint(zero_txid_outpoint)
+  assert !transaction.is_null_outpoint(max_vout_outpoint)
 }
 
 // ============================================================================
@@ -2023,7 +1999,7 @@ pub fn classify_output_script_unknown_witness_v1_max_program_test() {
 }
 
 // ============================================================================
-// Context-Free Consensus Validation
+// validate_context_free_consensus
 // ============================================================================
 
 pub fn validate_context_free_consensus_collects_no_inputs_and_no_outputs_test() {
@@ -2476,10 +2452,18 @@ pub fn validate_context_free_consensus_duplicate_input_reported_alongside_other_
 }
 
 // ============================================================================
-// deserialization -> serialization
+// serialize and serialize_stripped
 // ============================================================================
 
-pub fn hashing_and_serialization_accept_context_free_invalid_segwit_tx_test() {
+pub fn serialize_round_trips_high_bit_version_wire_bytes_test() {
+  let original_bytes = minimal_legacy_transaction_bytes(0x80000000)
+  let assert Ok(result) = transaction.deserialize(original_bytes)
+
+  assert transaction.serialize_stripped(result) == original_bytes
+  assert transaction.serialize(result) == original_bytes
+}
+
+pub fn serialize_and_hashing_accept_context_free_invalid_segwit_tx_test() {
   let input = build_input_bytes(repeat_byte(1, 32), 0, <<>>, 0xFFFFFFFF)
   let witness_item = <<0x42>>
   let witness_stack = <<
@@ -2566,7 +2550,7 @@ pub fn has_coinbase_shape_coinbase_transaction_test() {
 }
 
 // ============================================================================
-// compute_txid, compute_wtxid
+// compute_txid and compute_wtxid
 // ============================================================================
 
 pub fn compute_txid_matches_manual_dsha256_test() {
@@ -2653,7 +2637,7 @@ pub fn compute_txid_equals_compute_wtxid_for_legacy_tx_test() {
 }
 
 // ============================================================================
-// Helper Functions
+// Helpers
 // ============================================================================
 
 /// Build one encoded transaction input from its field values.
@@ -2802,7 +2786,7 @@ fn output_script_from_bytes(
 }
 
 // ============================================================================
-// Policy Builder Helper Functions
+// Policy Builder Helpers
 // ============================================================================
 
 fn policy_with_max_tx_size(max_tx_size: Int) {
