@@ -14,6 +14,7 @@ pub fn compact_size(value: Int) -> BitArray {
   }
 }
 
+/// Return lowercase hexadecimal with the input bytes reversed for display.
 pub fn get_display_hex(bytes: BitArray) -> String {
   bytes
   |> reverse_bytes
@@ -21,7 +22,7 @@ pub fn get_display_hex(bytes: BitArray) -> String {
   |> string.lowercase
 }
 
-pub fn reverse_bytes(bits: BitArray) -> BitArray {
+fn reverse_bytes(bits: BitArray) -> BitArray {
   do_reverse_bytes(bits, <<>>)
 }
 

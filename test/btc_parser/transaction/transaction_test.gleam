@@ -17,6 +17,11 @@ import gleam/list
 import gleam/option.{None, Some}
 import support/bitcoin_wire.{compact_size}
 import support/target
+import support/transaction_wire.{
+  assemble_segwit_transaction_bytes, build_input_bytes, build_output_bytes,
+  minimal_input_section_bytes, minimal_legacy_transaction_bytes,
+  minimal_output_section_bytes,
+}
 
 const version1 = <<1:little-size(32)>>
 
@@ -2614,33 +2619,6 @@ pub fn compute_txid_equals_compute_wtxid_for_legacy_tx_test() {
 // Helpers
 // ============================================================================
 
-/// Build one encoded transaction input from its field values.
-fn build_input_bytes(
-  outpoint_txid: BitArray,
-  outpoint_vout: Int,
-  script_sig: BitArray,
-  sequence: Int,
-) -> BitArray {
-  let outpoint_vout_bytes = <<outpoint_vout:little-size(32)>>
-  let script_length = compact_size(bit_array.byte_size(script_sig))
-  let seq_bytes = <<sequence:little-size(32)>>
-
-  <<
-    outpoint_txid:bits,
-    outpoint_vout_bytes:bits,
-    script_length:bits,
-    script_sig:bits,
-    seq_bytes:bits,
-  >>
-}
-
-/// Return an input section containing a count and one minimal encoded input.
-fn minimal_input_section_bytes() -> BitArray {
-  let input_count = compact_size(1)
-  let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
-  <<input_count:bits, input:bits>>
-}
-
 /// Obtain an opaque input containing the given outpoint fields.
 fn input_from_outpoint_fields(
   outpoint_txid: BitArray,
@@ -2668,67 +2646,6 @@ fn outpoint_from_fields(
 ) -> OutPoint {
   input_from_outpoint_fields(outpoint_txid, outpoint_vout)
   |> transaction.get_input_outpoint
-}
-
-/// Build one encoded transaction output from its field values.
-fn build_output_bytes(value: BitArray, script_pubkey: BitArray) -> BitArray {
-  let script_length =
-    script_pubkey
-    |> bit_array.byte_size
-    |> compact_size
-
-  <<
-    value:bits,
-    script_length:bits,
-    script_pubkey:bits,
-  >>
-}
-
-/// Return an output section containing a count and one minimal encoded output.
-fn minimal_output_section_bytes() -> BitArray {
-  let output_count = compact_size(1)
-  let value = <<0:little-size(64)>>
-  let script_pubkey_length = compact_size(0)
-
-  <<
-    output_count:bits,
-    value:bits,
-    script_pubkey_length:bits,
-  >>
-}
-
-fn minimal_legacy_transaction_bytes(version: Int) -> BitArray {
-  <<
-    version:little-size(32),
-    minimal_input_section_bytes():bits,
-    minimal_output_section_bytes():bits,
-    0:little-size(32),
-  >>
-}
-
-/// Assemble SegWit transaction bytes from encoded components without validating them.
-fn assemble_segwit_transaction_bytes(
-  inputs: List(BitArray),
-  outputs: List(BitArray),
-  witness_stacks: List(BitArray),
-) -> BitArray {
-  let marker = <<0x00>>
-  let flag = <<0x01>>
-  let input_count = compact_size(list.length(inputs))
-  let output_count = compact_size(list.length(outputs))
-  let lock_time = <<0:little-size(32)>>
-
-  <<
-    version1:bits,
-    marker:bits,
-    flag:bits,
-    input_count:bits,
-    bit_array.concat(inputs):bits,
-    output_count:bits,
-    bit_array.concat(outputs):bits,
-    bit_array.concat(witness_stacks):bits,
-    lock_time:bits,
-  >>
 }
 
 /// Produce a BitArray consisting of `n` repetitions of byte `b`.
