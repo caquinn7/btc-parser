@@ -1,9 +1,9 @@
 //// Shared helpers for mapping low-level decode failures and exact integer values
 //// into domain-owned decode errors.
 
-import btc_parser/internal/compact_size
+import btc_parser/internal/compact_size.{NonMinimalCompactSize, ReaderError}
 import btc_parser/internal/fixed_int/uint64.{type Uint64}
-import btc_parser/internal/reader
+import btc_parser/internal/reader.{InvalidReadCount, UnexpectedEof}
 import gleam/int
 import gleam/result
 
@@ -19,12 +19,12 @@ pub fn map_reader_error(
   unexpected_eof: fn(Int, Int) -> e,
 ) -> e {
   case reader_error {
-    reader.InvalidReadCount(i) ->
+    InvalidReadCount(i) ->
       panic as {
         "tried to read an invalid number of bytes: " <> int.to_string(i) <> "."
       }
 
-    reader.UnexpectedEof(bytes_needed:, remaining:) ->
+    UnexpectedEof(bytes_needed:, remaining:) ->
       unexpected_eof(bytes_needed, remaining)
   }
 }
@@ -41,8 +41,8 @@ pub fn map_compact_size_error(
   non_minimal_encoding: fn(Int, Int) -> e,
 ) -> e {
   case read_error {
-    compact_size.ReaderError(re) -> map_reader_error(re, unexpected_eof)
-    compact_size.NonMinimalCompactSize(encoded_size:, value:) ->
+    ReaderError(reader_err) -> map_reader_error(reader_err, unexpected_eof)
+    NonMinimalCompactSize(encoded_size:, value:) ->
       non_minimal_encoding(encoded_size, value)
   }
 }
