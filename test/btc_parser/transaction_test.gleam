@@ -423,7 +423,7 @@ pub fn validate_input_count_structural_boundary_succeeds_test() {
 pub fn validate_input_count_insufficient_bytes_for_inputs_test() {
   // Construct: version (4 bytes) + input_count (CompactSize = 0x01) + 40 bytes
   // of padding so that `remaining < min_input_size` and the validator
-  // produces a LengthTooLarge error.
+  // produces an InsufficientBytes error.
 
   let input_count = 1
   let input_padding = <<
@@ -2169,7 +2169,7 @@ pub fn classify_output_script_unknown_witness_v1_max_program_test() {
 // ============================================================================
 
 pub fn validate_context_free_consensus_accepts_valid_legacy_tx_test() {
-  // Use a real legacy transaction that has 1 input and 1 output
+  // Use a real legacy transaction that has at least 1 input and at least 1 output
   let assert Ok(tx) = transaction.deserialize_hex(legacy_v1_tx)
 
   assert !transaction.is_segwit(tx)
