@@ -191,7 +191,8 @@ file/timer/CLI behavior, or a runtime-specific bug.
   `deserialize_with_policy_test.gleam`, `structural_inspection_test.gleam`,
   `validate_context_free_consensus_test.gleam`, and
   `serialization_and_identifiers_test.gleam` under
-  `test/btc_parser/transaction/`; real wire examples remain in
+  `test/btc_parser/transaction/`; real transaction wire examples are stored in
+  `test/btc_parser/transaction/fixtures/` and exercised by
   `fixture_test.gleam`.
   The block module is covered by
   `test/btc_parser/block/block_test.gleam` and mainnet fixtures in
