@@ -27,8 +27,8 @@ pub const transaction_version_1_bytes = <<1:little-size(32)>>
 /// Produce a `BitArray` consisting of `n` repetitions of byte `b`.
 pub fn repeat_byte(b: Int, n: Int) -> BitArray {
   case n {
-    0 -> <<>>
-    _ -> <<b:little-size(8), repeat_byte(b, n - 1):bits>>
+    _ if n < 0 -> panic as "count cannot be negative"
+    _ -> bit_array.concat(list.repeat(<<b:little-size(8)>>, times: n))
   }
 }
 
