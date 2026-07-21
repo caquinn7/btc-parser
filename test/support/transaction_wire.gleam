@@ -13,6 +13,25 @@ import gleam/bit_array
 import gleam/list
 import support/bitcoin_wire.{compact_size}
 
+/// The minimum encoded input size: a 32-byte txid, 4-byte output index,
+/// one-byte empty script length, and 4-byte sequence.
+pub const min_input_size_bytes = 41
+
+/// The minimum encoded output size: an 8-byte value and one-byte empty script
+/// length.
+pub const min_output_size_bytes = 9
+
+/// The four-byte wire encoding of transaction version 1.
+pub const transaction_version_1_bytes = <<1:little-size(32)>>
+
+/// Produce a `BitArray` consisting of `n` repetitions of byte `b`.
+pub fn repeat_byte(b: Int, n: Int) -> BitArray {
+  case n {
+    _ if n < 0 -> panic as "count cannot be negative"
+    _ -> bit_array.concat(list.repeat(<<b:little-size(8)>>, times: n))
+  }
+}
+
 /// Build one encoded transaction input from its field values.
 pub fn build_input_bytes(
   outpoint_txid: BitArray,
@@ -92,7 +111,7 @@ pub fn assemble_segwit_transaction_bytes(
   let output_count = compact_size(list.length(outputs))
 
   <<
-    1:little-size(32),
+    transaction_version_1_bytes:bits,
     0x00,
     0x01,
     input_count:bits,

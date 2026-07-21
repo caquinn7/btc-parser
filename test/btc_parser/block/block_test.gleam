@@ -9,6 +9,7 @@ import gleam/crypto.{Sha256}
 import gleam/list
 import support/bitcoin_wire.{compact_size}
 import support/target
+import support/transaction_assertions.{check_transaction_decode_error}
 import support/transaction_wire.{
   assemble_segwit_transaction_bytes, build_input_bytes,
   build_minimal_legacy_transaction_bytes, build_minimal_segwit_transaction_bytes,
@@ -798,16 +799,6 @@ fn check_block_decode_error(
   assert block.get_decode_error_offset(error) == expected_offset
   assert block.get_decode_error_path(error) == expected_path
   block.get_decode_error_kind(error)
-}
-
-fn check_transaction_decode_error(
-  error: transaction.DecodeError,
-  expected_offset: Int,
-  expected_path: String,
-) -> transaction.DecodeErrorKind {
-  assert transaction.get_decode_error_offset(error) == expected_offset
-  assert transaction.get_decode_error_path(error) == expected_path
-  transaction.get_decode_error_kind(error)
 }
 
 fn policy_with_max_block_size(max_block_size: Int) {
