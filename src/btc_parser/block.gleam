@@ -130,6 +130,54 @@ pub fn get_header_nonce(header: Header) -> Int {
   header.nonce
 }
 
+/// Compute the block's BIP 141 base size in bytes.
+///
+/// This is the size of the complete stripped block serialization: the 80-byte
+/// header, the canonical CompactSize transaction count, and every transaction
+/// serialized without its SegWit marker, flag, or witness data.
+pub fn compute_base_size(block: Block(state)) -> Int {
+  let header_size = 80
+  let assert Ok(tx_count) = uint64.from_int(block.transaction_count)
+
+  let stripped_txs_size =
+    list.fold(block.transactions, 0, fn(acc, tx) {
+      let stripped_tx_size =
+        tx
+        |> transaction.serialize_stripped
+        |> bit_array.byte_size
+
+      acc + stripped_tx_size
+    })
+
+  header_size
+  + bit_array.byte_size(compact_size.write(tx_count))
+  + stripped_txs_size
+}
+
+/// Compute the block's BIP 141 total size in bytes.
+///
+/// This is the byte size of the complete canonical wire serialization produced
+/// by `serialize`, including SegWit marker, flag, and witness data.
+pub fn compute_total_size(block: Block(state)) -> Int {
+  bit_array.byte_size(serialize(block))
+}
+
+const witness_scale_factor = 4
+
+/// Compute the block's BIP 141 weight in weight units.
+///
+/// Weight is calculated as `base_size * 3 + total_size`. Equivalently, each
+/// byte in the stripped serialization contributes four weight units and each
+/// byte present only in the complete serialization contributes one.
+///
+/// This function only measures the block; it does not enforce the consensus
+/// maximum.
+pub fn compute_weight(block: Block(state)) -> Int {
+  compute_base_size(block)
+  * { witness_scale_factor - 1 }
+  + compute_total_size(block)
+}
+
 // ==============================================================================
 // Error handling
 // ==============================================================================
