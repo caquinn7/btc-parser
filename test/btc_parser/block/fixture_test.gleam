@@ -76,6 +76,19 @@ pub fn deserialize_mainnet_519311_fixture_test() {
   assert_fixture_deserializes(mainnet_519311_fixture)
 }
 
+pub fn compute_sizes_mainnet_519311_known_vector_test() {
+  let assert Ok(fixture_hex) =
+    simplifile.read("test/btc_parser/block/fixtures/mainnet-519311.hex")
+  let assert Ok(block) =
+    fixture_hex
+    |> string.trim
+    |> block.deserialize_hex
+
+  assert block.compute_base_size(block) == 15_613
+  assert block.compute_total_size(block) == 22_884
+  assert block.compute_weight(block) == 69_723
+}
+
 fn assert_fixture_deserializes(expectation: FixtureExpectation) -> Nil {
   let FixtureExpectation(
     file_name:,
