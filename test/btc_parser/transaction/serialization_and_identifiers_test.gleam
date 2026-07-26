@@ -9,18 +9,19 @@ import support/transaction_wire.{
 }
 
 // ============================================================================
-// Transaction size computation
+// Transaction size and weight computation
 // ============================================================================
 
-pub fn compute_sizes_for_one_minimal_legacy_transaction_test() {
+pub fn compute_sizes_and_weight_for_one_minimal_legacy_transaction_test() {
   let tx_bytes = build_minimal_legacy_transaction_bytes(1)
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
 
   assert transaction.compute_base_size(tx) == 60
   assert transaction.compute_total_size(tx) == 60
+  assert transaction.compute_weight(tx) == 240
 }
 
-pub fn compute_sizes_for_two_input_segwit_transaction_with_mixed_witness_stacks_test() {
+pub fn compute_sizes_and_weight_for_two_input_segwit_transaction_with_mixed_witness_stacks_test() {
   let input0 = build_input_bytes(repeat_byte(0x01, 32), 0, <<>>, 0)
   let input1 = build_input_bytes(repeat_byte(0x02, 32), 1, <<>>, 0)
   let output = build_output_bytes(<<1000:64-little>>, <<>>)
@@ -42,6 +43,7 @@ pub fn compute_sizes_for_two_input_segwit_transaction_with_mixed_witness_stacks_
 
   assert transaction.compute_base_size(tx) == 101
   assert transaction.compute_total_size(tx) == 362
+  assert transaction.compute_weight(tx) == 665
 }
 
 // ============================================================================

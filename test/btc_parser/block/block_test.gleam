@@ -714,7 +714,7 @@ pub fn serialize_encodes_multibyte_compact_size_transaction_count_test() {
 // Block size and weight computation
 // ============================================================================
 
-pub fn compute_sizes_for_empty_block_test() {
+pub fn compute_sizes_and_weight_for_empty_block_test() {
   let bytes =
     build_header_only_block(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
   let assert Ok(block) = block.deserialize(bytes)
@@ -724,7 +724,7 @@ pub fn compute_sizes_for_empty_block_test() {
   assert block.compute_weight(block) == 324
 }
 
-pub fn compute_sizes_for_one_minimal_legacy_transaction_test() {
+pub fn compute_sizes_and_weight_for_one_minimal_legacy_transaction_test() {
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
   let tx = build_minimal_legacy_transaction_bytes(1)
   let assert Ok(block) = block.deserialize(build_block(header, [tx]))
@@ -734,7 +734,7 @@ pub fn compute_sizes_for_one_minimal_legacy_transaction_test() {
   assert block.compute_weight(block) == 564
 }
 
-pub fn compute_sizes_for_one_segwit_transaction_with_witness_data_test() {
+pub fn compute_sizes_and_weight_for_one_segwit_transaction_with_witness_data_test() {
   let input = build_input_bytes(<<0:size(256)>>, 0, <<>>, 0)
   let output = build_output_bytes(<<0:little-size(64)>>, <<>>)
   let witness_stack = <<
@@ -753,7 +753,7 @@ pub fn compute_sizes_for_one_segwit_transaction_with_witness_data_test() {
   assert block.compute_weight(block) == 571
 }
 
-pub fn compute_sizes_for_253_minimal_legacy_transactions_test() {
+pub fn compute_sizes_and_weight_for_253_minimal_legacy_transactions_test() {
   let tx_count = 253
   let txs = list.repeat(build_minimal_legacy_transaction_bytes(1), tx_count)
   let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
