@@ -201,13 +201,15 @@ pub fn get_witnesses(
 /// This calculation measures the existing transaction fields without allocating
 /// a serialized `BitArray`.
 pub fn compute_base_size(tx: Transaction(state)) -> Int {
-  // literal 4 for version and locktime byte-sizes
-  4
+  let version_size = 4
+  let lock_time_size = 4
+
+  version_size
   + compact_size.encoded_size(tx.input_count)
   + compute_inputs_stripped_size(tx.inputs)
   + compact_size.encoded_size(tx.output_count)
   + compute_outputs_stripped_size(tx.outputs)
-  + 4
+  + lock_time_size
 }
 
 /// Compute the transaction's BIP 141 total size in bytes.
@@ -222,9 +224,13 @@ pub fn compute_base_size(tx: Transaction(state)) -> Int {
 pub fn compute_total_size(tx: Transaction(state)) -> Int {
   case tx {
     Legacy(..) -> compute_base_size(tx)
-    Segwit(witnesses:, ..) ->
-      // literal 2 for segwit marker and flag bytes
-      compute_base_size(tx) + 2 + compute_witnesses_size(witnesses)
+    Segwit(witnesses:, ..) -> {
+      let segwit_marker_and_flag_size = 2
+
+      compute_base_size(tx)
+      + segwit_marker_and_flag_size
+      + compute_witnesses_size(witnesses)
+    }
   }
 }
 
@@ -240,54 +246,103 @@ pub fn compute_total_size(tx: Transaction(state)) -> Int {
 /// This function only measures the transaction. It does not enforce the
 /// enclosing block's consensus weight limit.
 pub fn compute_weight(tx: Transaction(state)) -> Int {
+  let witness_scale_factor = 4
   let base_size = compute_base_size(tx)
+
   case tx {
-    Legacy(..) -> base_size * 4
-    Segwit(witnesses:, ..) ->
-      // Marker, flag, and witness bytes each contribute one weight unit.
-      base_size * 4 + 2 + compute_witnesses_size(witnesses)
+    Legacy(..) -> base_size * witness_scale_factor
+    Segwit(witnesses:, ..) -> {
+      let segwit_marker_and_flag_size = 2
+
+      base_size
+      * witness_scale_factor
+      + segwit_marker_and_flag_size
+      + compute_witnesses_size(witnesses)
+    }
   }
 }
 
 fn compute_inputs_stripped_size(inputs: List(Input)) -> Int {
-  list.fold(inputs, 0, fn(size, input) {
-    let input_size = {
-      let script_size = get_script_size(input.script_sig)
-      // 32-byte txid, 4-byte vout, CompactSize script length, script, sequence.
-      32 + 4 + compact_size.encoded_size(script_size) + script_size + 4
+  compute_inputs_stripped_size_loop(inputs, 0)
+}
+
+fn compute_inputs_stripped_size_loop(inputs: List(Input), acc: Int) -> Int {
+  case inputs {
+    [] -> acc
+    [input, ..rest] -> {
+      let input_size = {
+        let txid_size = 32
+        let vout_size = 4
+        let script_size = get_script_size(input.script_sig)
+        let sequence_size = 4
+
+        txid_size
+        + vout_size
+        + compact_size.encoded_size(script_size)
+        + script_size
+        + sequence_size
+      }
+      compute_inputs_stripped_size_loop(rest, acc + input_size)
     }
-    size + input_size
-  })
+  }
 }
 
 fn compute_outputs_stripped_size(outputs: List(Output)) -> Int {
-  list.fold(outputs, 0, fn(size, output) {
-    let output_size = {
-      let script_size = get_script_size(output.script_pubkey)
-      // 8-byte value, CompactSize script length, script.
-      8 + compact_size.encoded_size(script_size) + script_size
+  compute_outputs_stripped_size_loop(outputs, 0)
+}
+
+fn compute_outputs_stripped_size_loop(outputs: List(Output), acc: Int) -> Int {
+  case outputs {
+    [] -> acc
+    [output, ..rest] -> {
+      let output_size = {
+        let value_size = 8
+        let script_size = get_script_size(output.script_pubkey)
+        value_size + compact_size.encoded_size(script_size) + script_size
+      }
+      compute_outputs_stripped_size_loop(rest, acc + output_size)
     }
-    size + output_size
-  })
+  }
 }
 
 fn compute_witnesses_size(witnesses: List(WitnessStack)) -> Int {
-  list.fold(witnesses, 0, fn(size, stack) {
-    size
-    + compact_size.encoded_size(stack.item_count)
-    + compute_witness_items_size(stack.items)
-  })
+  compute_witnesses_size_loop(witnesses, 0)
+}
+
+fn compute_witnesses_size_loop(witnesses: List(WitnessStack), acc: Int) -> Int {
+  case witnesses {
+    [] -> acc
+    [stack, ..rest] -> {
+      let stack_size =
+        compact_size.encoded_size(stack.item_count)
+        + compute_witness_items_size(stack.items)
+
+      compute_witnesses_size_loop(rest, acc + stack_size)
+    }
+  }
 }
 
 fn compute_witness_items_size(witness_items: List(WitnessItem)) -> Int {
-  list.fold(witness_items, 0, fn(size, item) {
-    let item_size =
-      item
-      |> get_witness_item_bytes
-      |> bit_array.byte_size
+  compute_witness_items_size_loop(witness_items, 0)
+}
 
-    size + compact_size.encoded_size(item_size) + item_size
-  })
+fn compute_witness_items_size_loop(
+  witness_items: List(WitnessItem),
+  acc: Int,
+) -> Int {
+  case witness_items {
+    [] -> acc
+    [item, ..rest] -> {
+      let item_size =
+        item
+        |> get_witness_item_bytes
+        |> bit_array.byte_size
+
+      let encoded_item_size = compact_size.encoded_size(item_size) + item_size
+
+      compute_witness_items_size_loop(rest, acc + encoded_item_size)
+    }
+  }
 }
 
 /// A transaction input.
