@@ -93,6 +93,28 @@ pub fn deserialize_segwit_wtxid_vector_fixture_test() {
   assert_fixture_deserializes(segwit_single_input_fixture)
 }
 
+pub fn compute_sizes_legacy_transaction_fixture_known_vectors_test() {
+  assert_fixture_sizes(legacy_v1_fixture, 1279, 1279)
+  assert_fixture_sizes(legacy_v2_fixture, 189, 189)
+}
+
+pub fn compute_sizes_segwit_transaction_fixture_known_vectors_test() {
+  assert_fixture_sizes(segwit_v1_fixture, 154, 372)
+  assert_fixture_sizes(segwit_single_input_fixture, 116, 225)
+}
+
+/// Compute a fixture's stripped and full wire sizes against its known vector.
+fn assert_fixture_sizes(
+  expectation: FixtureExpectation,
+  expected_base_size: Int,
+  expected_total_size: Int,
+) -> Nil {
+  let tx = deserialize_fixture(expectation)
+
+  assert transaction.compute_base_size(tx) == expected_base_size
+  assert transaction.compute_total_size(tx) == expected_total_size
+}
+
 /// Deserialize a fixture and assert its structural fields match its expectation.
 fn assert_fixture_deserializes(expectation: FixtureExpectation) -> Nil {
   let tx = deserialize_fixture(expectation)
