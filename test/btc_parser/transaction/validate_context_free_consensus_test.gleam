@@ -1,12 +1,14 @@
 import btc_parser/transaction.{
-  CoinbaseWithMultipleInputs, DuplicateInput, InvalidCoinbaseScriptSigLength,
-  NoInputs, NoOutputs, OutputValueOutOfRange, TotalOutputValueOutOfRange,
+  BaseSizeLimitExceeded, CoinbaseWithMultipleInputs, DuplicateInput,
+  InvalidCoinbaseScriptSigLength, NoInputs, NoOutputs, OutputValueOutOfRange,
+  TotalOutputValueOutOfRange,
 }
+import gleam/bit_array
 import gleam/list
 import support/bitcoin_wire.{compact_size}
 import support/transaction_wire.{
-  build_input_bytes, build_output_bytes, repeat_byte,
-  transaction_version_1_bytes,
+  assemble_segwit_transaction_bytes, build_input_bytes, build_output_bytes,
+  repeat_byte, transaction_version_1_bytes,
 }
 
 // ============================================================================
@@ -44,6 +46,68 @@ pub fn validate_context_free_consensus_rejects_tx_with_no_outputs_test() {
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
 
   assert transaction.validate_context_free_consensus(tx) == Error([NoOutputs])
+}
+
+pub fn validate_context_free_consensus_accepts_tx_at_base_size_limit_test() {
+  let stripped_size = 1_000_000
+  let tx_bytes = legacy_tx_with_stripped_size(stripped_size, <<0:64-little>>)
+  let policy = large_transaction_policy(tx_bytes, stripped_size - 64)
+
+  let assert Ok(tx) = transaction.deserialize_with_policy(tx_bytes, policy)
+
+  assert bit_array.byte_size(transaction.serialize_stripped(tx))
+    == stripped_size
+  let assert Ok(_) = transaction.validate_context_free_consensus(tx)
+}
+
+pub fn validate_context_free_consensus_rejects_tx_over_base_size_limit_test() {
+  let stripped_size = 1_000_001
+  let tx_bytes = legacy_tx_with_stripped_size(stripped_size, <<0:64-little>>)
+  let policy = large_transaction_policy(tx_bytes, stripped_size - 64)
+
+  let assert Ok(tx) = transaction.deserialize_with_policy(tx_bytes, policy)
+
+  assert bit_array.byte_size(transaction.serialize_stripped(tx))
+    == stripped_size
+  assert transaction.validate_context_free_consensus(tx)
+    == Error([BaseSizeLimitExceeded(stripped_size)])
+}
+
+pub fn validate_context_free_consensus_ignores_witness_bytes_for_base_size_test() {
+  let witness_item_size = 1_000_000
+  let input = build_input_bytes(repeat_byte(0x01, 32), 0, <<>>, 0)
+  let output = build_output_bytes(<<0:64-little>>, <<>>)
+  let witness_stack = <<
+    compact_size(1):bits,
+    compact_size(witness_item_size):bits,
+    0:size({ witness_item_size * 8 }),
+  >>
+
+  let tx_bytes =
+    assemble_segwit_transaction_bytes([input], [output], [witness_stack])
+  let policy = large_transaction_policy(tx_bytes, 10_000)
+
+  assert bit_array.byte_size(tx_bytes) > 1_000_000
+
+  let assert Ok(tx) = transaction.deserialize_with_policy(tx_bytes, policy)
+
+  assert bit_array.byte_size(transaction.serialize_stripped(tx)) < 1_000_000
+  let assert Ok(_) = transaction.validate_context_free_consensus(tx)
+}
+
+pub fn validate_context_free_consensus_reports_base_size_before_monetary_violations_test() {
+  let stripped_size = 1_000_001
+  let negative_value = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
+  let tx_bytes = legacy_tx_with_stripped_size(stripped_size, negative_value)
+  let policy = large_transaction_policy(tx_bytes, stripped_size - 64)
+
+  let assert Ok(tx) = transaction.deserialize_with_policy(tx_bytes, policy)
+
+  assert transaction.validate_context_free_consensus(tx)
+    == Error([
+      BaseSizeLimitExceeded(stripped_size),
+      OutputValueOutOfRange(0, -1),
+    ])
 }
 
 pub fn validate_context_free_consensus_rejects_tx_with_negative_output_value_test() {
@@ -508,4 +572,37 @@ pub fn has_coinbase_shape_coinbase_transaction_test() {
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
   let assert Ok(validated_tx) = transaction.validate_context_free_consensus(tx)
   assert transaction.has_coinbase_shape(validated_tx)
+}
+
+// A one-input, one-output legacy transaction with a scriptSig longer than
+// 65,535 bytes has a five-byte CompactSize script length. Its fixed overhead
+// is therefore 64 bytes.
+fn legacy_tx_with_stripped_size(
+  stripped_size: Int,
+  output_value: BitArray,
+) -> BitArray {
+  let script_sig_size = stripped_size - 64
+  let input =
+    build_input_bytes(
+      repeat_byte(0x01, 32),
+      0,
+      <<0:size({ script_sig_size * 8 })>>,
+      0,
+    )
+  let output = build_output_bytes(output_value, <<>>)
+
+  <<
+    transaction_version_1_bytes:bits,
+    compact_size(1):bits,
+    input:bits,
+    compact_size(1):bits,
+    output:bits,
+    0:32-little,
+  >>
+}
+
+fn large_transaction_policy(tx_bytes: BitArray, max_script_size: Int) {
+  transaction.default_decode_policy()
+  |> transaction.decode_policy_with_max_tx_size(bit_array.byte_size(tx_bytes))
+  |> transaction.decode_policy_with_max_script_size(max_script_size)
 }
