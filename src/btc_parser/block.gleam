@@ -152,8 +152,6 @@ fn compute_block_size(
   serialize_tx: fn(Transaction(state)) -> BitArray,
 ) -> Int {
   let header_size = 80
-  let assert Ok(tx_count) = uint64.from_int(block.transaction_count)
-
   let txs_size =
     list.fold(block.transactions, 0, fn(acc, tx) {
       let tx_size = bit_array.byte_size(serialize_tx(tx))
