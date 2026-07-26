@@ -191,6 +191,84 @@ pub fn get_witnesses(
   }
 }
 
+/// Compute the transaction's BIP 141 base size in bytes.
+///
+/// This is the byte size of the complete canonical stripped serialization
+/// produced by `serialize_stripped`. For legacy transactions, it is identical
+/// to `compute_total_size`. For SegWit transactions, it excludes the marker,
+/// flag, and all witness stack bytes.
+///
+/// This calculation measures the existing transaction fields without allocating
+/// a serialized `BitArray`.
+pub fn compute_base_size(tx: Transaction(state)) -> Int {
+  // literal 4 for version and locktime
+  4
+  + compact_size.encoded_size(tx.input_count)
+  + compute_inputs_stripped_size(tx.inputs)
+  + compact_size.encoded_size(tx.output_count)
+  + compute_outputs_stripped_size(tx.outputs)
+  + 4
+}
+
+/// Compute the transaction's BIP 141 total size in bytes.
+///
+/// This is the byte size of the complete canonical wire serialization produced
+/// by `serialize`. For legacy transactions, it is identical to
+/// `compute_base_size`. For SegWit transactions, it also includes the marker,
+/// flag, and all witness stack bytes.
+///
+/// This calculation measures the existing transaction fields without allocating
+/// a serialized `BitArray`.
+pub fn compute_total_size(tx: Transaction(state)) -> Int {
+  case tx {
+    Legacy(..) -> compute_base_size(tx)
+    Segwit(witnesses:, ..) ->
+      // literal 2 for segwit marker and flag
+      compute_base_size(tx) + 2 + compute_witnesses_size(witnesses)
+  }
+}
+
+fn compute_inputs_stripped_size(inputs: List(Input)) -> Int {
+  list.fold(inputs, 0, fn(size, input) {
+    let input_size = {
+      let script_size = get_script_size(input.script_sig)
+      // 32-byte txid, 4-byte vout, CompactSize script length, script, sequence.
+      32 + 4 + compact_size.encoded_size(script_size) + script_size + 4
+    }
+    size + input_size
+  })
+}
+
+fn compute_outputs_stripped_size(outputs: List(Output)) -> Int {
+  list.fold(outputs, 0, fn(size, output) {
+    let output_size = {
+      let script_size = get_script_size(output.script_pubkey)
+      // 8-byte value, CompactSize script length, script.
+      8 + compact_size.encoded_size(script_size) + script_size
+    }
+    size + output_size
+  })
+}
+
+fn compute_witnesses_size(witnesses: List(WitnessStack)) -> Int {
+  list.fold(witnesses, 0, fn(size, stack) {
+    size
+    + compact_size.encoded_size(stack.item_count)
+    + compute_witness_items_size(stack.items)
+  })
+}
+
+fn compute_witness_items_size(witness_items: List(WitnessItem)) -> Int {
+  list.fold(witness_items, 0, fn(size, item) {
+    let item_size =
+      item
+      |> get_witness_item_bytes
+      |> bit_array.byte_size
+
+    size + compact_size.encoded_size(item_size) + item_size
+  })
+}
+
 /// A transaction input.
 ///
 /// An input references a previous transaction output and provides the data

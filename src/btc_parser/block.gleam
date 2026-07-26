@@ -136,7 +136,7 @@ pub fn get_header_nonce(header: Header) -> Int {
 /// header, the canonical CompactSize transaction count, and every transaction
 /// serialized without its SegWit marker, flag, or witness data.
 pub fn compute_base_size(block: Block(state)) -> Int {
-  compute_block_size(block, transaction.serialize_stripped)
+  compute_block_size(block, transaction.compute_base_size)
 }
 
 /// Compute the block's BIP 141 total size in bytes.
@@ -144,19 +144,16 @@ pub fn compute_base_size(block: Block(state)) -> Int {
 /// This is the byte size of the complete canonical wire serialization produced
 /// by `serialize`, including SegWit marker, flag, and witness data.
 pub fn compute_total_size(block: Block(state)) -> Int {
-  compute_block_size(block, transaction.serialize)
+  compute_block_size(block, transaction.compute_total_size)
 }
 
 fn compute_block_size(
   block: Block(state),
-  serialize_tx: fn(Transaction(state)) -> BitArray,
+  compute_tx_size: fn(Transaction(state)) -> Int,
 ) -> Int {
   let header_size = 80
   let txs_size =
-    list.fold(block.transactions, 0, fn(acc, tx) {
-      let tx_size = bit_array.byte_size(serialize_tx(tx))
-      acc + tx_size
-    })
+    list.fold(block.transactions, 0, fn(size, tx) { size + compute_tx_size(tx) })
 
   header_size + compact_size.encoded_size(block.transaction_count) + txs_size
 }
