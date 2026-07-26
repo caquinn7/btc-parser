@@ -160,7 +160,7 @@ fn compute_block_size(
       acc + tx_size
     })
 
-  header_size + bit_array.byte_size(compact_size.write(tx_count)) + txs_size
+  header_size + compact_size.encoded_size(block.transaction_count) + txs_size
 }
 
 const witness_scale_factor = 4
