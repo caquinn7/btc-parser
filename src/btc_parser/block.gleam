@@ -160,7 +160,7 @@ fn compute_block_size(
       acc + tx_size
     })
 
-  header_size + bit_array.byte_size(compact_size.write(tx_count)) + txs_size
+  header_size + compact_size.encoded_size(block.transaction_count) + txs_size
 }
 
 const witness_scale_factor = 4
@@ -884,7 +884,7 @@ pub fn serialize(block: Block(state)) -> BitArray {
 
   <<
     serialize_header(block.header):bits,
-    compact_size.write(tx_count):bits,
+    compact_size.encode(tx_count):bits,
     tx_list_bytes:bits,
   >>
 }
