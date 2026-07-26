@@ -112,7 +112,7 @@ fn read_from(
 /// - 253-65535: 0xFD followed by 2 bytes (little-endian)
 /// - 65536-4294967295: 0xFE followed by 4 bytes (little-endian)
 /// - 4294967296+: 0xFF followed by 8 bytes (little-endian)
-pub fn write(value: Uint64) -> BitArray {
+pub fn encode(value: Uint64) -> BitArray {
   case uint64.to_int(value) {
     Ok(v) if v <= 252 -> <<v:8>>
     Ok(v) if v <= 65_535 -> <<0xFD, v:16-little>>

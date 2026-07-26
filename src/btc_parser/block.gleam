@@ -884,7 +884,7 @@ pub fn serialize(block: Block(state)) -> BitArray {
 
   <<
     serialize_header(block.header):bits,
-    compact_size.write(tx_count):bits,
+    compact_size.encode(tx_count):bits,
     tx_list_bytes:bits,
   >>
 }
