@@ -219,8 +219,8 @@ fn compute_merkle_root_loop(
       let hashes = case int.is_odd(list.length(hashes)) {
         True -> {
           let reversed = list.reverse(hashes)
-          let assert Ok(first) = list.first(reversed)
-          list.reverse([first, ..reversed])
+          let assert [last, ..] = reversed
+          list.reverse([last, ..reversed])
         }
         False -> hashes
       }
