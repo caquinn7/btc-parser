@@ -124,3 +124,21 @@ pub fn encode(value: Uint64) -> BitArray {
     }
   }
 }
+
+/// Return the size in bytes of a value's canonical CompactSize encoding.
+///
+/// The result is always 1, 3, 5, or 9. This helper determines the size without
+/// allocating the encoded `BitArray`.
+///
+/// Callers must provide a non-negative `Int` representable as a `Uint64`.
+/// PANICS on negative values.
+pub fn encoded_size(value: Int) -> Int {
+  case value {
+    _ if value < 0 ->
+      panic as "cannot compute CompactSize encoded size for a negative value"
+    _ if value <= 252 -> 1
+    _ if value <= 65_535 -> 3
+    _ if value <= 4_294_967_295 -> 5
+    _ -> 9
+  }
+}

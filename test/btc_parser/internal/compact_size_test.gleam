@@ -1,6 +1,7 @@
 import btc_parser/internal/compact_size.{NonMinimalCompactSize}
 import btc_parser/internal/fixed_int/uint64
 import btc_parser/internal/reader
+import exception
 
 // ===============================
 // Read
@@ -250,4 +251,31 @@ pub fn encode_max_ff_value_test() {
   assert uint64.to_string(input) == "18446744073709551615"
   assert compact_size.encode(input)
     == <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
+}
+
+// ===============================
+// Encoded size
+// ===============================
+
+pub fn encoded_size_returns_one_for_single_byte_range_test() {
+  assert compact_size.encoded_size(0) == 1
+  assert compact_size.encoded_size(252) == 1
+}
+
+pub fn encoded_size_returns_three_for_fd_range_test() {
+  assert compact_size.encoded_size(253) == 3
+  assert compact_size.encoded_size(65_535) == 3
+}
+
+pub fn encoded_size_returns_five_for_fe_range_test() {
+  assert compact_size.encoded_size(65_536) == 5
+  assert compact_size.encoded_size(4_294_967_295) == 5
+}
+
+pub fn encoded_size_returns_nine_at_ff_threshold_test() {
+  assert compact_size.encoded_size(4_294_967_296) == 9
+}
+
+pub fn encoded_size_panics_for_negative_value_test() {
+  let assert Error(_) = exception.rescue(fn() { compact_size.encoded_size(-1) })
 }
