@@ -179,6 +179,65 @@ pub fn compute_weight(block: Block(state)) -> Int {
   + compute_total_size(block)
 }
 
+/// Compute a block's transaction Merkle root and mutation flag.
+///
+/// Leaves are transaction IDs—not witness transaction IDs—in block order.
+/// Parent hashes are produced by double-SHA-256 hashing each adjacent pair,
+/// duplicating the final hash when a level contains an odd number of hashes.
+///
+/// The returned root is a 32-byte `BitArray` in wire-order little-endian
+/// representation. An empty transaction list produces a zero-valued 32-byte
+/// root. The Boolean is `True` when an actual pair at any level contains
+/// identical hashes before odd-node padding.
+///
+/// This function does not compare the computed root with the block header or
+/// otherwise validate the block.
+pub fn compute_merkle_root(block: Block(state)) -> #(BitArray, Bool) {
+  let txids = list.map(block.transactions, transaction.compute_txid)
+  let assert #([h], mutated) = compute_merkle_root_loop(txids, False)
+  #(h, mutated)
+}
+
+fn compute_merkle_root_loop(
+  hashes: List(BitArray),
+  mutated: Bool,
+) -> #(List(BitArray), Bool) {
+  case hashes {
+    [] -> #([<<0:256>>], False)
+    [h] -> #([h], mutated)
+    _ -> {
+      let level_mutated =
+        hashes
+        |> list.sized_chunk(2)
+        |> list.any(fn(pair) {
+          case pair {
+            [h1, h2] -> h1 == h2
+            _ -> False
+          }
+        })
+
+      let hashes = case int.is_odd(list.length(hashes)) {
+        True -> {
+          let reversed = list.reverse(hashes)
+          let assert [last, ..] = reversed
+          list.reverse([last, ..reversed])
+        }
+        False -> hashes
+      }
+
+      let hashes =
+        hashes
+        |> list.sized_chunk(2)
+        |> list.map(fn(chunk) {
+          let assert [h1, h2] = chunk
+          dsha256(bit_array.append(h1, h2))
+        })
+
+      compute_merkle_root_loop(hashes, mutated || level_mutated)
+    }
+  }
+}
+
 // ==============================================================================
 // Error handling
 // ==============================================================================
