@@ -152,10 +152,20 @@ fn compute_block_size(
   compute_tx_size: fn(Transaction(state)) -> Int,
 ) -> Int {
   let header_size = 80
-  let txs_size =
-    list.fold(block.transactions, 0, fn(size, tx) { size + compute_tx_size(tx) })
-
+  let txs_size = compute_txs_size_loop(block.transactions, compute_tx_size, 0)
   header_size + compact_size.encoded_size(block.transaction_count) + txs_size
+}
+
+fn compute_txs_size_loop(
+  txs: List(Transaction(state)),
+  compute_tx_size: fn(Transaction(state)) -> Int,
+  acc: Int,
+) -> Int {
+  case txs {
+    [] -> acc
+    [tx, ..rest] ->
+      compute_txs_size_loop(rest, compute_tx_size, acc + compute_tx_size(tx))
+  }
 }
 
 const witness_scale_factor = 4
@@ -170,13 +180,16 @@ const witness_scale_factor = 4
 /// maximum.
 pub fn compute_weight(block: Block(state)) -> Int {
   let non_tx_size = 80 + compact_size.encoded_size(block.transaction_count)
-
-  let txs_weight =
-    list.fold(block.transactions, 0, fn(weight, tx) {
-      weight + transaction.compute_weight(tx)
-    })
-
+  let txs_weight = compute_txs_weight_loop(block.transactions, 0)
   non_tx_size * witness_scale_factor + txs_weight
+}
+
+fn compute_txs_weight_loop(txs: List(Transaction(state)), acc: Int) -> Int {
+  case txs {
+    [] -> acc
+    [tx, ..rest] ->
+      compute_txs_weight_loop(rest, acc + transaction.compute_weight(tx))
+  }
 }
 
 /// Compute a block's transaction Merkle root and mutation flag.
