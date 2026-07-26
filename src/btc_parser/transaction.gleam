@@ -201,7 +201,7 @@ pub fn get_witnesses(
 /// This calculation measures the existing transaction fields without allocating
 /// a serialized `BitArray`.
 pub fn compute_base_size(tx: Transaction(state)) -> Int {
-  // literal 4 for version and locktime
+  // literal 4 for version and locktime byte-sizes
   4
   + compact_size.encoded_size(tx.input_count)
   + compute_inputs_stripped_size(tx.inputs)
@@ -223,8 +223,29 @@ pub fn compute_total_size(tx: Transaction(state)) -> Int {
   case tx {
     Legacy(..) -> compute_base_size(tx)
     Segwit(witnesses:, ..) ->
-      // literal 2 for segwit marker and flag
+      // literal 2 for segwit marker and flag bytes
       compute_base_size(tx) + 2 + compute_witnesses_size(witnesses)
+  }
+}
+
+/// Compute the transaction's BIP 141 weight in weight units.
+///
+/// Weight is calculated as `base_size * 3 + total_size`. Equivalently, each
+/// byte in the stripped serialization contributes four weight units and each
+/// byte present only in the complete serialization contributes one.
+///
+/// This calculation measures the existing transaction fields without allocating
+/// a serialized `BitArray` or measuring the base fields more than once.
+///
+/// This function only measures the transaction. It does not enforce the
+/// enclosing block's consensus weight limit.
+pub fn compute_weight(tx: Transaction(state)) -> Int {
+  let base_size = compute_base_size(tx)
+  case tx {
+    Legacy(..) -> base_size * 4
+    Segwit(witnesses:, ..) ->
+      // Marker, flag, and witness bytes each contribute one weight unit.
+      base_size * 4 + 2 + compute_witnesses_size(witnesses)
   }
 }
 

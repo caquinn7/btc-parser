@@ -169,9 +169,14 @@ const witness_scale_factor = 4
 /// This function only measures the block; it does not enforce the consensus
 /// maximum.
 pub fn compute_weight(block: Block(state)) -> Int {
-  compute_base_size(block)
-  * { witness_scale_factor - 1 }
-  + compute_total_size(block)
+  let non_tx_size = 80 + compact_size.encoded_size(block.transaction_count)
+
+  let txs_weight =
+    list.fold(block.transactions, 0, fn(weight, tx) {
+      weight + transaction.compute_weight(tx)
+    })
+
+  non_tx_size * witness_scale_factor + txs_weight
 }
 
 /// Compute a block's transaction Merkle root and mutation flag.
