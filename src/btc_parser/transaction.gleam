@@ -2031,12 +2031,14 @@ pub type ConsensusViolation {
   /// Transactions with zero outputs are invalid under consensus rules.
   NoOutputs
 
-  /// The stripped transaction serialization exceeded the consensus size limit.
+  /// The stripped transaction serialization exceeded Bitcoin Core's
+  /// context-independent transaction base-size limit.
   ///
   /// The contained value is the measured base size in bytes: version,
   /// CompactSize counts and script lengths, inputs, outputs, and lock time.
-  /// SegWit marker, flag, and witness bytes do not count. The consensus maximum
-  /// is 1,000,000 bytes.
+  /// The maximum is 1,000,000 bytes. SegWit marker, flag, and witness bytes are
+  /// excluded from this transaction-level check but contribute to the separate
+  /// 4,000,000-WU block-weight limit.
   BaseSizeLimitExceeded(Int)
 
   /// An output value is outside the valid money range.
@@ -2095,16 +2097,18 @@ pub type ConsensusViolation {
 /// "Context-free" means these checks require only the transaction itself —
 /// no UTXO set, no block context, and no knowledge of other transactions.
 ///
-/// This function enforces a subset of the checks performed by fully
-/// validating Bitcoin nodes: the structural and monetary rules that can
-/// be evaluated from the transaction alone.
+/// This function enforces all Bitcoin consensus rules that apply to an
+/// individual transaction and can be evaluated without UTXO, script-execution,
+/// block, or chain context.
 ///
 /// The following consensus rules are enforced:
 ///
 ///   - At least one input
 ///   - At least one output
-///   - Stripped serialization is at most 1,000,000 bytes (excluding SegWit
-///     marker, flag, and witness data)
+///   - Base (stripped) serialization is at most 1,000,000 bytes, matching
+///     Bitcoin Core's transaction-level check. SegWit marker, flag, and witness
+///     bytes are excluded from this check but contribute to the enclosing
+///     block's separate 4,000,000-WU weight limit.
 ///   - Output values are between 0 and 2,100,000,000,000,000 satoshis
 ///   - Cumulative output value does not exceed 2,100,000,000,000,000 satoshis
 ///   - Coinbase transactions contain exactly one input
@@ -2112,7 +2116,8 @@ pub type ConsensusViolation {
 ///   - No two inputs reference the same previous output
 ///
 /// Context-dependent checks — script execution, signature verification,
-/// and input-spend validation against the UTXO set — are not performed.
+/// input-spend validation against the UTXO set, and block-level rules — are not
+/// performed.
 ///
 /// ## Returns
 ///
