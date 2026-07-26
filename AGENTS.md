@@ -36,7 +36,7 @@ changes.
   errors into domain-owned decode errors and converts exact unsigned 64-bit
   values to target-safe `Int`s.
 - `src/btc_parser/internal/compact_size.gleam` handles Bitcoin CompactSize
-  read/write, including minimal-encoding checks.
+  read/encode, including minimal-encoding checks.
 - `src/btc_parser/internal/fixed_int/*.gleam` stores signed/unsigned 64-bit
   values as little-endian bytes so values remain exact on JavaScript.
 - `src/btc_parser/internal/hash32.gleam` stores 32-byte hashes in wire-order

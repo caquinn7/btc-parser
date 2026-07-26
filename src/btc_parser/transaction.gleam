@@ -2248,9 +2248,9 @@ pub fn serialize_stripped(tx: Transaction(state)) -> BitArray {
 
   <<
     tx.version:32-little,
-    compact_size.write(input_count):bits,
+    compact_size.encode(input_count):bits,
     serialize_inputs(tx.inputs):bits,
-    compact_size.write(output_count):bits,
+    compact_size.encode(output_count):bits,
     serialize_outputs(tx.outputs):bits,
     tx.lock_time:32-little,
   >>
@@ -2292,9 +2292,9 @@ pub fn serialize(tx: Transaction(state)) -> BitArray {
   <<
     tx.version:32-little,
     segwit_marker_and_flag:bits,
-    compact_size.write(input_count):bits,
+    compact_size.encode(input_count):bits,
     serialize_inputs(tx.inputs):bits,
-    compact_size.write(output_count):bits,
+    compact_size.encode(output_count):bits,
     serialize_outputs(tx.outputs):bits,
     witnesses:bits,
     tx.lock_time:32-little,
@@ -2316,7 +2316,7 @@ fn serialize_input(input: Input) -> BitArray {
       |> get_script_size
       |> uint64.from_int
 
-    compact_size.write(script_sig_length)
+    compact_size.encode(script_sig_length)
   }
 
   <<
@@ -2349,7 +2349,7 @@ fn serialize_output(output: Output) -> BitArray {
       |> get_script_size
       |> uint64.from_int
 
-    compact_size.write(script_pubkey_length)
+    compact_size.encode(script_pubkey_length)
   }
 
   <<
@@ -2371,7 +2371,7 @@ fn serialize_witness(stack: WitnessStack) -> BitArray {
   let assert Ok(item_count) = uint64.from_int(stack.item_count)
 
   <<
-    compact_size.write(item_count):bits,
+    compact_size.encode(item_count):bits,
     serialize_witness_items(stack.items):bits,
   >>
 }
@@ -2391,7 +2391,7 @@ fn serialize_witness_item(witness_item: WitnessItem) -> BitArray {
     |> uint64.from_int
 
   <<
-    compact_size.write(item_length):bits,
+    compact_size.encode(item_length):bits,
     witness_item_bytes:bits,
   >>
 }

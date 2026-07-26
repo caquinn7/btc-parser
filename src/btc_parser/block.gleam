@@ -152,15 +152,13 @@ fn compute_block_size(
   serialize_tx: fn(Transaction(state)) -> BitArray,
 ) -> Int {
   let header_size = 80
-  let assert Ok(tx_count) = uint64.from_int(block.transaction_count)
-
   let txs_size =
     list.fold(block.transactions, 0, fn(acc, tx) {
       let tx_size = bit_array.byte_size(serialize_tx(tx))
       acc + tx_size
     })
 
-  header_size + bit_array.byte_size(compact_size.write(tx_count)) + txs_size
+  header_size + compact_size.encoded_size(block.transaction_count) + txs_size
 }
 
 const witness_scale_factor = 4
@@ -884,7 +882,7 @@ pub fn serialize(block: Block(state)) -> BitArray {
 
   <<
     serialize_header(block.header):bits,
-    compact_size.write(tx_count):bits,
+    compact_size.encode(tx_count):bits,
     tx_list_bytes:bits,
   >>
 }

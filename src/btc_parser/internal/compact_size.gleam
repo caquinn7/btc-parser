@@ -112,7 +112,7 @@ fn read_from(
 /// - 253-65535: 0xFD followed by 2 bytes (little-endian)
 /// - 65536-4294967295: 0xFE followed by 4 bytes (little-endian)
 /// - 4294967296+: 0xFF followed by 8 bytes (little-endian)
-pub fn write(value: Uint64) -> BitArray {
+pub fn encode(value: Uint64) -> BitArray {
   case uint64.to_int(value) {
     Ok(v) if v <= 252 -> <<v:8>>
     Ok(v) if v <= 65_535 -> <<0xFD, v:16-little>>
@@ -122,5 +122,23 @@ pub fn write(value: Uint64) -> BitArray {
       let bytes = uint64.to_bytes_le(value)
       <<0xFF, bytes:bits>>
     }
+  }
+}
+
+/// Return the size in bytes of a value's canonical CompactSize encoding.
+///
+/// The result is always 1, 3, 5, or 9. This helper determines the size without
+/// allocating the encoded `BitArray`.
+///
+/// Callers must provide a non-negative `Int` representable as a `Uint64`.
+/// PANICS on negative values.
+pub fn encoded_size(value: Int) -> Int {
+  case value {
+    _ if value < 0 ->
+      panic as "cannot compute CompactSize encoded size for a negative value"
+    _ if value <= 252 -> 1
+    _ if value <= 65_535 -> 3
+    _ if value <= 4_294_967_295 -> 5
+    _ -> 9
   }
 }
