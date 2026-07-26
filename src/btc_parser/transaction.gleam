@@ -2031,6 +2031,16 @@ pub type ConsensusViolation {
   /// Transactions with zero outputs are invalid under consensus rules.
   NoOutputs
 
+  /// The stripped transaction serialization exceeded Bitcoin Core's
+  /// context-independent transaction base-size limit.
+  ///
+  /// The contained value is the measured base size in bytes: version,
+  /// CompactSize counts and script lengths, inputs, outputs, and lock time.
+  /// The maximum is 1,000,000 bytes. SegWit marker, flag, and witness bytes are
+  /// excluded from this transaction-level check but contribute to the separate
+  /// 4,000,000-WU block-weight limit.
+  BaseSizeLimitExceeded(Int)
+
   /// An output value is outside the valid money range.
   ///
   /// Consensus requires each output value to satisfy:
@@ -2087,14 +2097,18 @@ pub type ConsensusViolation {
 /// "Context-free" means these checks require only the transaction itself —
 /// no UTXO set, no block context, and no knowledge of other transactions.
 ///
-/// This function enforces a subset of the checks performed by fully
-/// validating Bitcoin nodes: the structural and monetary rules that can
-/// be evaluated from the transaction alone.
+/// This function enforces all Bitcoin consensus rules that apply to an
+/// individual transaction and can be evaluated without UTXO, script-execution,
+/// block, or chain context.
 ///
 /// The following consensus rules are enforced:
 ///
 ///   - At least one input
 ///   - At least one output
+///   - Base (stripped) serialization is at most 1,000,000 bytes, matching
+///     Bitcoin Core's transaction-level check. SegWit marker, flag, and witness
+///     bytes are excluded from this check but contribute to the enclosing
+///     block's separate 4,000,000-WU weight limit.
 ///   - Output values are between 0 and 2,100,000,000,000,000 satoshis
 ///   - Cumulative output value does not exceed 2,100,000,000,000,000 satoshis
 ///   - Coinbase transactions contain exactly one input
@@ -2102,7 +2116,8 @@ pub type ConsensusViolation {
 ///   - No two inputs reference the same previous output
 ///
 /// Context-dependent checks — script execution, signature verification,
-/// and input-spend validation against the UTXO set — are not performed.
+/// input-spend validation against the UTXO set, and block-level rules — are not
+/// performed.
 ///
 /// ## Returns
 ///
@@ -2117,6 +2132,7 @@ pub fn validate_context_free_consensus(
   let validators = [
     validate_at_least_one_input,
     validate_at_least_one_output,
+    validate_stripped_size,
     validate_output_values,
     validate_coinbase_structure,
     validate_coinbase_script_sig_length,
@@ -2162,6 +2178,18 @@ fn validate_at_least_one_output(
   case tx.outputs {
     [] -> Error(NoOutputs)
     _ -> Ok(Nil)
+  }
+}
+
+fn validate_stripped_size(
+  tx: Transaction(Parsed),
+) -> Result(Nil, ConsensusViolation) {
+  let size = compute_base_size(tx)
+  let max_stripped_tx_size = 1_000_000
+
+  case size > max_stripped_tx_size {
+    True -> Error(BaseSizeLimitExceeded(size))
+    False -> Ok(Nil)
   }
 }
 

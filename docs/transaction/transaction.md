@@ -15,8 +15,11 @@ transactions while preserving Bitcoin's wire representation.
 - **Script classification**: Structurally identify P2PKH, P2SH, P2WPKH, P2WSH,
   P2TR, and other output script templates.
 - **Context-free consensus validation**: Check transaction-local rules such as
-  input/output presence, output value ranges, coinbase structure, and duplicate
-  inputs.
+  input/output presence, Bitcoin Core's transaction base-size check (at most
+  1,000,000 stripped bytes, excluding witness data), output value ranges,
+  coinbase structure, and duplicate inputs. Witness data excluded by that
+  base-size check still contributes to the separate 4,000,000-WU block-weight
+  limit.
 - **Validation-aware API**: Phantom types distinguish parsed transactions from
   transactions that passed context-free consensus validation.
 - **Serialization and identifiers**: Produce stripped or full wire bytes and
