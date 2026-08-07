@@ -1,5 +1,5 @@
 import btc_parser/internal/fixed_int/uint256.{type Uint256}
-import btc_parser/internal/hash32.{type Hash32}
+import btc_parser/internal/hash256.{type Hash256}
 import gleam/bit_array
 import gleam/bool
 import gleam/int
@@ -228,12 +228,12 @@ pub fn compare(target: PowTarget, pow_limit: PowTarget) -> Order {
 /// The hash and target are compared as unsigned 256-bit integers. A hash
 /// satisfies the target when its numeric value is less than or equal to the
 /// target.
-pub fn is_satisfied_by(target: PowTarget, block_hash: Hash32) -> Bool {
+pub fn is_satisfied_by(target: PowTarget, block_hash: Hash256) -> Bool {
   let PowTarget(target) = target
 
   let order =
     compare_bytes_from_most_significant(
-      hash32.to_bytes_le(block_hash),
+      hash256.to_bytes_le(block_hash),
       uint256.to_bytes_le(target),
       31,
     )
@@ -252,7 +252,7 @@ fn compare_bytes_from_most_significant(
   case byte_index < 0 {
     True -> Eq
     False -> {
-      // `Uint256` and `Hash32` guarantee that their byte representations
+      // `Uint256` and `Hash256` guarantee that their byte representations
       // contain exactly 32 bytes, so these slices are in bounds while
       // `byte_index` is nonnegative.
       let assert Ok(<<left_byte>>) = bit_array.slice(left, byte_index, 1)

@@ -4,7 +4,7 @@ import btc_parser/internal/compact_size
 import btc_parser/internal/decode
 import btc_parser/internal/fixed_int/int64
 import btc_parser/internal/fixed_int/uint64.{type Uint64}
-import btc_parser/internal/hash32.{type Hash32}
+import btc_parser/internal/hash256.{type Hash256}
 import btc_parser/internal/lifecycle
 import btc_parser/internal/parser.{type Parser}
 import btc_parser/internal/reader.{type Reader}
@@ -542,7 +542,7 @@ pub opaque type OutPoint {
   NullOutPoint
 
   /// A reference to a specific output of a previous transaction.
-  OutPoint(txid: Hash32, vout: Int)
+  OutPoint(txid: Hash256, vout: Int)
 }
 
 /// Get the transaction ID from an outpoint.
@@ -552,7 +552,7 @@ pub opaque type OutPoint {
 pub fn get_outpoint_txid(outpoint: OutPoint) -> BitArray {
   case outpoint {
     NullOutPoint -> <<0:256>>
-    OutPoint(txid:, ..) -> hash32.to_bytes_le(txid)
+    OutPoint(txid:, ..) -> hash256.to_bytes_le(txid)
   }
 }
 
@@ -1824,8 +1824,8 @@ fn outpoint_parser() -> Parser(ParseContext, OutPoint, DecodeError) {
 
         _, _ -> {
           // Safe: read_bytes(_, 32) guarantees exactly 32 bytes on success
-          let assert Ok(hash32) = hash32.from_bytes_le(outpoint_txid_bytes)
-          OutPoint(hash32, vout)
+          let assert Ok(hash256) = hash256.from_bytes_le(outpoint_txid_bytes)
+          OutPoint(hash256, vout)
         }
       }
     },
