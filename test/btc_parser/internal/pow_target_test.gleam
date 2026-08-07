@@ -1,6 +1,6 @@
 import btc_parser/internal/hash32.{type Hash32}
 import btc_parser/internal/pow_target.{
-  type PowTarget, InvalidByteCount, NegativeTarget, Overflow, ZeroTarget,
+  type PowTarget, InvalidBitCount, NegativeTarget, Overflow, ZeroTarget,
 }
 import gleam/bit_array
 import gleam/list
@@ -8,15 +8,21 @@ import gleam/order.{Eq, Gt, Lt}
 
 // from_bytes_le
 
-pub fn from_bytes_le_rejects_incorrect_byte_counts_test() {
+pub fn from_bytes_le_reports_incorrect_bit_counts_test() {
   assert pow_target.from_bytes_le(<<>>)
-    == Error(InvalidByteCount(actual: 0, expected: 32))
+    == Error(InvalidBitCount(actual: 0, expected: 256))
 
   assert pow_target.from_bytes_le(<<0:size({ 31 * 8 })>>)
-    == Error(InvalidByteCount(actual: 31, expected: 32))
+    == Error(InvalidBitCount(actual: 248, expected: 256))
+
+  assert pow_target.from_bytes_le(<<0:255>>)
+    == Error(InvalidBitCount(actual: 255, expected: 256))
+
+  assert pow_target.from_bytes_le(<<0:257>>)
+    == Error(InvalidBitCount(actual: 257, expected: 256))
 
   assert pow_target.from_bytes_le(<<0:size({ 33 * 8 })>>)
-    == Error(InvalidByteCount(actual: 33, expected: 32))
+    == Error(InvalidBitCount(actual: 264, expected: 256))
 }
 
 pub fn from_bytes_le_rejects_zero_target_test() {
@@ -205,15 +211,21 @@ pub fn is_satisfied_by_accepts_mainnet_genesis_hash_test() {
 
 // from_compact_encoding
 
-pub fn from_compact_encoding_rejects_incorrect_byte_counts_test() {
+pub fn from_compact_encoding_reports_incorrect_bit_counts_test() {
   assert pow_target.from_compact_encoding(<<>>)
-    == Error(InvalidByteCount(actual: 0, expected: 4))
+    == Error(InvalidBitCount(actual: 0, expected: 32))
 
   assert pow_target.from_compact_encoding(<<0:24>>)
-    == Error(InvalidByteCount(actual: 3, expected: 4))
+    == Error(InvalidBitCount(actual: 24, expected: 32))
+
+  assert pow_target.from_compact_encoding(<<0:31>>)
+    == Error(InvalidBitCount(actual: 31, expected: 32))
+
+  assert pow_target.from_compact_encoding(<<0:33>>)
+    == Error(InvalidBitCount(actual: 33, expected: 32))
 
   assert pow_target.from_compact_encoding(<<0:40>>)
-    == Error(InvalidByteCount(actual: 5, expected: 4))
+    == Error(InvalidBitCount(actual: 40, expected: 32))
 }
 
 pub fn from_compact_encoding_rejects_zero_coefficient_test() {
