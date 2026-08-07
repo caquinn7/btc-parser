@@ -47,7 +47,8 @@ pub fn from_bytes_le(bytes: BitArray) -> Result(PowTarget, ConstructionError) {
   |> uint256.from_bytes_le
   |> result.map_error(fn(err) {
     case err {
-      uint256.InvalidByteCount(count) -> InvalidByteCount(count, 32)
+      uint256.InvalidByteCount(count) ->
+        InvalidByteCount(count, target_byte_count)
     }
   })
   |> result.try(from_uint256)
