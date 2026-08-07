@@ -3,7 +3,7 @@
 import btc_parser/internal/compact_size
 import btc_parser/internal/decode
 import btc_parser/internal/fixed_int/uint64.{type Uint64}
-import btc_parser/internal/hash32.{type Hash32}
+import btc_parser/internal/hash256.{type Hash256}
 import btc_parser/internal/lifecycle
 import btc_parser/internal/parser.{type Parser}
 import btc_parser/internal/pow_target.{type PowTarget}
@@ -59,9 +59,9 @@ pub opaque type Header {
     /// The signed 32-bit block version.
     version: Int,
     /// The previous block header hash in wire-order little-endian bytes.
-    previous_block_hash: Hash32,
+    previous_block_hash: Hash256,
     /// The transaction merkle root in wire-order little-endian bytes.
-    merkle_root: Hash32,
+    merkle_root: Hash256,
     /// The unsigned 32-bit block timestamp, in seconds since the Unix epoch.
     timestamp: Int,
     /// The unsigned 32-bit compact encoding (`nBits`) of the proof-of-work target.
@@ -105,13 +105,13 @@ pub fn get_header_version(header: Header) -> Int {
 /// Get the previous block header hash in its 32-byte wire-order little-endian
 /// representation.
 pub fn get_header_previous_block_hash(header: Header) -> BitArray {
-  hash32.to_bytes_le(header.previous_block_hash)
+  hash256.to_bytes_le(header.previous_block_hash)
 }
 
 /// Get the transaction merkle root in its 32-byte wire-order little-endian
 /// representation.
 pub fn get_header_merkle_root(header: Header) -> BitArray {
-  hash32.to_bytes_le(header.merkle_root)
+  hash256.to_bytes_le(header.merkle_root)
 }
 
 /// Get the unsigned 32-bit timestamp from a block header.
@@ -700,8 +700,8 @@ fn end_of_block_parser() -> Parser(ParseContext, Nil, DecodeError) {
 
 fn header_parser() -> Parser(ParseContext, Header, DecodeError) {
   use version <- parser.then(field_parser(Version, reader.read_i32_le))
-  use previous_block_hash <- parser.then(hash32_parser(PreviousBlockHash))
-  use merkle_root <- parser.then(hash32_parser(MerkleRoot))
+  use previous_block_hash <- parser.then(hash256_parser(PreviousBlockHash))
+  use merkle_root <- parser.then(hash256_parser(MerkleRoot))
   use timestamp <- parser.then(field_parser(Timestamp, reader.read_u32_le))
   use target <- parser.then(field_parser(Target, reader.read_u32_le))
   use nonce <- parser.then(field_parser(Nonce, reader.read_u32_le))
@@ -851,14 +851,14 @@ fn compact_size_int_parser(
 }
 
 /// Construct a parser for a 32-byte hash field, preserving Bitcoin wire order.
-fn hash32_parser(
+fn hash256_parser(
   field: ParseField,
-) -> Parser(ParseContext, Hash32, DecodeError) {
+) -> Parser(ParseContext, Hash256, DecodeError) {
   field
   |> field_parser(reader.read_bytes(_, 32))
   |> parser.map(fn(bytes) {
-    let assert Ok(hash32) = hash32.from_bytes_le(bytes)
-    hash32
+    let assert Ok(hash256) = hash256.from_bytes_le(bytes)
+    hash256
   })
 }
 
@@ -1093,7 +1093,7 @@ fn validate_proof_of_work(
   let assert Ok(block_hash) =
     block
     |> compute_block_hash
-    |> hash32.from_bytes_le
+    |> hash256.from_bytes_le
 
   case pow_target.is_satisfied_by(target, block_hash) {
     True -> Ok(Nil)
@@ -1167,7 +1167,7 @@ fn validate_weight(block: Block(Parsed)) -> Result(Nil, ConsensusViolation) {
 fn validate_merkle_root(
   block: Block(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
-  let header_merkle_root = hash32.to_bytes_le(block.header.merkle_root)
+  let header_merkle_root = hash256.to_bytes_le(block.header.merkle_root)
   let #(computed_merkle_root, mutated) = compute_merkle_root(block)
 
   case computed_merkle_root == header_merkle_root {
@@ -1345,8 +1345,8 @@ pub fn serialize(block: Block(state)) -> BitArray {
 pub fn serialize_header(header: Header) -> BitArray {
   <<
     header.version:32-little,
-    hash32.to_bytes_le(header.previous_block_hash):bits,
-    hash32.to_bytes_le(header.merkle_root):bits,
+    hash256.to_bytes_le(header.previous_block_hash):bits,
+    hash256.to_bytes_le(header.merkle_root):bits,
     header.timestamp:32-little,
     header.target:32-little,
     header.nonce:32-little,

@@ -1,4 +1,4 @@
-import btc_parser/internal/hash32.{type Hash32}
+import btc_parser/internal/hash256.{type Hash256}
 import btc_parser/internal/pow_target.{
   type PowTarget, InvalidBitCount, NegativeTarget, Overflow, ZeroTarget,
 }
@@ -123,44 +123,44 @@ pub fn compare_orders_mainnet_genesis_target_below_mainnet_pow_limit_test() {
 
 pub fn is_satisfied_by_accepts_zero_hash_for_smallest_nonzero_target_test() {
   let target = pow_target_from_bytes_le(<<0x01, 0:248>>)
-  let zero_hash = hash32_from_bytes_le(<<0:256>>)
+  let zero_hash = hash256_from_bytes_le(<<0:256>>)
 
   assert pow_target.is_satisfied_by(target, zero_hash)
 }
 
 pub fn is_satisfied_by_accepts_hash_below_target_test() {
   let target = pow_target_from_bytes_le(<<0x03, 0:248>>)
-  let hash = hash32_from_bytes_le(<<0x02, 0:248>>)
+  let hash = hash256_from_bytes_le(<<0x02, 0:248>>)
 
   assert pow_target.is_satisfied_by(target, hash)
 }
 
 pub fn is_satisfied_by_accepts_hash_equal_to_target_test() {
   let target = pow_target_from_bytes_le(<<0x34, 0x12, 0:240>>)
-  let hash = hash32_from_bytes_le(<<0x34, 0x12, 0:240>>)
+  let hash = hash256_from_bytes_le(<<0x34, 0x12, 0:240>>)
 
   assert pow_target.is_satisfied_by(target, hash)
 }
 
 pub fn is_satisfied_by_rejects_hash_one_greater_than_target_test() {
   let target = pow_target_from_bytes_le(<<0x01, 0:248>>)
-  let hash = hash32_from_bytes_le(<<0x02, 0:248>>)
+  let hash = hash256_from_bytes_le(<<0x02, 0:248>>)
 
   assert !pow_target.is_satisfied_by(target, hash)
 }
 
 pub fn is_satisfied_by_prioritizes_more_significant_hash_bytes_test() {
   let target = pow_target_from_bytes_le(<<0xFF, 0x01, 0:240>>)
-  let hash = hash32_from_bytes_le(<<0x00, 0x02, 0:240>>)
+  let hash = hash256_from_bytes_le(<<0x00, 0x02, 0:240>>)
 
   assert !pow_target.is_satisfied_by(target, hash)
 }
 
 pub fn is_satisfied_by_treats_bit_255_as_unsigned_test() {
   let upper_half_target = pow_target_from_bytes_le(<<0x00, 0:240, 0x80>>)
-  let lower_half_hash = hash32_from_bytes_le(<<0xFF, 0:240, 0x7F>>)
+  let lower_half_hash = hash256_from_bytes_le(<<0xFF, 0:240, 0x7F>>)
   let lower_half_target = pow_target_from_bytes_le(<<0xFF, 0:240, 0x7F>>)
-  let upper_half_hash = hash32_from_bytes_le(<<0x00, 0:240, 0x80>>)
+  let upper_half_hash = hash256_from_bytes_le(<<0x00, 0:240, 0x80>>)
 
   assert pow_target.is_satisfied_by(upper_half_target, lower_half_hash)
   assert !pow_target.is_satisfied_by(lower_half_target, upper_half_hash)
@@ -171,7 +171,7 @@ pub fn is_satisfied_by_accepts_mainnet_genesis_hash_test() {
     pow_target.from_compact_encoding(<<0xFF, 0xFF, 0x00, 0x1D>>)
 
   let genesis_hash =
-    hash32_from_bytes_le(<<
+    hash256_from_bytes_le(<<
       0x6F,
       0xE2,
       0x8C,
@@ -351,7 +351,7 @@ fn pow_target_from_bytes_le(bytes: BitArray) -> PowTarget {
   target
 }
 
-fn hash32_from_bytes_le(bytes: BitArray) -> Hash32 {
-  let assert Ok(hash) = hash32.from_bytes_le(bytes)
+fn hash256_from_bytes_le(bytes: BitArray) -> Hash256 {
+  let assert Ok(hash) = hash256.from_bytes_le(bytes)
   hash
 }

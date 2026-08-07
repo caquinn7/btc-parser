@@ -42,7 +42,7 @@ changes.
 - `src/btc_parser/internal/fixed_int/*.gleam` stores signed and unsigned
   fixed-width values, including 64-bit and 256-bit integers, as little-endian
   bytes so values remain exact on JavaScript.
-- `src/btc_parser/internal/hash32.gleam` stores 32-byte hashes in wire-order
+- `src/btc_parser/internal/hash256.gleam` stores 256-bit hashes in wire-order
   little-endian bytes for transaction identifiers, block-header hashes, and
   merkle roots.
 - `src/btc_parser/internal/pow_target.gleam` expands compact target encodings,
