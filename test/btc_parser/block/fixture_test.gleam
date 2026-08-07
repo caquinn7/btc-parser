@@ -1,4 +1,4 @@
-import btc_parser/block
+import btc_parser/block.{type PowLimit}
 import btc_parser/transaction.{type Transaction}
 import gleam/bit_array
 import gleam/list
@@ -11,6 +11,8 @@ type FixtureExpectation {
     file_name: String,
     display_block_hash_hex: String,
     byte_length: Int,
+    base_size: Int,
+    weight: Int,
     version: Int,
     previous_block_hash_hex: String,
     merkle_root_hex: String,
@@ -26,6 +28,8 @@ const mainnet_0_fixture = FixtureExpectation(
   file_name: "mainnet-0.hex",
   display_block_hash_hex: "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
   byte_length: 285,
+  base_size: 285,
+  weight: 1140,
   version: 1,
   previous_block_hash_hex: "0000000000000000000000000000000000000000000000000000000000000000",
   merkle_root_hex: "3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a",
@@ -40,6 +44,8 @@ const mainnet_170_fixture = FixtureExpectation(
   file_name: "mainnet-170.hex",
   display_block_hash_hex: "00000000d1145790a8694403d4063f323d499e655c83426834d4ce2f8dd4a2ee",
   byte_length: 490,
+  base_size: 490,
+  weight: 1960,
   version: 1,
   previous_block_hash_hex: "55bd840a78798ad0da853f68974f3d183e2bd1db6a842c1feecf222a00000000",
   merkle_root_hex: "ff104ccb05421ab93e63f8c3ce5c2c2e9dbb37de2764b3a3175c8166562cac7d",
@@ -54,6 +60,8 @@ const mainnet_519311_fixture = FixtureExpectation(
   file_name: "mainnet-519311.hex",
   display_block_hash_hex: "0000000000000000001381004f0bf7b0578189d6853cd8af5098994095213e38",
   byte_length: 22_884,
+  base_size: 15_613,
+  weight: 69_723,
   version: 536_870_912,
   previous_block_hash_hex: "90e82ac51d6b37446dc3e6ade48e387a46bcc0b454e126000000000000000000",
   merkle_root_hex: "1ca2e4bd9b9a855e21e53f9b238a6a0065ec8d4417d8140ce3354159c583ea69",
@@ -76,24 +84,13 @@ pub fn deserialize_mainnet_519311_fixture_test() {
   assert_fixture_deserializes(mainnet_519311_fixture)
 }
 
-pub fn compute_sizes_mainnet_519311_known_vector_test() {
-  let assert Ok(fixture_hex) =
-    simplifile.read("test/btc_parser/block/fixtures/mainnet-519311.hex")
-  let assert Ok(block) =
-    fixture_hex
-    |> string.trim
-    |> block.deserialize_hex
-
-  assert block.compute_base_size(block) == 15_613
-  assert block.compute_total_size(block) == 22_884
-  assert block.compute_weight(block) == 69_723
-}
-
 fn assert_fixture_deserializes(expectation: FixtureExpectation) -> Nil {
   let FixtureExpectation(
     file_name:,
     display_block_hash_hex: _,
     byte_length: expected_byte_length,
+    base_size: _,
+    weight: _,
     version: expected_version,
     previous_block_hash_hex:,
     merkle_root_hex:,
@@ -145,6 +142,76 @@ fn count_transaction_encodings(
       False -> #(legacy_count + 1, segwit_count)
     }
   })
+}
+
+pub fn compute_sizes_mainnet_0_known_vector_test() {
+  assert_fixture_sizes(mainnet_0_fixture)
+}
+
+pub fn compute_sizes_mainnet_170_known_vector_test() {
+  assert_fixture_sizes(mainnet_170_fixture)
+}
+
+pub fn compute_sizes_mainnet_519311_known_vector_test() {
+  assert_fixture_sizes(mainnet_519311_fixture)
+}
+
+fn assert_fixture_sizes(expectation: FixtureExpectation) -> Nil {
+  let assert Ok(fixture_hex) =
+    simplifile.read("test/btc_parser/block/fixtures/" <> expectation.file_name)
+  let assert Ok(block) =
+    fixture_hex
+    |> string.trim
+    |> block.deserialize_hex
+
+  assert block.compute_base_size(block) == expectation.base_size
+  assert block.compute_total_size(block) == expectation.byte_length
+  assert block.compute_weight(block) == expectation.weight
+}
+
+pub fn validate_context_free_consensus_accepts_mainnet_0_test() {
+  assert_fixture_passes_context_free_consensus(mainnet_0_fixture)
+}
+
+pub fn validate_context_free_consensus_accepts_mainnet_170_test() {
+  assert_fixture_passes_context_free_consensus(mainnet_170_fixture)
+}
+
+pub fn validate_context_free_consensus_accepts_mainnet_519311_test() {
+  // Block 519311 contains 33 transactions, so validating its Merkle root exercises
+  // Bitcoin's rule of duplicating the final hash at odd-width tree levels.
+  assert_fixture_passes_context_free_consensus(mainnet_519311_fixture)
+}
+
+fn assert_fixture_passes_context_free_consensus(
+  expectation: FixtureExpectation,
+) -> Nil {
+  let assert Ok(fixture_hex) =
+    simplifile.read("test/btc_parser/block/fixtures/" <> expectation.file_name)
+  let assert Ok(parsed_block) =
+    fixture_hex
+    |> string.trim
+    |> block.deserialize_hex
+
+  assert block.get_transaction_count(parsed_block)
+    == expectation.legacy_tx_count + expectation.segwit_tx_count
+
+  let assert Ok(_) =
+    block.validate_context_free_consensus(parsed_block, mainnet_pow_limit())
+
+  Nil
+}
+
+fn mainnet_pow_limit() -> PowLimit {
+  let least_significant_bytes =
+    list.repeat(<<0xFF>>, 28)
+    |> bit_array.concat
+
+  let assert Ok(pow_limit) =
+    <<least_significant_bytes:bits, 0:32>>
+    |> block.new_pow_limit
+
+  pow_limit
 }
 
 pub fn compute_block_hash_mainnet_0_known_vector_test() {

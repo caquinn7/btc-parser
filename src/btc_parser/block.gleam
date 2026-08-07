@@ -1,4 +1,4 @@
-//// Deserialize, inspect, and serialize Bitcoin blocks.
+//// Deserialize, inspect, validate, and serialize Bitcoin blocks.
 
 import btc_parser/internal/compact_size
 import btc_parser/internal/decode
@@ -6,6 +6,7 @@ import btc_parser/internal/fixed_int/uint64.{type Uint64}
 import btc_parser/internal/hash32.{type Hash32}
 import btc_parser/internal/lifecycle
 import btc_parser/internal/parser.{type Parser}
+import btc_parser/internal/pow_target.{type PowTarget}
 import btc_parser/internal/reader.{type Reader}
 import btc_parser/transaction.{type Transaction}
 import gleam/bit_array
@@ -13,6 +14,7 @@ import gleam/bool
 import gleam/crypto.{Sha256}
 import gleam/int
 import gleam/list
+import gleam/order.{Eq, Gt, Lt}
 import gleam/pair
 import gleam/result
 
@@ -25,6 +27,13 @@ import gleam/result
 /// against Bitcoin consensus rules.
 pub type Parsed =
   lifecycle.Parsed
+
+/// Phantom type indicating a block that has passed the context-free
+/// Bitcoin consensus checks performed by `validate_context_free_consensus`.
+///
+/// This does not indicate full block validity.
+pub type ContextFreeValidated =
+  lifecycle.ContextFreeValidated
 
 /// A Bitcoin block.
 ///
@@ -200,7 +209,7 @@ fn compute_txs_weight_loop(txs: List(Transaction(state)), acc: Int) -> Int {
 ///
 /// The returned root is a 32-byte `BitArray` in wire-order little-endian
 /// representation. An empty transaction list produces a zero-valued 32-byte
-/// root. The Boolean is `True` when an actual pair at any level contains
+/// root. The `Bool` is `True` when an actual pair at any level contains
 /// identical hashes before odd-node padding.
 ///
 /// This function does not compare the computed root with the block header or
@@ -720,7 +729,7 @@ fn transaction_count_parser(
   |> compact_size_int_parser
   |> parser.try_with_start_offset(fn(tx_count, start_offset, reader, ctx) {
     tx_count
-    |> validate_transaction_count(reader, max_tx_count_policy, fn(kind) {
+    |> validate_parsed_transaction_count(reader, max_tx_count_policy, fn(kind) {
       kind
       |> field_error(TransactionCount, start_offset, ctx)
       |> Error
@@ -773,19 +782,19 @@ fn transaction_parser() -> Parser(
   })
 }
 
-fn validate_transaction_count(
+fn validate_parsed_transaction_count(
   tx_count: Int,
   reader: Reader,
   max_tx_count_policy: Int,
   on_invalid: fn(DecodeErrorKind) -> Result(Int, DecodeError),
 ) -> Result(Int, DecodeError) {
-  let min_transaction_size = 10
+  let min_tx_size = 10
   let remaining = reader.bytes_remaining(reader)
   // Even the smallest legacy transaction occupies ten bytes.
-  let max_transactions_by_bytes = remaining / min_transaction_size
+  let max_txs_by_bytes = remaining / min_tx_size
 
   use <- bool.guard(
-    tx_count > max_transactions_by_bytes,
+    tx_count > max_txs_by_bytes,
     on_invalid(InsufficientBytes(claimed: remaining + 1, remaining:)),
   )
 
@@ -851,6 +860,427 @@ fn hash32_parser(
     let assert Ok(hash32) = hash32.from_bytes_le(bytes)
     hash32
   })
+}
+
+// ==============================================================================
+// Context-Free Consensus Validation
+// ==============================================================================
+
+/// A violation of Bitcoin consensus rules detected during block validation.
+///
+/// Each variant identifies a specific context-free rule that the block breaks.
+pub type ConsensusViolation {
+  /// The block contains no transactions.
+  NoTransactions
+
+  /// The transaction count exceeded the coarse consensus upper bound.
+  ImpossiblyLargeTransactionCount
+
+  /// Proof-of-work validation failed under the supplied proof-of-work limit.
+  ///
+  /// This is reported when the header's compact target encoding represents a
+  /// negative or zero target, expands beyond 256 bits, or expands to a target
+  /// exceeding the supplied `PowLimit`; or when the header hash exceeds the
+  /// expanded target. Constructing the `PowLimit` separately ensures this
+  /// variant always identifies a failure attributable to the block.
+  InvalidProofOfWork
+
+  /// The stripped block serialization exceeded the consensus size limit.
+  ///
+  /// The contained value is the measured base size in bytes. The consensus
+  /// maximum is 1,000,000 bytes.
+  BaseSizeLimitExceeded(size: Int)
+
+  /// The block exceeded the consensus weight limit.
+  ///
+  /// The contained value is the measured block weight in weight units. The
+  /// consensus maximum is 4,000,000 weight units.
+  WeightLimitExceeded(weight: Int)
+
+  /// The Merkle root recorded in the block header did not match the root
+  /// computed from the block's transaction IDs.
+  ///
+  /// `actual` is the root recorded in the header and `expected` is the computed
+  /// root. Both are 32-byte values in wire-order little-endian representation.
+  MerkleRootMismatch(actual: BitArray, expected: BitArray)
+
+  /// The transaction Merkle tree contained identical hashes in an actual pair
+  /// at some level before odd-node padding.
+  ///
+  /// Duplicating the final unpaired hash during normal Merkle-tree construction
+  /// does not itself count as mutation.
+  MutatedMerkleTree
+
+  /// The transaction at index zero does not have coinbase shape.
+  ///
+  /// Empty blocks are reported separately as `NoTransactions` before coinbase
+  /// placement is checked.
+  MissingCoinbase
+
+  /// A transaction after index zero has coinbase shape.
+  ///
+  /// `index` is the zero-based position of the first unexpected coinbase
+  /// transaction.
+  UnexpectedCoinbase(index: Int)
+
+  /// The block's legacy signature-operation count exceeded 20,000.
+  ///
+  /// `sigop_count` is the unscaled, structural total across all transaction
+  /// scriptSigs and scriptPubKeys. It excludes witness data; the validator
+  /// multiplies it by the witness scale factor when enforcing the 80,000
+  /// sigop-cost limit.
+  LegacySigOpLimitExceeded(sigop_count: Int)
+
+  /// A contained transaction failed context-free consensus validation.
+  ///
+  /// `index` is the transaction's zero-based position in the block.
+  InvalidTransaction(
+    index: Int,
+    violations: List(transaction.ConsensusViolation),
+  )
+}
+
+/// A nonzero maximum proof-of-work target for a Bitcoin network.
+///
+/// Construct a `PowLimit` with `new_pow_limit` before validating blocks. The
+/// constructor validates only that its little-endian representation is exactly
+/// 32 bytes and nonzero; selecting the correct limit for the intended network
+/// remains the caller's responsibility.
+pub opaque type PowLimit {
+  PowLimit(PowTarget)
+}
+
+/// An error that occurred while constructing a `PowLimit`.
+///
+/// These errors describe only the supplied representation. They do not verify
+/// that a limit is appropriate for a particular Bitcoin network.
+pub type PowLimitError {
+  /// The supplied limit did not contain exactly 32 bytes.
+  ///
+  /// The fields contain the measured and required byte counts, respectively.
+  InvalidByteCount(actual: Int, expected: Int)
+
+  /// The supplied 32-byte limit represented zero.
+  ZeroPowLimit
+}
+
+/// Construct a proof-of-work limit from 32 little-endian bytes.
+///
+/// The bytes must represent a nonzero unsigned 256-bit value. This validates
+/// only the representation; callers remain responsible for selecting the
+/// correct proof-of-work limit for the network whose blocks they validate.
+pub fn new_pow_limit(bytes: BitArray) -> Result(PowLimit, PowLimitError) {
+  bytes
+  |> pow_target.from_bytes_le
+  |> result.map_error(fn(err) {
+    case err {
+      pow_target.InvalidByteCount(actual:, expected:) ->
+        InvalidByteCount(actual:, expected:)
+
+      pow_target.ZeroTarget -> ZeroPowLimit
+
+      // `from_bytes_le` interprets the input as an unsigned magnitude, so it
+      // never applies the compact encoding's sign-bit rule.
+      pow_target.NegativeTarget ->
+        panic as "a 32-byte unsigned proof-of-work limit cannot be negative"
+
+      // `from_bytes_le` requires exactly 32 bytes before constructing the
+      // target, so the resulting magnitude cannot require more than 256 bits.
+      pow_target.Overflow ->
+        panic as "a 32-byte proof-of-work limit cannot overflow 256 bits"
+    }
+  })
+  |> result.map(PowLimit)
+}
+
+/// Validate a block against context-free Bitcoin consensus rules.
+///
+/// "Context-free" means these checks require only the block, its contained
+/// transactions, and the static proof-of-work limit supplied by the caller. No
+/// preceding headers, UTXO set, block height, or activation state is used.
+///
+/// `pow_limit` must be constructed with `new_pow_limit` from the network's
+/// nonzero maximum proof-of-work target in little-endian order. Construction
+/// validates only the representation, so selecting the correct network limit
+/// remains the caller's responsibility.
+///
+/// The following rules are enforced:
+///
+///   - The compact target is valid, does not exceed `pow_limit`, and is
+///     satisfied by the block-header hash
+///   - The block contains at least one transaction and satisfies the
+///     transaction-count, stripped-size, and weight limits
+///   - The header Merkle root matches the transaction IDs and the Merkle tree
+///     is not mutated
+///   - The first transaction has coinbase shape and no later transaction does
+///   - The block does not exceed the legacy signature-operation limit
+///   - Every contained transaction passes its context-free consensus checks
+///
+/// This function does not determine the target required by preceding headers,
+/// evaluate timestamp or transaction-finality rules, enforce activation-based
+/// rules such as the BIP34 coinbase height or SegWit witness commitment, or
+/// perform UTXO lookup, script execution, signature verification, fee, or
+/// subsidy checks. Signet block-solution validation is outside this function's
+/// scope.
+///
+/// Proof-of-work and block-size violations fail immediately and are returned as
+/// a single-element list. After those checks pass, independent block-level and
+/// transaction-level violations are collected in deterministic validation and
+/// wire order.
+///
+/// Returns `Ok(Block(ContextFreeValidated))` when the block and every contained
+/// transaction pass these checks, or `Error(violations)` otherwise.
+pub fn validate_context_free_consensus(
+  block: Block(Parsed),
+  pow_limit: PowLimit,
+) -> Result(Block(ContextFreeValidated), List(ConsensusViolation)) {
+  // fail fast on pow and block size checks
+  use _ <- result.try(
+    block
+    |> validate_proof_of_work(pow_limit)
+    |> result.try(fn(_) { validate_block_size_limits(block) })
+    |> result.map_error(fn(violation) { [violation] }),
+  )
+
+  // Collect independent block-semantic violations
+  // and transaction violations here
+  let block_violations =
+    [
+      validate_merkle_root,
+      validate_coinbase_placement,
+      validate_legacy_sigop_count,
+    ]
+    |> list.filter_map(fn(validator) {
+      case validator(block) {
+        Ok(_) -> Error(Nil)
+        Error(violation) -> Ok(violation)
+      }
+    })
+
+  let #(tx_violations, validated_txs) =
+    validate_transactions(block.transactions)
+
+  let violations = list.append(block_violations, tx_violations)
+  case violations {
+    [] -> Ok(mark_as_context_free_validated(block, validated_txs))
+    _ -> Error(violations)
+  }
+}
+
+/// Verify that the header's compact target is valid, does not exceed the
+/// supplied proof-of-work limit, and is satisfied by the header hash.
+///
+/// `pow_limit` is a valid nonzero 256-bit limit constructed by
+/// `new_pow_limit`. An invalid compact target, a target above that limit, or a
+/// header hash above the target is reported as `InvalidProofOfWork`.
+///
+/// This does not determine whether the target is the difficulty required by
+/// preceding headers or validate a Signet block solution.
+fn validate_proof_of_work(
+  block: Block(Parsed),
+  pow_limit: PowLimit,
+) -> Result(Nil, ConsensusViolation) {
+  let PowLimit(limit) = pow_limit
+
+  use target <- result.try(
+    <<block.header.target:32-little>>
+    |> pow_target.from_compact_encoding
+    |> result.replace_error(InvalidProofOfWork),
+  )
+
+  use _ <- result.try(validate_pow_target_within_limit(target, limit))
+
+  let assert Ok(block_hash) =
+    block
+    |> compute_block_hash
+    |> hash32.from_bytes_le
+
+  case pow_target.is_satisfied_by(target, block_hash) {
+    True -> Ok(Nil)
+    False -> Error(InvalidProofOfWork)
+  }
+}
+
+fn validate_pow_target_within_limit(
+  target: PowTarget,
+  limit: PowTarget,
+) -> Result(Nil, ConsensusViolation) {
+  case pow_target.compare(target, limit) {
+    Gt -> Error(InvalidProofOfWork)
+    Lt | Eq -> Ok(Nil)
+  }
+}
+
+fn validate_block_size_limits(
+  block: Block(Parsed),
+) -> Result(Nil, ConsensusViolation) {
+  use _ <- result.try(validate_at_least_one_transaction(block))
+  use _ <- result.try(validate_transaction_count(block))
+  use _ <- result.try(validate_base_size(block))
+  validate_weight(block)
+}
+
+fn validate_at_least_one_transaction(
+  block: Block(Parsed),
+) -> Result(Nil, ConsensusViolation) {
+  case block.transaction_count == 0 {
+    True -> Error(NoTransactions)
+    False -> Ok(Nil)
+  }
+}
+
+const max_block_weight = 4_000_000
+
+/// Enforce Bitcoin Core's coarse transaction-count component of the block
+/// size limit: `transaction_count * WITNESS_SCALE_FACTOR <= MAX_BLOCK_WEIGHT`.
+fn validate_transaction_count(
+  block: Block(Parsed),
+) -> Result(Nil, ConsensusViolation) {
+  case block.transaction_count * witness_scale_factor > max_block_weight {
+    True -> Error(ImpossiblyLargeTransactionCount)
+    False -> Ok(Nil)
+  }
+}
+
+/// Enforce the 1,000,000-byte consensus limit using `compute_base_size`.
+fn validate_base_size(block: Block(Parsed)) -> Result(Nil, ConsensusViolation) {
+  let base_size = compute_base_size(block)
+  let max_block_base_size = max_block_weight / witness_scale_factor
+
+  case base_size > max_block_base_size {
+    True -> Error(BaseSizeLimitExceeded(base_size))
+    False -> Ok(Nil)
+  }
+}
+
+/// Enforce the 4,000,000 weight-unit consensus limit using `compute_weight`.
+fn validate_weight(block: Block(Parsed)) -> Result(Nil, ConsensusViolation) {
+  let weight = compute_weight(block)
+  case weight > max_block_weight {
+    True -> Error(WeightLimitExceeded(weight))
+    False -> Ok(Nil)
+  }
+}
+
+/// Verify that the header's Merkle root matches the root computed from
+/// transaction IDs, rejecting mutated trees only after a matching root.
+fn validate_merkle_root(
+  block: Block(Parsed),
+) -> Result(Nil, ConsensusViolation) {
+  let header_merkle_root = hash32.to_bytes_le(block.header.merkle_root)
+  let #(computed_merkle_root, mutated) = compute_merkle_root(block)
+
+  case computed_merkle_root == header_merkle_root {
+    False -> Error(MerkleRootMismatch(header_merkle_root, computed_merkle_root))
+    True if mutated -> Error(MutatedMerkleTree)
+    True -> Ok(Nil)
+  }
+}
+
+/// Enforce that the first transaction has coinbase shape and no later
+/// transaction does.
+///
+/// For this placement check, coinbase shape means exactly one input whose
+/// outpoint is null. Transaction-local coinbase rules, such as the scriptSig
+/// length restriction, are validated separately. The validator fails
+/// immediately on a missing first coinbase or the first unexpected later
+/// coinbase.
+fn validate_coinbase_placement(
+  block: Block(Parsed),
+) -> Result(Nil, ConsensusViolation) {
+  validate_coinbase_placement_loop(block.transactions, 0)
+}
+
+fn validate_coinbase_placement_loop(
+  txs: List(Transaction(Parsed)),
+  index: Int,
+) -> Result(Nil, ConsensusViolation) {
+  case txs {
+    [] ->
+      case index == 0 {
+        True -> Error(MissingCoinbase)
+        False -> Ok(Nil)
+      }
+
+    [tx, ..rest] ->
+      case index == 0, transaction_has_coinbase_shape(tx) {
+        True, True -> validate_coinbase_placement_loop(rest, 1)
+        True, _ -> Error(MissingCoinbase)
+        _, True -> Error(UnexpectedCoinbase(index))
+        _, _ -> validate_coinbase_placement_loop(rest, index + 1)
+      }
+  }
+}
+
+fn transaction_has_coinbase_shape(tx: Transaction(Parsed)) -> Bool {
+  case transaction.get_inputs(tx) {
+    [input] -> transaction.input_has_null_outpoint(input)
+    _ -> False
+  }
+}
+
+/// Enforce the block's 20,000 legacy signature-operation limit.
+///
+/// This sums the structural legacy sigop counts from each transaction's
+/// scriptSigs and scriptPubKeys. Witness data is excluded. The check expresses
+/// the limit as 80,000 sigop-cost units by applying the witness scale factor,
+/// and reports `LegacySigOpLimitExceeded` with the unscaled legacy count.
+fn validate_legacy_sigop_count(
+  block: Block(Parsed),
+) -> Result(Nil, ConsensusViolation) {
+  let max_block_sigops_cost = 80_000
+
+  let legacy_sigop_count =
+    compute_legacy_sigop_count_loop(block.transactions, 0)
+
+  case legacy_sigop_count * witness_scale_factor > max_block_sigops_cost {
+    True -> Error(LegacySigOpLimitExceeded(legacy_sigop_count))
+    False -> Ok(Nil)
+  }
+}
+
+fn compute_legacy_sigop_count_loop(
+  txs: List(Transaction(Parsed)),
+  acc: Int,
+) -> Int {
+  case txs {
+    [] -> acc
+    [tx, ..rest] ->
+      compute_legacy_sigop_count_loop(
+        rest,
+        acc + transaction.compute_legacy_sigop_count(tx),
+      )
+  }
+}
+
+/// Validate all contained transactions, preserving wire order for both
+/// indexed violations and successfully validated transactions.
+fn validate_transactions(
+  txs: List(Transaction(Parsed)),
+) -> #(List(ConsensusViolation), List(Transaction(ContextFreeValidated))) {
+  let #(violations, validated_txs) =
+    list.index_fold(txs, #([], []), fn(acc, tx, i) {
+      let #(violations, validated_txs) = acc
+
+      case transaction.validate_context_free_consensus(tx) {
+        Ok(tx) -> #(violations, [tx, ..validated_txs])
+        Error(tx_violations) -> #(
+          [InvalidTransaction(i, tx_violations), ..violations],
+          validated_txs,
+        )
+      }
+    })
+
+  #(list.reverse(violations), list.reverse(validated_txs))
+}
+
+fn mark_as_context_free_validated(
+  block: Block(Parsed),
+  validated_txs: List(Transaction(ContextFreeValidated)),
+) -> Block(ContextFreeValidated) {
+  let Block(header:, transaction_count:, ..) = block
+
+  Block(header:, transaction_count:, transactions: validated_txs)
 }
 
 // ==============================================================================
