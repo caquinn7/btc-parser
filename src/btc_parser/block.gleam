@@ -876,7 +876,7 @@ pub type ConsensusViolation {
   /// The transaction count exceeded the coarse consensus upper bound.
   ImpossiblyLargeTransactionCount
 
-  /// Proof-of-work validation failed under the supplied valid limit.
+  /// Proof-of-work validation failed under the supplied proof-of-work limit.
   ///
   /// This is reported when the header's compact target encoding represents a
   /// negative or zero target, expands beyond 256 bits, or expands to a target
