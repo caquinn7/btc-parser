@@ -10,8 +10,10 @@ pub opaque type Hash32 {
 
 /// An error that occurred while constructing a `Hash32`.
 pub type Hash32Error {
-  /// The provided byte sequence does not contain exactly 32 bytes.
-  InvalidByteCount(Int)
+  /// The input did not contain exactly 256 bits.
+  ///
+  /// The fields contain the measured and required bit counts, respectively.
+  InvalidBitCount(actual: Int, expected: Int)
 }
 
 /// Constructs a `Hash32` from exactly 32 little-endian bytes.
@@ -25,12 +27,12 @@ pub type Hash32Error {
 /// // -> Ok(Hash32) representing an all-zero hash
 ///
 /// from_bytes_le(<<1, 2, 3>>)
-/// // -> Error(InvalidByteCount(3))
+/// // -> Error(InvalidBitCount(actual: 24, expected: 256))
 /// ```
 pub fn from_bytes_le(bytes: BitArray) -> Result(Hash32, Hash32Error) {
   case bytes {
     <<_:bytes-size(32)>> -> Ok(Hash32(bytes))
-    _ -> Error(InvalidByteCount(bit_array.byte_size(bytes)))
+    _ -> Error(InvalidBitCount(bit_array.bit_size(bytes), 256))
   }
 }
 

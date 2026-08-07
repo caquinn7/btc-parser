@@ -1,6 +1,6 @@
 import btc_parser/internal/fixed_int/shared_inputs
 import btc_parser/internal/fixed_int/uint64.{
-  ExceedsUint64, InvalidByteCount, NegativeValue, UnsafeInteger,
+  ExceedsUint64, InvalidBitCount, NegativeValue, UnsafeInteger,
 }
 import support/target
 
@@ -9,13 +9,20 @@ const max_u64_bytes = <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
 
 // from_bytes_le
 
-pub fn from_bytes_le_returns_error_when_input_not_8_bytes_test() {
-  assert Error(InvalidByteCount(0)) == uint64.from_bytes_le(<<>>)
+pub fn from_bytes_le_reports_incorrect_bit_counts_test() {
+  assert Error(InvalidBitCount(actual: 0, expected: 64))
+    == uint64.from_bytes_le(<<>>)
 
-  assert Error(InvalidByteCount(7))
+  assert Error(InvalidBitCount(actual: 56, expected: 64))
     == uint64.from_bytes_le(<<1, 0, 0, 0, 0, 0, 0>>)
 
-  assert Error(InvalidByteCount(9))
+  assert Error(InvalidBitCount(actual: 63, expected: 64))
+    == uint64.from_bytes_le(<<0:63>>)
+
+  assert Error(InvalidBitCount(actual: 65, expected: 64))
+    == uint64.from_bytes_le(<<0:65>>)
+
+  assert Error(InvalidBitCount(actual: 72, expected: 64))
     == uint64.from_bytes_le(<<1, 0, 0, 0, 0, 0, 0, 0, 0>>)
 }
 

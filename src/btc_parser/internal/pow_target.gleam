@@ -10,6 +10,8 @@ const compact_coefficient_byte_count = 3
 
 const target_byte_count = 32
 
+const compact_encoding_bit_count = 32
+
 /// A nonzero unsigned 256-bit Bitcoin proof-of-work target.
 ///
 /// This type guarantees that the target is a nonzero unsigned 256-bit value
@@ -21,10 +23,10 @@ pub opaque type PowTarget {
 
 /// An error that occurred while constructing a `PowTarget`.
 pub type ConstructionError {
-  /// The input did not contain the required number of bytes.
+  /// The input did not contain the required number of bits.
   ///
-  /// The fields contain the measured and required byte counts, respectively.
-  InvalidByteCount(actual: Int, expected: Int)
+  /// The fields contain the measured and required bit counts, respectively.
+  InvalidBitCount(actual: Int, expected: Int)
 
   /// The input represented a target of zero.
   ZeroTarget
@@ -38,7 +40,7 @@ pub type ConstructionError {
 
 /// Constructs a proof-of-work target from exactly 32 little-endian bytes.
 ///
-/// Returns `InvalidByteCount` if the input is not exactly 32 bytes and
+/// Returns `InvalidBitCount` if the input is not exactly 256 bits and
 /// `ZeroTarget` if every input bit is zero. Because the bytes represent an
 /// unsigned magnitude directly, this function cannot return `NegativeTarget`
 /// or `Overflow`.
@@ -47,8 +49,8 @@ pub fn from_bytes_le(bytes: BitArray) -> Result(PowTarget, ConstructionError) {
   |> uint256.from_bytes_le
   |> result.map_error(fn(err) {
     case err {
-      uint256.InvalidByteCount(count) ->
-        InvalidByteCount(count, target_byte_count)
+      uint256.InvalidBitCount(actual:, expected:) ->
+        InvalidBitCount(actual:, expected:)
     }
   })
   |> result.try(from_uint256)
@@ -112,7 +114,11 @@ pub fn from_compact_encoding(
       Ok(target)
     }
 
-    _ -> Error(InvalidByteCount(bit_array.byte_size(bytes), 4))
+    _ ->
+      Error(InvalidBitCount(
+        bit_array.bit_size(bytes),
+        compact_encoding_bit_count,
+      ))
   }
 }
 

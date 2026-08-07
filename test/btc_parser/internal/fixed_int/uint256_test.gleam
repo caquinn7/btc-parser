@@ -1,12 +1,19 @@
-import btc_parser/internal/fixed_int/uint256.{InvalidByteCount}
+import btc_parser/internal/fixed_int/uint256.{InvalidBitCount}
 
-pub fn from_bytes_le_returns_error_when_input_is_not_32_bytes_test() {
-  assert Error(InvalidByteCount(0)) == uint256.from_bytes_le(<<>>)
+pub fn from_bytes_le_reports_incorrect_bit_counts_test() {
+  assert Error(InvalidBitCount(actual: 0, expected: 256))
+    == uint256.from_bytes_le(<<>>)
 
-  assert Error(InvalidByteCount(31))
+  assert Error(InvalidBitCount(actual: 248, expected: 256))
     == uint256.from_bytes_le(<<1:little-size({ 31 * 8 })>>)
 
-  assert Error(InvalidByteCount(33))
+  assert Error(InvalidBitCount(actual: 255, expected: 256))
+    == uint256.from_bytes_le(<<0:255>>)
+
+  assert Error(InvalidBitCount(actual: 257, expected: 256))
+    == uint256.from_bytes_le(<<0:257>>)
+
+  assert Error(InvalidBitCount(actual: 264, expected: 256))
     == uint256.from_bytes_le(<<1:little-size({ 33 * 8 })>>)
 }
 

@@ -11,10 +11,10 @@ pub opaque type Uint256 {
 
 /// An error that occurred while constructing a `Uint256` from a `BitArray`.
 pub type FromBytesError {
-  /// The provided byte sequence did not contain exactly 32 bytes.
+  /// The input did not contain exactly 256 bits.
   ///
-  /// The contained value is the measured byte count.
-  InvalidByteCount(Int)
+  /// The fields contain the measured and required bit counts, respectively.
+  InvalidBitCount(actual: Int, expected: Int)
 }
 
 /// Constructs a `Uint256` from exactly 32 little-endian bytes.
@@ -35,12 +35,12 @@ pub type FromBytesError {
 /// // -> Ok(Uint256) representing 1
 ///
 /// from_bytes_le(<<1, 2, 3>>)
-/// // -> Error(InvalidByteCount(3))
+/// // -> Error(InvalidBitCount(actual: 24, expected: 256))
 /// ```
 pub fn from_bytes_le(bytes: BitArray) -> Result(Uint256, FromBytesError) {
   case bytes {
     <<_:bytes-32>> -> Ok(Uint256(bytes))
-    _ -> Error(InvalidByteCount(bit_array.byte_size(bytes)))
+    _ -> Error(InvalidBitCount(bit_array.bit_size(bytes), 256))
   }
 }
 

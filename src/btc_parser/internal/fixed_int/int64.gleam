@@ -20,10 +20,10 @@ pub opaque type Int64 {
 
 /// An error that occurred while constructing an `Int64` from a `BitArray`.
 pub type FromBytesError {
-  /// The provided byte sequence did not contain exactly 8 bytes.
+  /// The input did not contain exactly 64 bits.
   ///
-  /// The contained value is the measured byte count.
-  InvalidByteCount(Int)
+  /// The fields contain the measured and required bit counts, respectively.
+  InvalidBitCount(actual: Int, expected: Int)
 }
 
 /// Constructs an `Int64` from exactly 8 little-endian bytes.
@@ -46,12 +46,12 @@ pub type FromBytesError {
 /// // -> Ok(Int64) representing -1
 ///
 /// from_bytes_le(<<1, 2, 3>>)
-/// // -> Error(InvalidByteCount(3))
+/// // -> Error(InvalidBitCount(actual: 24, expected: 64))
 /// ```
 pub fn from_bytes_le(bytes: BitArray) -> Result(Int64, FromBytesError) {
   case bytes {
     <<_:bytes-8>> -> Ok(Int64(bytes))
-    _ -> Error(InvalidByteCount(bit_array.byte_size(bytes)))
+    _ -> Error(InvalidBitCount(bit_array.bit_size(bytes), 64))
   }
 }
 

@@ -955,10 +955,10 @@ pub opaque type PowLimit {
 /// These errors describe only the supplied representation. They do not verify
 /// that a limit is appropriate for a particular Bitcoin network.
 pub type PowLimitError {
-  /// The supplied limit did not contain exactly 32 bytes.
+  /// The supplied limit did not contain exactly 256 bits.
   ///
-  /// The fields contain the measured and required byte counts, respectively.
-  InvalidByteCount(actual: Int, expected: Int)
+  /// The fields contain the measured and required bit counts, respectively.
+  InvalidBitCount(actual: Int, expected: Int)
 
   /// The supplied 32-byte limit represented zero.
   ZeroPowLimit
@@ -974,8 +974,8 @@ pub fn new_pow_limit(bytes: BitArray) -> Result(PowLimit, PowLimitError) {
   |> pow_target.from_bytes_le
   |> result.map_error(fn(err) {
     case err {
-      pow_target.InvalidByteCount(actual:, expected:) ->
-        InvalidByteCount(actual:, expected:)
+      pow_target.InvalidBitCount(actual:, expected:) ->
+        InvalidBitCount(actual:, expected:)
 
       pow_target.ZeroTarget -> ZeroPowLimit
 
