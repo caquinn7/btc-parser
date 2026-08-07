@@ -1080,22 +1080,22 @@ fn validate_proof_of_work(
   block: Block(Parsed),
   pow_limit: PowLimit,
 ) -> Result(Nil, ConsensusViolation) {
-  let PowLimit(pow_limit) = pow_limit
+  let PowLimit(limit) = pow_limit
 
-  use pow_target <- result.try(
+  use target <- result.try(
     <<block.header.target:32-little>>
     |> pow_target.from_compact_encoding
     |> result.replace_error(InvalidProofOfWork),
   )
 
-  use _ <- result.try(validate_pow_target_within_limit(pow_target, pow_limit))
+  use _ <- result.try(validate_pow_target_within_limit(target, limit))
 
   let assert Ok(block_hash) =
     block
     |> compute_block_hash
     |> hash32.from_bytes_le
 
-  case pow_target.is_satisfied_by(pow_target, block_hash) {
+  case pow_target.is_satisfied_by(target, block_hash) {
     True -> Ok(Nil)
     False -> Error(InvalidProofOfWork)
   }
