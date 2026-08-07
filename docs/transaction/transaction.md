@@ -49,6 +49,10 @@ pub fn txid_from_hex(
 }
 ```
 
+Outpoint txids and computed txids and wtxids are exposed as 32-byte values in
+the same little-endian order used on the Bitcoin wire. Reverse them before
+displaying the conventional hexadecimal identifier notation used by explorers.
+
 ## Scope
 
 The module performs whole-value deserialization, structural inspection,
@@ -56,17 +60,6 @@ serialization, output script classification, and documented context-free
 consensus checks. It does not perform full transaction validation requiring UTXO
 lookup, script execution, signature verification, block context, mempool policy,
 or network/RPC access.
-
-## Use Cases
-
-- **Explorers and blockchain indexers**: Turn externally obtained transaction
-  bytes into structured data for display, search, and downstream analysis.
-- **Monitoring and research**: Examine caller-provided mempool feeds or datasets
-  for transaction shapes, output types, and witness usage.
-- **Wallet and protocol tooling**: Add a deserialization layer ahead of
-  application-specific transaction processing.
-- **Testing and education**: Study Bitcoin transaction encoding and exercise
-  software with malformed transaction data.
 
 ## Documentation
 

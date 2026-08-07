@@ -212,6 +212,49 @@ pub fn compute_base_size(tx: Transaction(state)) -> Int {
   + lock_time_size
 }
 
+fn compute_inputs_stripped_size(inputs: List(Input)) -> Int {
+  compute_inputs_stripped_size_loop(inputs, 0)
+}
+
+fn compute_inputs_stripped_size_loop(inputs: List(Input), acc: Int) -> Int {
+  case inputs {
+    [] -> acc
+    [input, ..rest] -> {
+      let input_size = {
+        let txid_size = 32
+        let vout_size = 4
+        let script_size = get_script_size(input.script_sig)
+        let sequence_size = 4
+
+        txid_size
+        + vout_size
+        + compact_size.encoded_size(script_size)
+        + script_size
+        + sequence_size
+      }
+      compute_inputs_stripped_size_loop(rest, acc + input_size)
+    }
+  }
+}
+
+fn compute_outputs_stripped_size(outputs: List(Output)) -> Int {
+  compute_outputs_stripped_size_loop(outputs, 0)
+}
+
+fn compute_outputs_stripped_size_loop(outputs: List(Output), acc: Int) -> Int {
+  case outputs {
+    [] -> acc
+    [output, ..rest] -> {
+      let output_size = {
+        let value_size = 8
+        let script_size = get_script_size(output.script_pubkey)
+        value_size + compact_size.encoded_size(script_size) + script_size
+      }
+      compute_outputs_stripped_size_loop(rest, acc + output_size)
+    }
+  }
+}
+
 /// Compute the transaction's BIP 141 total size in bytes.
 ///
 /// This is the byte size of the complete canonical wire serialization produced
@@ -262,49 +305,6 @@ pub fn compute_weight(tx: Transaction(state)) -> Int {
   }
 }
 
-fn compute_inputs_stripped_size(inputs: List(Input)) -> Int {
-  compute_inputs_stripped_size_loop(inputs, 0)
-}
-
-fn compute_inputs_stripped_size_loop(inputs: List(Input), acc: Int) -> Int {
-  case inputs {
-    [] -> acc
-    [input, ..rest] -> {
-      let input_size = {
-        let txid_size = 32
-        let vout_size = 4
-        let script_size = get_script_size(input.script_sig)
-        let sequence_size = 4
-
-        txid_size
-        + vout_size
-        + compact_size.encoded_size(script_size)
-        + script_size
-        + sequence_size
-      }
-      compute_inputs_stripped_size_loop(rest, acc + input_size)
-    }
-  }
-}
-
-fn compute_outputs_stripped_size(outputs: List(Output)) -> Int {
-  compute_outputs_stripped_size_loop(outputs, 0)
-}
-
-fn compute_outputs_stripped_size_loop(outputs: List(Output), acc: Int) -> Int {
-  case outputs {
-    [] -> acc
-    [output, ..rest] -> {
-      let output_size = {
-        let value_size = 8
-        let script_size = get_script_size(output.script_pubkey)
-        value_size + compact_size.encoded_size(script_size) + script_size
-      }
-      compute_outputs_stripped_size_loop(rest, acc + output_size)
-    }
-  }
-}
-
 fn compute_witnesses_size(witnesses: List(WitnessStack)) -> Int {
   compute_witnesses_size_loop(witnesses, 0)
 }
@@ -342,6 +342,147 @@ fn compute_witness_items_size_loop(
 
       compute_witness_items_size_loop(rest, acc + encoded_item_size)
     }
+  }
+}
+
+/// Count legacy signature operations in a transaction's scriptSigs and
+/// scriptPubKeys.
+///
+/// `OP_CHECKSIG` and `OP_CHECKSIGVERIFY` each count as one operation, while
+/// `OP_CHECKMULTISIG` and `OP_CHECKMULTISIGVERIFY` each count as twenty.
+/// Counting is structural and execution-independent: bytes in valid script
+/// pushes and all witness data are excluded. A malformed push stops scanning
+/// that script and retains its preceding count.
+/// 
+/// This function is internal and is used only to enforce the block-level
+/// legacy sigop limit.
+@internal
+pub fn compute_legacy_sigop_count(tx: Transaction(state)) -> Int {
+  let inputs_sigop_count = compute_sigop_count_for_inputs_loop(tx.inputs, 0)
+  let outputs_sigop_count = compute_sigop_count_for_outputs_loop(tx.outputs, 0)
+  inputs_sigop_count + outputs_sigop_count
+}
+
+fn compute_sigop_count_for_inputs_loop(inputs: List(Input), acc: Int) -> Int {
+  case inputs {
+    [] -> acc
+    [input, ..rest] ->
+      compute_sigop_count_for_inputs_loop(
+        rest,
+        acc + compute_legacy_sigop_count_for_script(input.script_sig),
+      )
+  }
+}
+
+fn compute_sigop_count_for_outputs_loop(
+  outputs: List(Output),
+  acc: Int,
+) -> Int {
+  case outputs {
+    [] -> acc
+    [output, ..rest] ->
+      compute_sigop_count_for_outputs_loop(
+        rest,
+        acc + compute_legacy_sigop_count_for_script(output.script_pubkey),
+      )
+  }
+}
+
+fn compute_legacy_sigop_count_for_script(script: ScriptBytes(k)) -> Int {
+  script
+  |> get_raw_script_bytes
+  |> compute_legacy_sigop_count_for_script_loop(0)
+}
+
+/// Continue structurally counting legacy sigops in the remaining script bytes.
+///
+/// `acc` contains the count before `bytes`. Valid direct and `OP_PUSHDATA*`
+/// pushes are skipped as data. An incomplete length field or payload ends
+/// scanning and returns `acc`, so malformed push remainder bytes are never
+/// interpreted as opcodes.
+fn compute_legacy_sigop_count_for_script_loop(
+  bytes: BitArray,
+  acc: Int,
+) -> Int {
+  case bytes {
+    // empty script - return acc
+    <<>> -> acc
+
+    // direct push (0x01 - 0x4b) - skip the pushed bytes
+    <<i:little, rest:bytes>> if i >= 1 && i <= 75 ->
+      case skip_legacy_sigop_push_data(rest, i) {
+        Some(rest) -> compute_legacy_sigop_count_for_script_loop(rest, acc)
+        None -> acc
+      }
+
+    // OP_PUSHDATA1 - read next 1 byte as n, then skip next n bytes
+    <<0x4C:little, rest:bytes>> ->
+      case rest {
+        <<n:8-little, payload:bytes>> ->
+          case skip_legacy_sigop_push_data(payload, n) {
+            Some(rest) -> compute_legacy_sigop_count_for_script_loop(rest, acc)
+            None -> acc
+          }
+
+        _ -> acc
+      }
+
+    // OP_PUSHDATA2 - read next 2 bytes as n, then skip next n bytes
+    <<0x4D:little, rest:bytes>> ->
+      case rest {
+        <<n:16-little, payload:bytes>> ->
+          case skip_legacy_sigop_push_data(payload, n) {
+            Some(rest) -> compute_legacy_sigop_count_for_script_loop(rest, acc)
+            None -> acc
+          }
+
+        _ -> acc
+      }
+
+    // OP_PUSHDATA4 - read next 4 bytes as n, then skip next n bytes
+    <<0x4E:little, rest:bytes>> ->
+      case rest {
+        <<n:32-little, payload:bytes>> ->
+          case skip_legacy_sigop_push_data(payload, n) {
+            Some(rest) -> compute_legacy_sigop_count_for_script_loop(rest, acc)
+            None -> acc
+          }
+
+        _ -> acc
+      }
+
+    // signature opcode or any other one-byte opcode
+    <<opcode:8-little, rest:bytes>> ->
+      compute_legacy_sigop_count_for_script_loop(
+        rest,
+        acc + legacy_sigop_increment(opcode),
+      )
+
+    // truncated length or push data - stop and return acc
+    _ -> acc
+  }
+}
+
+/// Return the static legacy sigop cost of one script opcode.
+fn legacy_sigop_increment(opcode: Int) -> Int {
+  case opcode {
+    0xAC | 0xAD -> 1
+    0xAE | 0xAF -> 20
+    _ -> 0
+  }
+}
+
+/// Return the bytes remaining after a parsed script push's data.
+///
+/// A truncated payload returns `None`, allowing the caller to end sigop scanning
+/// without interpreting any payload bytes as opcodes.
+fn skip_legacy_sigop_push_data(
+  bytes: BitArray,
+  length: Int,
+) -> Option(BitArray) {
+  case bytes {
+    <<_:bytes-size(length), rest:bytes>> -> Some(rest)
+    _ -> None
   }
 }
 

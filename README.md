@@ -16,11 +16,11 @@ The following Bitcoin wire-format data structures are currently implemented:
 
 - [`btc_parser/transaction`](docs/transaction/transaction.md) deserializes and
   serializes legacy and SegWit transactions, exposes their fields and output
-  script classifications, runs context-free consensus checks, and computes
-  txids and wtxids.
-- [`btc_parser/block`](src/btc_parser/block.gleam) deserializes and serializes
-  complete blocks, exposes their headers and wire-order legacy and SegWit
-  transactions, and computes block hashes.
+  script classifications, computes their sizes, weights, txids, and wtxids, and
+  runs context-free consensus checks.
+- [`btc_parser/block`](docs/block/block.md) deserializes and serializes complete
+  blocks, exposes their headers and transactions, computes their sizes, weights,
+  Merkle roots, and block hashes, and runs context-free consensus checks.
 
 The block module is still in progress and will expand as its API matures.
 
@@ -60,6 +60,19 @@ documentation describes the exact deserialization, validation, and policy
 boundaries for each implemented module.
 
 No security guarantees are provided.
+
+## Use Cases
+
+- **Explorers and blockchain indexers**: Turn externally obtained Bitcoin wire
+  bytes into structured blocks and transactions for display, search, and
+  downstream analysis.
+- **Monitoring and research**: Inspect caller-provided feeds and datasets for
+  transaction shapes, script types, witness usage, block composition, Merkle
+  roots, and context-free consensus violations.
+- **Protocol and data tooling**: Add a portable deserialization, inspection, and
+  context-free validation layer ahead of application-specific processing.
+- **Testing and education**: Study Bitcoin wire encoding and exercise software
+  with valid, malformed, and consensus-invalid block and transaction data.
 
 ## Development
 

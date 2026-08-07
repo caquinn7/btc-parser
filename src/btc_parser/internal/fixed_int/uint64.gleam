@@ -20,7 +20,9 @@ pub opaque type Uint64 {
 
 /// An error that occurred while constructing an `Uint64` from a `BitArray`.
 pub type FromBytesError {
-  /// The provided byte sequence does not contain exactly 8 bytes.
+  /// The provided byte sequence did not contain exactly 8 bytes.
+  ///
+  /// The contained value is the measured byte count.
   InvalidByteCount(Int)
 }
 
