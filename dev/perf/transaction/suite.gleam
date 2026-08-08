@@ -92,6 +92,10 @@ type PerfCaseInput(a) {
   PerfCaseInput(label: String, input_size_bytes: Int, value: a)
 }
 
+type MeasurementCurvePoint {
+  MeasurementCurvePoint(values: List(Int), config: PerfMeasurementConfig)
+}
+
 type SyntheticTxSpec {
   Legacy(label: String, input_count: Int, output_count: Int)
   Segwit(
@@ -340,35 +344,38 @@ fn measure_fixture_tx_decoding() -> List(PerfCaseResult) {
 }
 
 fn measure_synthetic_input_tx_decoding() -> List(PerfCaseResult) {
-  measure_synthetic_legacy_deserialize_curve(synthetic_input_count_tx_specs)
+  measure_synthetic_deserialize_curve(
+    synthetic_input_count_tx_specs,
+    two_tier_synthetic_curve([1, 100], [1000]),
+  )
 }
 
 fn measure_synthetic_output_tx_decoding() -> List(PerfCaseResult) {
-  measure_synthetic_legacy_deserialize_curve(synthetic_output_count_tx_specs)
+  measure_synthetic_deserialize_curve(
+    synthetic_output_count_tx_specs,
+    two_tier_synthetic_curve([1, 100], [1000]),
+  )
 }
 
 fn measure_synthetic_segwit_input_tx_decoding() -> List(PerfCaseResult) {
-  measure_synthetic_segwit_input_deserialize_curve(
+  measure_synthetic_deserialize_curve(
     synthetic_segwit_input_count_tx_specs,
+    three_tier_synthetic_curve([1], [100], [1000]),
   )
 }
 
 fn measure_synthetic_witness_item_tx_decoding() -> List(PerfCaseResult) {
-  measure_synthetic_segwit_deserialize_curve(synthetic_witness_item_tx_specs)
+  measure_synthetic_deserialize_curve(
+    synthetic_witness_item_tx_specs,
+    two_tier_synthetic_curve([1, 100], [1000]),
+  )
 }
 
 fn measure_synthetic_witness_payload_tx_decoding() -> List(PerfCaseResult) {
-  [
-    measure_synthetic_decoding(
-      synthetic_witness_payload_tx_specs([64, 10_000]),
-      small_synthetic_tx_measurement_config(),
-    ),
-    measure_synthetic_decoding(
-      synthetic_witness_payload_tx_specs([100_000]),
-      large_synthetic_tx_measurement_config(),
-    ),
-  ]
-  |> list.flatten
+  measure_synthetic_deserialize_curve(
+    synthetic_witness_payload_tx_specs,
+    two_tier_synthetic_curve([64, 10_000], [100_000]),
+  )
 }
 
 fn measure_malformed_tx_decoding() -> List(PerfCaseResult) {
@@ -407,65 +414,20 @@ fn measure_policy_limit_tx_decoding() -> List(PerfCaseResult) {
   )
 }
 
-fn measure_synthetic_legacy_deserialize_curve(
+fn measure_synthetic_deserialize_curve(
   build_specs: fn(List(Int)) -> List(SyntheticTxSpec),
+  curve: List(MeasurementCurvePoint),
 ) -> List(PerfCaseResult) {
-  [
-    measure_synthetic_decoding(
-      build_specs([1, 100]),
-      small_synthetic_tx_measurement_config(),
-    ),
-    measure_synthetic_decoding(
-      build_specs([1000]),
-      large_synthetic_tx_measurement_config(),
-    ),
-  ]
-  |> list.flatten
-}
-
-fn measure_synthetic_segwit_deserialize_curve(
-  build_specs: fn(List(Int)) -> List(SyntheticTxSpec),
-) -> List(PerfCaseResult) {
-  [
-    measure_synthetic_decoding(
-      build_specs([1, 100]),
-      small_synthetic_tx_measurement_config(),
-    ),
-    measure_synthetic_decoding(
-      build_specs([1000]),
-      large_synthetic_tx_measurement_config(),
-    ),
-  ]
-  |> list.flatten
-}
-
-fn measure_synthetic_segwit_input_deserialize_curve(
-  build_specs: fn(List(Int)) -> List(SyntheticTxSpec),
-) -> List(PerfCaseResult) {
-  [
-    measure_synthetic_decoding(
-      build_specs([1]),
-      small_synthetic_tx_measurement_config(),
-    ),
-    measure_synthetic_decoding(
-      build_specs([100]),
-      medium_synthetic_tx_measurement_config(),
-    ),
-    measure_synthetic_decoding(
-      build_specs([1000]),
-      slow_synthetic_tx_measurement_config(),
-    ),
-  ]
-  |> list.flatten
-}
-
-fn measure_synthetic_decoding(
-  specs: List(SyntheticTxSpec),
-  config: PerfMeasurementConfig,
-) -> List(PerfCaseResult) {
-  specs
-  |> list.map(synthetic_deserialize_case)
-  |> measure_cases(config, "deserialize", transaction.deserialize)
+  measure_curve(
+    curve,
+    fn(values) {
+      values
+      |> build_specs
+      |> list.map(synthetic_deserialize_case)
+    },
+    "deserialize",
+    transaction.deserialize,
+  )
 }
 
 fn synthetic_input_count_tx_specs(
@@ -653,23 +615,15 @@ fn oversized_scriptsig_policy_deserialize_case(
 // ==============================================================================
 
 fn measure_coinbase_shape_inspection() -> List(PerfCaseResult) {
-  let small_config = fast_measurement_config(100)
-  let large_config = fast_measurement_config(10)
-
-  [
-    measure_coinbase_shape_input_counts([20, 100], small_config),
-    measure_coinbase_shape_input_counts([1000], large_config),
-  ]
-  |> list.flatten
-}
-
-fn measure_coinbase_shape_input_counts(
-  input_counts: List(Int),
-  config: PerfMeasurementConfig,
-) -> List(PerfCaseResult) {
-  input_counts
-  |> list.map(coinbase_shape_case)
-  |> measure_cases(config, "has_coinbase_shape", transaction.has_coinbase_shape)
+  measure_curve(
+    [
+      MeasurementCurvePoint([20, 100], fast_measurement_config(100)),
+      MeasurementCurvePoint([1000], fast_measurement_config(10)),
+    ],
+    list.map(_, coinbase_shape_case),
+    "has_coinbase_shape",
+    transaction.has_coinbase_shape,
+  )
 }
 
 fn coinbase_shape_case(
@@ -696,106 +650,33 @@ fn coinbase_shape_case(
 fn measure_context_free_consensus_validation_valid_inputs() -> List(
   PerfCaseResult,
 ) {
-  [
-    measure_validation_input_counts(
-      [20, 100],
-      valid_input_count_consensus_case,
-      small_synthetic_tx_measurement_config(),
-    ),
-    measure_validation_input_counts(
-      [1000],
-      valid_input_count_consensus_case,
-      large_synthetic_tx_measurement_config(),
-    ),
-  ]
-  |> list.flatten
+  measure_validation_curve(valid_input_count_consensus_case)
 }
 
 fn measure_context_free_consensus_validation_valid_outputs() -> List(
   PerfCaseResult,
 ) {
-  [
-    measure_validation_output_counts(
-      [20, 100],
-      small_synthetic_tx_measurement_config(),
-    ),
-    measure_validation_output_counts(
-      [1000],
-      large_synthetic_tx_measurement_config(),
-    ),
-  ]
-  |> list.flatten
+  measure_validation_curve(valid_output_count_consensus_case)
 }
 
 fn measure_context_free_consensus_validation_duplicate_input() -> List(
   PerfCaseResult,
 ) {
-  [
-    measure_validation_input_counts(
-      [20, 100],
-      late_duplicate_input_count_consensus_case,
-      small_synthetic_tx_measurement_config(),
-    ),
-    measure_validation_input_counts(
-      [1000],
-      late_duplicate_input_count_consensus_case,
-      large_synthetic_tx_measurement_config(),
-    ),
-  ]
-  |> list.flatten
+  measure_validation_curve(late_duplicate_input_count_consensus_case)
 }
 
 fn measure_context_free_consensus_validation_output_overflow() -> List(
   PerfCaseResult,
 ) {
-  [
-    measure_validation_output_overflow_counts(
-      [20, 100],
-      small_synthetic_tx_measurement_config(),
-    ),
-    measure_validation_output_overflow_counts(
-      [1000],
-      large_synthetic_tx_measurement_config(),
-    ),
-  ]
-  |> list.flatten
+  measure_validation_curve(output_overflow_count_consensus_case)
 }
 
-fn measure_validation_input_counts(
-  input_counts: List(Int),
+fn measure_validation_curve(
   build_case: fn(Int) -> PerfCaseInput(Transaction(Parsed)),
-  config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
-  input_counts
-  |> list.map(build_case)
-  |> measure_cases(
-    config,
-    "validate_context_free_consensus",
-    transaction.validate_context_free_consensus,
-  )
-}
-
-fn measure_validation_output_counts(
-  output_counts: List(Int),
-  config: PerfMeasurementConfig,
-) -> List(PerfCaseResult) {
-  output_counts
-  |> list.map(valid_output_count_consensus_case)
-  |> measure_cases(
-    config,
-    "validate_context_free_consensus",
-    transaction.validate_context_free_consensus,
-  )
-}
-
-fn measure_validation_output_overflow_counts(
-  output_counts: List(Int),
-  config: PerfMeasurementConfig,
-) -> List(PerfCaseResult) {
-  output_counts
-  |> list.map(output_overflow_count_consensus_case)
-  |> measure_cases(
-    config,
+  measure_curve(
+    two_tier_synthetic_curve([20, 100], [1000]),
+    list.map(_, build_case),
     "validate_context_free_consensus",
     transaction.validate_context_free_consensus,
   )
@@ -920,26 +801,12 @@ fn measure_synthetic_witness_item_txid_computation() -> List(PerfCaseResult) {
 }
 
 fn measure_synthetic_witness_payload_txid_computation() -> List(PerfCaseResult) {
-  let small_specs = synthetic_witness_payload_tx_specs([64, 10_000])
-  let large_specs = synthetic_witness_payload_tx_specs([100_000])
-  let small_config = small_synthetic_tx_measurement_config()
-  let large_config = large_synthetic_tx_measurement_config()
-
-  [
-    measure_synthetic_parsed_function(
-      small_specs,
-      small_config,
-      "compute_wtxid",
-      transaction.compute_wtxid,
-    ),
-    measure_synthetic_parsed_function(
-      large_specs,
-      large_config,
-      "compute_wtxid",
-      transaction.compute_wtxid,
-    ),
-  ]
-  |> list.flatten
+  measure_synthetic_parsed_curve(
+    synthetic_witness_payload_tx_specs,
+    two_tier_synthetic_curve([64, 10_000], [100_000]),
+    "compute_wtxid",
+    transaction.compute_wtxid,
+  )
 }
 
 fn measure_fixture_tx_serialization() -> List(PerfCaseResult) {
@@ -968,121 +835,49 @@ fn measure_synthetic_witness_item_tx_serialization() -> List(PerfCaseResult) {
 }
 
 fn measure_synthetic_witness_payload_tx_serialization() -> List(PerfCaseResult) {
-  let small_specs = synthetic_witness_payload_tx_specs([64, 10_000])
-  let large_specs = synthetic_witness_payload_tx_specs([100_000])
-  let small_config = small_synthetic_tx_measurement_config()
-  let large_config = large_synthetic_tx_measurement_config()
-
-  [
-    measure_synthetic_parsed_function(
-      small_specs,
-      small_config,
-      "serialize",
-      transaction.serialize,
-    ),
-    measure_synthetic_parsed_function(
-      large_specs,
-      large_config,
-      "serialize",
-      transaction.serialize,
-    ),
-  ]
-  |> list.flatten
+  measure_synthetic_parsed_curve(
+    synthetic_witness_payload_tx_specs,
+    two_tier_synthetic_curve([64, 10_000], [100_000]),
+    "serialize",
+    transaction.serialize,
+  )
 }
 
 fn measure_synthetic_legacy_txid_curve(
   build_specs: fn(List(Int)) -> List(SyntheticTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_specs = build_specs([20, 100])
-  let large_specs = build_specs([1000])
-  let small_config = small_synthetic_tx_measurement_config()
-  let large_config = large_synthetic_tx_measurement_config()
-
-  [
-    measure_synthetic_parsed_function(
-      small_specs,
-      small_config,
-      "compute_txid",
-      transaction.compute_txid,
-    ),
-    measure_synthetic_parsed_function(
-      large_specs,
-      large_config,
-      "compute_txid",
-      transaction.compute_txid,
-    ),
-  ]
-  |> list.flatten
+  measure_synthetic_parsed_curve(
+    build_specs,
+    two_tier_synthetic_curve([20, 100], [1000]),
+    "compute_txid",
+    transaction.compute_txid,
+  )
 }
 
 fn measure_synthetic_legacy_serialization_curve(
   build_specs: fn(List(Int)) -> List(SyntheticTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_specs = build_specs([20, 100])
-  let large_specs = build_specs([1000])
-  let small_config = small_synthetic_tx_measurement_config()
-  let large_config = large_synthetic_tx_measurement_config()
-
-  [
-    measure_synthetic_parsed_function(
-      small_specs,
-      small_config,
-      "serialize_stripped",
-      transaction.serialize_stripped,
-    ),
-    measure_synthetic_parsed_function(
-      large_specs,
-      large_config,
-      "serialize_stripped",
-      transaction.serialize_stripped,
-    ),
-  ]
-  |> list.flatten
+  measure_synthetic_parsed_curve(
+    build_specs,
+    two_tier_synthetic_curve([20, 100], [1000]),
+    "serialize_stripped",
+    transaction.serialize_stripped,
+  )
 }
 
 fn measure_synthetic_segwit_txid_curve(
   build_specs: fn(List(Int)) -> List(SyntheticTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_specs = build_specs([20, 100])
-  let large_specs = build_specs([1000])
-
-  let small_witness_specs = build_specs([20])
-  let medium_witness_specs = build_specs([100])
-  let slow_witness_specs = build_specs([1000])
-
-  let small_config = small_synthetic_tx_measurement_config()
-  let medium_config = medium_synthetic_tx_measurement_config()
-  let large_config = large_synthetic_tx_measurement_config()
-  let slow_config = slow_synthetic_tx_measurement_config()
-
   [
-    measure_synthetic_parsed_function(
-      small_specs,
-      small_config,
+    measure_synthetic_parsed_curve(
+      build_specs,
+      two_tier_synthetic_curve([20, 100], [1000]),
       "compute_txid",
       transaction.compute_txid,
     ),
-    measure_synthetic_parsed_function(
-      large_specs,
-      large_config,
-      "compute_txid",
-      transaction.compute_txid,
-    ),
-    measure_synthetic_parsed_function(
-      small_witness_specs,
-      small_config,
-      "compute_wtxid",
-      transaction.compute_wtxid,
-    ),
-    measure_synthetic_parsed_function(
-      medium_witness_specs,
-      medium_config,
-      "compute_wtxid",
-      transaction.compute_wtxid,
-    ),
-    measure_synthetic_parsed_function(
-      slow_witness_specs,
-      slow_config,
+    measure_synthetic_parsed_curve(
+      build_specs,
+      three_tier_synthetic_curve([20], [100], [1000]),
       "compute_wtxid",
       transaction.compute_wtxid,
     ),
@@ -1093,71 +888,27 @@ fn measure_synthetic_segwit_txid_curve(
 fn measure_synthetic_witness_wtxid_curve(
   build_specs: fn(List(Int)) -> List(SyntheticTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_specs = build_specs([20, 100])
-  let large_specs = build_specs([1000])
-  let small_config = small_synthetic_tx_measurement_config()
-  let large_config = large_synthetic_tx_measurement_config()
-
-  [
-    measure_synthetic_parsed_function(
-      small_specs,
-      small_config,
-      "compute_wtxid",
-      transaction.compute_wtxid,
-    ),
-    measure_synthetic_parsed_function(
-      large_specs,
-      large_config,
-      "compute_wtxid",
-      transaction.compute_wtxid,
-    ),
-  ]
-  |> list.flatten
+  measure_synthetic_parsed_curve(
+    build_specs,
+    two_tier_synthetic_curve([20, 100], [1000]),
+    "compute_wtxid",
+    transaction.compute_wtxid,
+  )
 }
 
 fn measure_synthetic_segwit_serialization_curve(
   build_specs: fn(List(Int)) -> List(SyntheticTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_specs = build_specs([20, 100])
-  let large_specs = build_specs([1000])
-
-  let small_witness_specs = build_specs([20])
-  let medium_witness_specs = build_specs([100])
-  let slow_witness_specs = build_specs([1000])
-
-  let small_config = small_synthetic_tx_measurement_config()
-  let medium_config = medium_synthetic_tx_measurement_config()
-  let large_config = large_synthetic_tx_measurement_config()
-  let slow_config = slow_synthetic_tx_measurement_config()
-
   [
-    measure_synthetic_parsed_function(
-      small_specs,
-      small_config,
+    measure_synthetic_parsed_curve(
+      build_specs,
+      two_tier_synthetic_curve([20, 100], [1000]),
       "serialize_stripped",
       transaction.serialize_stripped,
     ),
-    measure_synthetic_parsed_function(
-      large_specs,
-      large_config,
-      "serialize_stripped",
-      transaction.serialize_stripped,
-    ),
-    measure_synthetic_parsed_function(
-      small_witness_specs,
-      small_config,
-      "serialize",
-      transaction.serialize,
-    ),
-    measure_synthetic_parsed_function(
-      medium_witness_specs,
-      medium_config,
-      "serialize",
-      transaction.serialize,
-    ),
-    measure_synthetic_parsed_function(
-      slow_witness_specs,
-      slow_config,
+    measure_synthetic_parsed_curve(
+      build_specs,
+      three_tier_synthetic_curve([20], [100], [1000]),
       "serialize",
       transaction.serialize,
     ),
@@ -1168,37 +919,30 @@ fn measure_synthetic_segwit_serialization_curve(
 fn measure_synthetic_witness_serialization_curve(
   build_specs: fn(List(Int)) -> List(SyntheticTxSpec),
 ) -> List(PerfCaseResult) {
-  let small_specs = build_specs([20, 100])
-  let large_specs = build_specs([1000])
-  let small_config = small_synthetic_tx_measurement_config()
-  let large_config = large_synthetic_tx_measurement_config()
-
-  [
-    measure_synthetic_parsed_function(
-      small_specs,
-      small_config,
-      "serialize",
-      transaction.serialize,
-    ),
-    measure_synthetic_parsed_function(
-      large_specs,
-      large_config,
-      "serialize",
-      transaction.serialize,
-    ),
-  ]
-  |> list.flatten
+  measure_synthetic_parsed_curve(
+    build_specs,
+    two_tier_synthetic_curve([20, 100], [1000]),
+    "serialize",
+    transaction.serialize,
+  )
 }
 
-fn measure_synthetic_parsed_function(
-  specs: List(SyntheticTxSpec),
-  config: PerfMeasurementConfig,
+fn measure_synthetic_parsed_curve(
+  build_specs: fn(List(Int)) -> List(SyntheticTxSpec),
+  curve: List(MeasurementCurvePoint),
   function_label: String,
   measured_function: fn(Transaction(Parsed)) -> BitArray,
 ) -> List(PerfCaseResult) {
-  specs
-  |> list.map(synthetic_parsed_case)
-  |> measure_cases(config, function_label, measured_function)
+  measure_curve(
+    curve,
+    fn(values) {
+      values
+      |> build_specs
+      |> list.map(synthetic_parsed_case)
+    },
+    function_label,
+    measured_function,
+  )
 }
 
 fn measure_txid_functions(
@@ -1253,6 +997,22 @@ fn fixture_parsed_tx_cases() -> List(PerfCaseInput(Transaction(Parsed))) {
 // ==============================================================================
 // Run cases
 // ==============================================================================
+
+fn measure_curve(
+  curve: List(MeasurementCurvePoint),
+  build_inputs: fn(List(Int)) -> List(PerfCaseInput(a)),
+  function_label: String,
+  measured_function: fn(a) -> b,
+) -> List(PerfCaseResult) {
+  curve
+  |> list.flat_map(fn(point) {
+    let MeasurementCurvePoint(values, config) = point
+
+    values
+    |> build_inputs
+    |> measure_cases(config, function_label, measured_function)
+  })
+}
 
 fn measure_cases(
   inputs: List(PerfCaseInput(a)),
@@ -1626,6 +1386,31 @@ fn compact_size(n: Int) -> BitArray {
 // ==============================================================================
 // Measurement configs
 // ==============================================================================
+
+fn two_tier_synthetic_curve(
+  small_values: List(Int),
+  large_values: List(Int),
+) -> List(MeasurementCurvePoint) {
+  [
+    MeasurementCurvePoint(small_values, small_synthetic_tx_measurement_config()),
+    MeasurementCurvePoint(large_values, large_synthetic_tx_measurement_config()),
+  ]
+}
+
+fn three_tier_synthetic_curve(
+  small_values: List(Int),
+  medium_values: List(Int),
+  slow_values: List(Int),
+) -> List(MeasurementCurvePoint) {
+  [
+    MeasurementCurvePoint(small_values, small_synthetic_tx_measurement_config()),
+    MeasurementCurvePoint(
+      medium_values,
+      medium_synthetic_tx_measurement_config(),
+    ),
+    MeasurementCurvePoint(slow_values, slow_synthetic_tx_measurement_config()),
+  ]
+}
 
 fn measurement_config(operations_per_timed_call: Int) -> PerfMeasurementConfig {
   PerfMeasurementConfig(
