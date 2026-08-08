@@ -43,11 +43,11 @@ Repeat `--section` to select more than one section:
 ```sh
 gleam dev perf \
   --section deserialize.fixtures \
-  --section serialization.fixtures
+  --section serialize.fixtures
 ```
 
 Repeated selectors form a union. For example, passing
-`--section deserialize.fixtures --section serialization.fixtures` runs both
+`--section deserialize.fixtures --section serialize.fixtures` runs both
 sections. Repeating `--section deserialize.fixtures` in the same command still
 runs that section only once. Selected sections always run in the suite's
 canonical order rather than command-line order. When no `--section` is provided,
@@ -70,12 +70,12 @@ gleam dev perf --format table --out /tmp/btc_parser_perf/perf.txt
 ```
 
 Selection composes with the report flags. For example, save only the fixture
-deserialization and serialization sections as CSV:
+`deserialize` and `serialize` sections as CSV:
 
 ```sh
 gleam dev perf \
   --section deserialize.fixtures \
-  --section serialization.fixtures \
+  --section serialize.fixtures \
   --format csv \
   --out /tmp/btc_parser_perf/fixtures.csv
 ```
@@ -107,7 +107,7 @@ gleam dev --target javascript --runtime bun perf
 The command exits with a nonzero status when its arguments are invalid or a
 requested report cannot be written.
 
-## Deserialization
+## Deserialize
 
 `deserialize / fixtures` measures real transaction fixtures. These rows are smoke
 tests for common legacy, SegWit, and witness-heavy shapes that synthetic cases
@@ -199,29 +199,29 @@ or hashing regressions driven by item count rather than payload size.
 witness payload bytes grow. This should scale with payload size because witness
 serialization and double-SHA256 must read those bytes.
 
-## Serialization
+## Serialize
 
-`serialization / fixtures` measures `serialize_stripped` and `serialize`
+`serialize / fixtures` measures `serialize_stripped` and `serialize`
 on real parsed fixtures. These rows cover common real shapes and confirm the
 legacy and SegWit serialization paths both stay healthy.
 
-`serialization / synthetic inputs` measures `serialize_stripped` as legacy input
+`serialize / synthetic inputs` measures `serialize_stripped` as legacy input
 count grows. It is meant to catch stripped serialization regressions over large
 input vectors.
 
-`serialization / synthetic outputs` measures `serialize_stripped` as legacy output
+`serialize / synthetic outputs` measures `serialize_stripped` as legacy output
 count grows. It is meant to catch output serialization regressions.
 
-`serialization / synthetic segwit inputs` measures both stripped and witness
+`serialize / synthetic segwit inputs` measures both stripped and witness
 serialization as SegWit input count grows. The stripped rows isolate non-witness
 serialization; the witness rows include witness stacks and should scale with
 witness data.
 
-`serialization / synthetic witness items` measures `serialize` while the
+`serialize / synthetic witness items` measures `serialize` while the
 number of witness stack items grows. It is meant to catch list traversal and
 CompactSize item serialization regressions.
 
-`serialization / synthetic witness payload` measures `serialize` while
+`serialize / synthetic witness payload` measures `serialize` while
 witness payload bytes grow. This should scale with payload size because the bytes
 are emitted into the serialized transaction.
 

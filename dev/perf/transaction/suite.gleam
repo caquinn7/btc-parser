@@ -259,27 +259,27 @@ fn section_definitions() -> List(PerfSectionDefinition) {
       measure_synthetic_witness_payload_txid_computation,
     ),
     PerfSectionDefinition(
-      "serialization.fixtures",
+      "serialize.fixtures",
       measure_fixture_tx_serialization,
     ),
     PerfSectionDefinition(
-      "serialization.synthetic-inputs",
+      "serialize.synthetic-inputs",
       measure_synthetic_input_tx_serialization,
     ),
     PerfSectionDefinition(
-      "serialization.synthetic-outputs",
+      "serialize.synthetic-outputs",
       measure_synthetic_output_tx_serialization,
     ),
     PerfSectionDefinition(
-      "serialization.synthetic-segwit-inputs",
+      "serialize.synthetic-segwit-inputs",
       measure_synthetic_segwit_input_tx_serialization,
     ),
     PerfSectionDefinition(
-      "serialization.synthetic-witness-items",
+      "serialize.synthetic-witness-items",
       measure_synthetic_witness_item_tx_serialization,
     ),
     PerfSectionDefinition(
-      "serialization.synthetic-witness-payload",
+      "serialize.synthetic-witness-payload",
       measure_synthetic_witness_payload_tx_serialization,
     ),
   ]
@@ -1006,7 +1006,7 @@ fn measure_synthetic_witness_payload_txid_computation() -> PerfSection {
 
 fn measure_fixture_tx_serialization() -> PerfSection {
   PerfSection(
-    "serialization / fixtures",
+    "serialize / fixtures",
     measure_serialization_functions(
       fixture_parsed_tx_cases(),
       measurement_config(100),
@@ -1016,14 +1016,14 @@ fn measure_fixture_tx_serialization() -> PerfSection {
 
 fn measure_synthetic_input_tx_serialization() -> PerfSection {
   PerfSection(
-    "serialization / synthetic inputs",
+    "serialize / synthetic inputs",
     measure_synthetic_legacy_serialization_curve(synthetic_input_count_tx_specs),
   )
 }
 
 fn measure_synthetic_output_tx_serialization() -> PerfSection {
   PerfSection(
-    "serialization / synthetic outputs",
+    "serialize / synthetic outputs",
     measure_synthetic_legacy_serialization_curve(
       synthetic_output_count_tx_specs,
     ),
@@ -1032,7 +1032,7 @@ fn measure_synthetic_output_tx_serialization() -> PerfSection {
 
 fn measure_synthetic_segwit_input_tx_serialization() -> PerfSection {
   PerfSection(
-    "serialization / synthetic segwit inputs",
+    "serialize / synthetic segwit inputs",
     measure_synthetic_segwit_serialization_curve(
       synthetic_segwit_input_count_tx_specs,
     ),
@@ -1041,7 +1041,7 @@ fn measure_synthetic_segwit_input_tx_serialization() -> PerfSection {
 
 fn measure_synthetic_witness_item_tx_serialization() -> PerfSection {
   PerfSection(
-    "serialization / synthetic witness items",
+    "serialize / synthetic witness items",
     measure_synthetic_witness_serialization_curve(
       synthetic_witness_item_tx_specs,
     ),
@@ -1071,7 +1071,7 @@ fn measure_synthetic_witness_payload_tx_serialization() -> PerfSection {
     ]
     |> list.flatten
 
-  PerfSection("serialization / synthetic witness payload", cases)
+  PerfSection("serialize / synthetic witness payload", cases)
 }
 
 fn measure_synthetic_legacy_txid_curve(
