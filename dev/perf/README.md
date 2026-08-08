@@ -1,9 +1,9 @@
 # Performance Benchmarks
 
-This directory contains the `gleam dev perf` benchmark harness. The suite is
-intended to catch broad performance regressions in public transaction workflows,
-not to produce stable machine-independent numbers. Compare trends and relative
-changes within the same machine, target, and runtime.
+This directory contains the `gleam dev perf` benchmark harness. It combines
+domain suites for transactions and blocks, and is intended to catch broad
+performance regressions in public workflows. Compare trends and relative changes within the
+same machine, target, and runtime.
 
 Input construction, hex decoding, and preflight assertions happen before timing
 begins. Timed rows measure only the operation named in the `case` column.
@@ -16,12 +16,14 @@ Run the complete suite on the default target from `gleam.toml`, which is Erlang:
 gleam dev perf
 ```
 
-List the 25 concrete leaf section IDs without constructing inputs or running
+List the concrete leaf section IDs without constructing inputs or running
 any benchmarks:
 
 ```sh
 gleam dev perf --list-sections
 ```
+
+The list contains all implemented leaf sections in canonical order.
 
 `--list-sections` is a standalone mode and cannot be combined with `--section`,
 `--out`, or `--format`. It lists concrete leaf IDs only; group selectors are
@@ -30,31 +32,35 @@ resolved from those IDs and are not listed separately.
 Run one report section by passing its exact leaf ID as a selector:
 
 ```sh
-gleam dev perf --section deserialize.fixtures
+gleam dev perf --section transaction.deserialize.fixtures
 ```
 
 Section selectors are case-sensitive. An exact selector uses a concrete leaf
-ID, such as `deserialize.synthetic-witness-items` or
-`validate-context-free-consensus.duplicate-inputs`. A dot-delimited group
-selector selects all of its descendants, so `deserialize` selects every
-`deserialize.*` section. Matching happens at a dot boundary: `deserial` does
-not match `deserialize.*`, and `deserialize.` is invalid. A selector always
-includes whole report sections; individual timed case rows within a section
-cannot be selected.
+ID, such as `transaction.deserialize.synthetic-witness-items` or
+`transaction.validate-context-free-consensus.duplicate-inputs`. A dot-delimited
+group selector selects all of its descendants, so `transaction` selects every
+transaction section, `transaction.deserialize` selects every deserialization
+section, and `block.compute-merkle-root` selects its scaling workload. Matching
+happens at a dot boundary: `transaction.deserial` does not match
+`transaction.deserialize.*`, and `transaction.deserialize.` is invalid. A
+selector always includes whole report sections; individual timed case rows
+within a section cannot be selected. Unprefixed transaction selectors from
+earlier harness versions are intentionally rejected.
 
 Repeat `--section` to select more than one section:
 
 ```sh
 gleam dev perf \
-  --section deserialize \
-  --section serialize.fixtures
+  --section transaction.deserialize \
+  --section transaction.serialize.fixtures
 ```
 
 Repeated and overlapping selectors form a union. For example, passing
-`--section deserialize --section deserialize.fixtures` runs every
-`deserialize.*` section, with `deserialize.fixtures` only once. Selected
-sections always run in the suite's canonical order rather than command-line
-order. When no `--section` is provided, the complete suite runs.
+`--section transaction.deserialize --section transaction.deserialize.fixtures`
+runs every `transaction.deserialize.*` section, with
+`transaction.deserialize.fixtures` only once. Selected sections always run in
+the suite's canonical order rather than command-line order. When no `--section`
+is provided, the complete suite runs.
 
 When neither `--out` nor `--format` is provided, the table report is printed to
 stdout.
@@ -73,12 +79,13 @@ gleam dev perf --format table --out /tmp/btc_parser_perf/perf.txt
 ```
 
 Selection composes with the report flags. For example, save only the
-`deserialize.fixtures` and `serialize.fixtures` sections as CSV:
+`transaction.deserialize.fixtures` and `block.compute-merkle-root` sections as
+CSV:
 
 ```sh
 gleam dev perf \
-  --section deserialize.fixtures \
-  --section serialize.fixtures \
+  --section transaction.deserialize.fixtures \
+  --section block.compute-merkle-root \
   --format csv \
   --out /tmp/btc_parser_perf/fixtures.csv
 ```
@@ -112,126 +119,138 @@ requested report cannot be written.
 
 ## Deserialize
 
-`deserialize.fixtures` measures real transaction fixtures. These rows are smoke
+`transaction.deserialize.fixtures` measures real transaction fixtures. These rows are smoke
 tests for common legacy, SegWit, and witness-heavy shapes that synthetic cases
 may not model exactly.
 
-`deserialize.synthetic-inputs` measures deserializer scaling as the legacy
+`transaction.deserialize.synthetic-inputs` measures deserializer scaling as the legacy
 input vector grows. It is meant to catch input deserialization regressions,
 accidental quadratic list or `BitArray` work, and CompactSize count handling
 issues.
 
-`deserialize.synthetic-outputs` measures deserializer scaling as the legacy
+`transaction.deserialize.synthetic-outputs` measures deserializer scaling as the legacy
 output vector grows. It is meant to catch output deserialization regressions and
 scriptPubKey length handling problems while keeping the input side fixed.
 
-`deserialize.synthetic-segwit-inputs` measures full SegWit transaction
+`transaction.deserialize.synthetic-segwit-inputs` measures full SegWit transaction
 deserialization as the input count and matching witness stack count grow
 together. It is meant to catch regressions in SegWit input/witness alignment and
 witness-list traversal.
 
-`deserialize.synthetic-witness-items` measures deserializing one SegWit input
+`transaction.deserialize.synthetic-witness-items` measures deserializing one SegWit input
 while the number of witness stack items grows. It is meant to catch per-item
 overhead, CompactSize item count handling problems, and list-building
 regressions.
 
-`deserialize.synthetic-witness-payload` measures deserialization while witness
+`transaction.deserialize.synthetic-witness-payload` measures deserialization while witness
 payload bytes grow but witness structure stays simple. Deserialization is
 expected to be mostly flat here because payload bytes are captured, not
 interpreted. A steep increase would suggest unexpected copying or byte-by-byte
 payload work.
 
-`deserialize.malformed` measures malformed inputs that fail after most of the
+`transaction.deserialize.malformed` measures malformed inputs that fail after most of the
 transaction has already been processed. These rows are meant to catch expensive
 late-failure paths and ensure truncation checks stay precise.
 
-`deserialize.policy-limits` measures policy-limit rejection before unnecessary
+`transaction.deserialize.policy-limits` measures policy-limit rejection before unnecessary
 payload work. This should remain cheap even when the serialized input includes
 large payload bytes.
 
 ## Inspection
 
-`inspection.coinbase-shape` measures `has_coinbase_shape` over
+`transaction.inspection.coinbase-shape` measures `has_coinbase_shape` over
 context-free-validated transactions with many ordinary inputs. Deserialization
 and validation happen before timing begins, isolating the cost of the private
 coinbase-marker scan used by the public inspection helper.
 
 ## Context-Free Consensus Validation
 
-`validate-context-free-consensus.valid-inputs` measures successful
+`transaction.validate-context-free-consensus.valid-inputs` measures successful
 context-free consensus validation as input count grows. It exercises the full
 validator set on valid transactions, including duplicate-input tracking.
 
-`validate-context-free-consensus.valid-outputs` measures successful validation
+`transaction.validate-context-free-consensus.valid-outputs` measures successful validation
 as output count grows. It is meant to catch regressions in per-output value
 checks and cumulative output value tracking.
 
-`validate-context-free-consensus.duplicate-inputs` places the duplicate input
+`transaction.validate-context-free-consensus.duplicate-inputs` places the duplicate input
 late so the validator must inspect nearly the whole input list before failing.
 This is meant to catch regressions from near-linear duplicate detection toward
 quadratic behavior.
 
-`validate-context-free-consensus.output-overflow` places cumulative value
+`transaction.validate-context-free-consensus.output-overflow` places cumulative value
 overflow late in the output list. This is meant to catch regressions in
 output-sum validation and to compare failure-path cost with the valid output
 curve.
 
 ## Txid Computation
 
-`txid-computation.fixtures` measures `compute_txid` and `compute_wtxid` on
+`transaction.txid-computation.fixtures` measures `compute_txid` and `compute_wtxid` on
 real parsed fixtures. These rows cover common real shapes and the witness-heavy
 fixture where `wtxid` includes substantially more data than `txid`.
 
-`txid-computation.synthetic-inputs` measures `compute_txid` as legacy input
+`transaction.txid-computation.synthetic-inputs` measures `compute_txid` as legacy input
 count grows. It is meant to catch serialization or hashing regressions over
 large stripped transaction payloads.
 
-`txid-computation.synthetic-outputs` measures `compute_txid` as legacy output
+`transaction.txid-computation.synthetic-outputs` measures `compute_txid` as legacy output
 count grows. It is meant to catch output serialization and hashing regressions.
 
-`txid-computation.synthetic-segwit-inputs` measures both `compute_txid` and
+`transaction.txid-computation.synthetic-segwit-inputs` measures both `compute_txid` and
 `compute_wtxid` as SegWit input count grows. The `compute_txid` rows are stripped
 serialization controls; the `compute_wtxid` rows include witness bytes and should
 be more sensitive to witness payload growth.
 
-`txid-computation.synthetic-witness-items` measures `compute_wtxid` while the
+`transaction.txid-computation.synthetic-witness-items` measures `compute_wtxid` while the
 number of witness stack items grows. It is meant to catch witness serialization
 or hashing regressions driven by item count rather than payload size.
 
-`txid-computation.synthetic-witness-payload` measures `compute_wtxid` while
+`transaction.txid-computation.synthetic-witness-payload` measures `compute_wtxid` while
 witness payload bytes grow. This should scale with payload size because witness
 serialization and double-SHA256 must read those bytes.
 
 ## Serialize
 
-`serialize.fixtures` measures `serialize_stripped` and `serialize`
+`transaction.serialize.fixtures` measures `serialize_stripped` and `serialize`
 on real parsed fixtures. These rows cover common real shapes and confirm the
 legacy and SegWit serialization paths both stay healthy.
 
-`serialize.synthetic-inputs` measures `serialize_stripped` as legacy input
+`transaction.serialize.synthetic-inputs` measures `serialize_stripped` as legacy input
 count grows. It is meant to catch stripped serialization regressions over large
 input vectors.
 
-`serialize.synthetic-outputs` measures `serialize_stripped` as legacy output
+`transaction.serialize.synthetic-outputs` measures `serialize_stripped` as legacy output
 count grows. It is meant to catch output serialization regressions.
 
-`serialize.synthetic-segwit-inputs` measures both stripped and witness
+`transaction.serialize.synthetic-segwit-inputs` measures both stripped and witness
 serialization as SegWit input count grows. The stripped rows isolate non-witness
 serialization; the witness rows include witness stacks and should scale with
 witness data.
 
-`serialize.synthetic-witness-items` measures `serialize` while the
+`transaction.serialize.synthetic-witness-items` measures `serialize` while the
 number of witness stack items grows. It is meant to catch list traversal and
 CompactSize item serialization regressions.
 
-`serialize.synthetic-witness-payload` measures `serialize` while
+`transaction.serialize.synthetic-witness-payload` measures `serialize` while
 witness payload bytes grow. This should scale with payload size because the bytes
 are emitted into the serialized transaction.
+
+## Block
+
+`block.compute-merkle-root.synthetic-transactions` measures
+`block.compute_merkle_root` over prebuilt, parsed blocks containing `1`, `100`,
+and `1,000` unique minimal legacy transactions. Transaction versions make the
+transactions unique, so the preflight mutation flag remains false. Block
+construction and deserialization occur before timing; each timed operation
+computes only the Merkle root. The curve uses `100`, `10`, and `1` operations per
+timed call respectively, with a 250 ms warmup and a 1,000 ms measurement
+duration.
 
 ## Reading Results
 
 The suite uses a lean set of scaling points by default. Count-based deserialization
-curves use `1`, `100`, and `1000`; other count-based curves use `20`, `100`, and
+curves use `1`, `100`, and `1000`; other count-based transaction curves use
+`20`, `100`, and `1000`; the block Merkle-root curve uses `1`, `100`, and
 `1000`; witness payload curves use `64`, `10_000`, and `100_000` bytes.
 
 Table reports begin with metadata describing the target, runtime, operating
@@ -249,8 +268,9 @@ runtime does not make it available.
 
 The results table has these columns:
 
-- `case`: The measured function plus the transaction shape or fixture label.
-- `bytes`: The wire-format size of the transaction input used for the row.
+- `case`: The measured function plus the input shape or fixture label.
+- `bytes`: The complete serialized size of the input value used for the row
+  (a transaction for transaction rows or a block for block rows).
 - `warmup ms`: How long the benchmark ran before recording measurements.
 - `duration ms`: The target amount of timed measurement for the row.
 - `ops/call`: The number of logical operations batched inside one timed call.
@@ -274,7 +294,7 @@ measured milliseconds, operations per second, and microseconds per operation.
 
 ```csv
 run_target,run_runtime,run_os,run_architecture,section,case,bytes,warmup_ms,duration_ms,ops_per_timed_call,timed_call_count,measured_ms,operations_per_second,microseconds_per_operation
-"erlang","Erlang/OTP 28 (ERTS 16.4)","darwin","arm64","deserialize.fixtures","deserialize simple legacy tx",223,250,1000,100,11595,998.819,1160871.0,0.861
+"erlang","Erlang/OTP 28 (ERTS 16.4)","darwin","arm64","transaction.deserialize.fixtures","deserialize simple legacy tx",223,250,1000,100,11595,998.819,1160871.0,0.861
 ```
 
 Batching is chosen by operation shape. Very fast rows use larger batches to
