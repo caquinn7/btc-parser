@@ -23,8 +23,8 @@ import gleam/int
 import gleam/list
 import gleam/string
 import gleamy/bench.{
-  type BenchResults, type Function, type Input, type Set as BenchSet,
-  BenchResults, Duration, Function, Input, Quiet, Set as BenchSet, Warmup,
+  type BenchResults, type Input, type Set as BenchSet, BenchResults, Duration,
+  Function, Input, Quiet, Set as BenchSet, Warmup,
 }
 import perf/internal/metadata.{type PerfMetadata}
 
@@ -331,7 +331,12 @@ fn measure_fixture_tx_decoding() -> List(PerfCaseResult) {
     fixture_deserialize_case("witness-heavy tx", witness_heavy_p2wsh_tx),
   ]
 
-  measure_deserialize(fixture_deserialize_inputs, measurement_config(100))
+  measure_cases(
+    fixture_deserialize_inputs,
+    measurement_config(100),
+    "deserialize",
+    transaction.deserialize,
+  )
 }
 
 fn measure_synthetic_input_tx_decoding() -> List(PerfCaseResult) {
@@ -381,7 +386,12 @@ fn measure_malformed_tx_decoding() -> List(PerfCaseResult) {
     ),
   ]
 
-  measure_deserialize(malformed_deserialize_inputs, measurement_config(100))
+  measure_cases(
+    malformed_deserialize_inputs,
+    measurement_config(100),
+    "deserialize",
+    transaction.deserialize,
+  )
 }
 
 fn measure_policy_limit_tx_decoding() -> List(PerfCaseResult) {
@@ -389,22 +399,11 @@ fn measure_policy_limit_tx_decoding() -> List(PerfCaseResult) {
     oversized_scriptsig_policy_deserialize_case("oversized scriptSig tx"),
   ]
 
-  measure_deserialize(policy_limit_deserialize_inputs, measurement_config(100))
-}
-
-fn measure_deserialize(
-  inputs: List(PerfCaseInput(BitArray)),
-  config: PerfMeasurementConfig,
-) -> List(PerfCaseResult) {
-  run_bench_cases(
-    inputs,
-    [
-      Function(
-        "deserialize",
-        bench.repeat(config.operations_per_timed_call, transaction.deserialize),
-      ),
-    ],
-    config,
+  measure_cases(
+    policy_limit_deserialize_inputs,
+    measurement_config(100),
+    "deserialize",
+    transaction.deserialize,
   )
 }
 
@@ -466,7 +465,7 @@ fn measure_synthetic_decoding(
 ) -> List(PerfCaseResult) {
   specs
   |> list.map(synthetic_deserialize_case)
-  |> measure_deserialize(config)
+  |> measure_cases(config, "deserialize", transaction.deserialize)
 }
 
 fn synthetic_input_count_tx_specs(
@@ -670,26 +669,7 @@ fn measure_coinbase_shape_input_counts(
 ) -> List(PerfCaseResult) {
   input_counts
   |> list.map(coinbase_shape_case)
-  |> measure_coinbase_shape(config)
-}
-
-fn measure_coinbase_shape(
-  inputs: List(PerfCaseInput(Transaction(ContextFreeValidated))),
-  config: PerfMeasurementConfig,
-) -> List(PerfCaseResult) {
-  run_bench_cases(
-    inputs,
-    [
-      Function(
-        "has_coinbase_shape",
-        bench.repeat(
-          config.operations_per_timed_call,
-          transaction.has_coinbase_shape,
-        ),
-      ),
-    ],
-    config,
-  )
+  |> measure_cases(config, "has_coinbase_shape", transaction.has_coinbase_shape)
 }
 
 fn coinbase_shape_case(
@@ -788,7 +768,11 @@ fn measure_validation_input_counts(
 ) -> List(PerfCaseResult) {
   input_counts
   |> list.map(build_case)
-  |> measure_validate_context_free_consensus(config)
+  |> measure_cases(
+    config,
+    "validate_context_free_consensus",
+    transaction.validate_context_free_consensus,
+  )
 }
 
 fn measure_validation_output_counts(
@@ -797,7 +781,11 @@ fn measure_validation_output_counts(
 ) -> List(PerfCaseResult) {
   output_counts
   |> list.map(valid_output_count_consensus_case)
-  |> measure_validate_context_free_consensus(config)
+  |> measure_cases(
+    config,
+    "validate_context_free_consensus",
+    transaction.validate_context_free_consensus,
+  )
 }
 
 fn measure_validation_output_overflow_counts(
@@ -806,7 +794,11 @@ fn measure_validation_output_overflow_counts(
 ) -> List(PerfCaseResult) {
   output_counts
   |> list.map(output_overflow_count_consensus_case)
-  |> measure_validate_context_free_consensus(config)
+  |> measure_cases(
+    config,
+    "validate_context_free_consensus",
+    transaction.validate_context_free_consensus,
+  )
 }
 
 fn valid_input_count_consensus_case(
@@ -865,25 +857,6 @@ fn context_free_consensus_validation_case(
   preflight_validate_context_free_consensus(tx, expectation)
 
   PerfCaseInput(label, bit_array.byte_size(tx_bytes), tx)
-}
-
-fn measure_validate_context_free_consensus(
-  inputs: List(PerfCaseInput(Transaction(Parsed))),
-  config: PerfMeasurementConfig,
-) -> List(PerfCaseResult) {
-  run_bench_cases(
-    inputs,
-    [
-      Function(
-        "validate_context_free_consensus",
-        bench.repeat(
-          config.operations_per_timed_call,
-          transaction.validate_context_free_consensus,
-        ),
-      ),
-    ],
-    config,
-  )
 }
 
 type ContextFreeConsensusValidationExpectation {
@@ -1225,7 +1198,7 @@ fn measure_synthetic_parsed_function(
 ) -> List(PerfCaseResult) {
   specs
   |> list.map(synthetic_parsed_case)
-  |> measure_parsed_tx_function(config, function_label, measured_function)
+  |> measure_cases(config, function_label, measured_function)
 }
 
 fn measure_txid_functions(
@@ -1233,18 +1206,8 @@ fn measure_txid_functions(
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   [
-    measure_parsed_tx_function(
-      inputs,
-      config,
-      "compute_txid",
-      transaction.compute_txid,
-    ),
-    measure_parsed_tx_function(
-      inputs,
-      config,
-      "compute_wtxid",
-      transaction.compute_wtxid,
-    ),
+    measure_cases(inputs, config, "compute_txid", transaction.compute_txid),
+    measure_cases(inputs, config, "compute_wtxid", transaction.compute_wtxid),
   ]
   |> list.flatten
 }
@@ -1254,38 +1217,15 @@ fn measure_serialization_functions(
   config: PerfMeasurementConfig,
 ) -> List(PerfCaseResult) {
   [
-    measure_parsed_tx_function(
+    measure_cases(
       inputs,
       config,
       "serialize_stripped",
       transaction.serialize_stripped,
     ),
-    measure_parsed_tx_function(
-      inputs,
-      config,
-      "serialize",
-      transaction.serialize,
-    ),
+    measure_cases(inputs, config, "serialize", transaction.serialize),
   ]
   |> list.flatten
-}
-
-fn measure_parsed_tx_function(
-  inputs: List(PerfCaseInput(Transaction(Parsed))),
-  config: PerfMeasurementConfig,
-  function_label: String,
-  measured_function: fn(Transaction(Parsed)) -> BitArray,
-) -> List(PerfCaseResult) {
-  run_bench_cases(
-    inputs,
-    [
-      Function(
-        function_label,
-        bench.repeat(config.operations_per_timed_call, measured_function),
-      ),
-    ],
-    config,
-  )
 }
 
 fn synthetic_parsed_case(
@@ -1314,12 +1254,18 @@ fn fixture_parsed_tx_cases() -> List(PerfCaseInput(Transaction(Parsed))) {
 // Run cases
 // ==============================================================================
 
-fn run_bench_cases(
+fn measure_cases(
   inputs: List(PerfCaseInput(a)),
-  functions: List(Function(a, b)),
   config: PerfMeasurementConfig,
+  function_label: String,
+  measured_function: fn(a) -> b,
 ) -> List(PerfCaseResult) {
   let bench_inputs = list.map(inputs, to_bench_input)
+  let bench_function =
+    Function(
+      function_label,
+      bench.repeat(config.operations_per_timed_call, measured_function),
+    )
   let bench_options = [
     Warmup(config.warmup_ms),
     Duration(config.duration_ms),
@@ -1327,7 +1273,7 @@ fn run_bench_cases(
   ]
 
   bench_inputs
-  |> bench.run(functions, bench_options)
+  |> bench.run([bench_function], bench_options)
   |> build_case_results(inputs, config)
 }
 
