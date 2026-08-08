@@ -98,48 +98,214 @@ type SyntheticTxSpec {
   )
 }
 
-/// Runs all performance benchmark groups and returns their measurements.
+/// A validated selection of performance report sections.
 ///
-/// The returned `PerfResult` preserves the report section grouping used by the
-/// development benchmark command.
-pub fn run() -> PerfResult {
+/// Create a selection with `select_sections`. The type is opaque so `run`
+/// cannot be called with section identifiers that have not been validated.
+pub opaque type SectionSelection {
+  SectionSelection(definitions: List(PerfSectionDefinition))
+}
+
+/// An error returned when selecting performance report sections.
+pub type SelectSectionsError {
+  /// One or more requested section identifiers do not exist.
+  UnknownSectionIds(section_ids: List(String))
+}
+
+type PerfSectionDefinition {
+  PerfSectionDefinition(id: String, measure: fn() -> PerfSection)
+}
+
+/// Returns all valid section identifiers in canonical suite order.
+pub fn section_ids() -> List(String) {
+  section_definitions()
+  |> list.map(fn(definition) {
+    let PerfSectionDefinition(id, _) = definition
+    id
+  })
+}
+
+/// Validates and resolves requested section identifiers.
+///
+/// An empty list selects the complete suite. Repeated identifiers are selected
+/// once, and selected sections always retain canonical suite order. All unknown
+/// identifiers are returned before any benchmark input is constructed or timed.
+pub fn select_sections(
+  requested_ids: List(String),
+) -> Result(SectionSelection, SelectSectionsError) {
+  let definitions = section_definitions()
+  let valid_ids = section_ids()
+  let unknown_ids =
+    requested_ids
+    |> list.filter(fn(id) { !list.contains(valid_ids, id) })
+    |> deduplicate_strings
+
+  case unknown_ids {
+    [_, ..] -> Error(UnknownSectionIds(unknown_ids))
+    [] -> {
+      let selected_definitions = case requested_ids {
+        [] -> definitions
+        [_, ..] ->
+          list.filter(definitions, fn(definition) {
+            let PerfSectionDefinition(id, _) = definition
+            list.contains(requested_ids, id)
+          })
+      }
+
+      Ok(SectionSelection(selected_definitions))
+    }
+  }
+}
+
+/// Returns the identifiers in a validated selection in execution order.
+pub fn selected_section_ids(selection: SectionSelection) -> List(String) {
+  let SectionSelection(definitions) = selection
+  definitions
+  |> list.map(fn(definition) {
+    let PerfSectionDefinition(id, _) = definition
+    id
+  })
+}
+
+/// Runs the selected performance report sections and returns their measurements.
+///
+/// The returned `PerfResult` preserves the report section grouping and canonical
+/// ordering used by the development benchmark command.
+pub fn run(selection: SectionSelection) -> PerfResult {
   let metadata = metadata.current()
+  let SectionSelection(definitions) = selection
   let sections =
-    [
-      measure_tx_decoding(),
-      measure_tx_inspection(),
-      measure_context_free_consensus_validation(),
-      measure_txid_computation(),
-      measure_tx_serialization(),
-    ]
-    |> list.flatten
+    list.map(definitions, fn(definition) {
+      let PerfSectionDefinition(_, measure) = definition
+      measure()
+    })
 
   PerfResult(metadata:, sections:)
+}
+
+fn section_definitions() -> List(PerfSectionDefinition) {
+  [
+    PerfSectionDefinition("deserialize.fixtures", measure_fixture_tx_decoding),
+    PerfSectionDefinition(
+      "deserialize.synthetic-inputs",
+      measure_synthetic_input_tx_decoding,
+    ),
+    PerfSectionDefinition(
+      "deserialize.synthetic-outputs",
+      measure_synthetic_output_tx_decoding,
+    ),
+    PerfSectionDefinition(
+      "deserialize.synthetic-segwit-inputs",
+      measure_synthetic_segwit_input_tx_decoding,
+    ),
+    PerfSectionDefinition(
+      "deserialize.synthetic-witness-items",
+      measure_synthetic_witness_item_tx_decoding,
+    ),
+    PerfSectionDefinition(
+      "deserialize.synthetic-witness-payload",
+      measure_synthetic_witness_payload_tx_decoding,
+    ),
+    PerfSectionDefinition(
+      "deserialize.malformed",
+      measure_malformed_tx_decoding,
+    ),
+    PerfSectionDefinition(
+      "deserialize.policy-limits",
+      measure_policy_limit_tx_decoding,
+    ),
+    PerfSectionDefinition(
+      "inspection.coinbase-shape",
+      measure_coinbase_shape_inspection,
+    ),
+    PerfSectionDefinition(
+      "validate-context-free-consensus.valid-inputs",
+      measure_context_free_consensus_validation_valid_inputs,
+    ),
+    PerfSectionDefinition(
+      "validate-context-free-consensus.valid-outputs",
+      measure_context_free_consensus_validation_valid_outputs,
+    ),
+    PerfSectionDefinition(
+      "validate-context-free-consensus.duplicate-inputs",
+      measure_context_free_consensus_validation_duplicate_input,
+    ),
+    PerfSectionDefinition(
+      "validate-context-free-consensus.output-overflow",
+      measure_context_free_consensus_validation_output_overflow,
+    ),
+    PerfSectionDefinition(
+      "txid-computation.fixtures",
+      measure_fixture_txid_computation,
+    ),
+    PerfSectionDefinition(
+      "txid-computation.synthetic-inputs",
+      measure_synthetic_input_txid_computation,
+    ),
+    PerfSectionDefinition(
+      "txid-computation.synthetic-outputs",
+      measure_synthetic_output_txid_computation,
+    ),
+    PerfSectionDefinition(
+      "txid-computation.synthetic-segwit-inputs",
+      measure_synthetic_segwit_input_txid_computation,
+    ),
+    PerfSectionDefinition(
+      "txid-computation.synthetic-witness-items",
+      measure_synthetic_witness_item_txid_computation,
+    ),
+    PerfSectionDefinition(
+      "txid-computation.synthetic-witness-payload",
+      measure_synthetic_witness_payload_txid_computation,
+    ),
+    PerfSectionDefinition(
+      "serialization.fixtures",
+      measure_fixture_tx_serialization,
+    ),
+    PerfSectionDefinition(
+      "serialization.synthetic-inputs",
+      measure_synthetic_input_tx_serialization,
+    ),
+    PerfSectionDefinition(
+      "serialization.synthetic-outputs",
+      measure_synthetic_output_tx_serialization,
+    ),
+    PerfSectionDefinition(
+      "serialization.synthetic-segwit-inputs",
+      measure_synthetic_segwit_input_tx_serialization,
+    ),
+    PerfSectionDefinition(
+      "serialization.synthetic-witness-items",
+      measure_synthetic_witness_item_tx_serialization,
+    ),
+    PerfSectionDefinition(
+      "serialization.synthetic-witness-payload",
+      measure_synthetic_witness_payload_tx_serialization,
+    ),
+  ]
+}
+
+fn deduplicate_strings(strings: List(String)) -> List(String) {
+  deduplicate_strings_loop(strings, [])
+}
+
+fn deduplicate_strings_loop(
+  remaining: List(String),
+  seen_reversed: List(String),
+) -> List(String) {
+  case remaining {
+    [] -> list.reverse(seen_reversed)
+    [first, ..rest] ->
+      case list.contains(seen_reversed, first) {
+        True -> deduplicate_strings_loop(rest, seen_reversed)
+        False -> deduplicate_strings_loop(rest, [first, ..seen_reversed])
+      }
+  }
 }
 
 // ==============================================================================
 // Transaction deserialization
 // ==============================================================================
-
-/// Measures `transaction.deserialize` from byte arrays that are prepared before timing.
-///
-/// This group includes valid legacy/SegWit fixtures, synthetic many-input and
-/// many-output legacy transactions, synthetic SegWit transactions that isolate
-/// witness scaling dimensions, malformed inputs that fail after most of the
-/// transaction has been parsed, and policy-limit violations that should reject
-/// before doing unnecessary payload work.
-fn measure_tx_decoding() -> List(PerfSection) {
-  [
-    measure_fixture_tx_decoding(),
-    measure_synthetic_input_tx_decoding(),
-    measure_synthetic_output_tx_decoding(),
-    measure_synthetic_segwit_input_tx_decoding(),
-    measure_synthetic_witness_item_tx_decoding(),
-    measure_synthetic_witness_payload_tx_decoding(),
-    measure_malformed_tx_decoding(),
-    measure_policy_limit_tx_decoding(),
-  ]
-}
 
 fn measure_fixture_tx_decoding() -> PerfSection {
   let fixture_deserialize_inputs = [
@@ -497,12 +663,6 @@ fn oversized_scriptsig_policy_deserialize_case(
 // Transaction inspection
 // ==============================================================================
 
-/// Measures read-only transaction inspection helpers over transactions that
-/// have already been parsed and context-free validated before timing begins.
-fn measure_tx_inspection() -> List(PerfSection) {
-  [measure_coinbase_shape_inspection()]
-}
-
 fn measure_coinbase_shape_inspection() -> PerfSection {
   let small_config = fast_measurement_config(100)
   let large_config = fast_measurement_config(10)
@@ -565,21 +725,6 @@ fn coinbase_shape_case(
 // ==============================================================================
 // Context-free consensus validation
 // ==============================================================================
-
-/// Measures `transaction.validate_context_free_consensus` on already-parsed
-/// synthetic transactions.
-///
-/// The valid cases exercise full success-path input-count and output-count
-/// scanning. The late-duplicate cases place the duplicate outpoint at the end so
-/// rejection still walks nearly the whole input list.
-fn measure_context_free_consensus_validation() -> List(PerfSection) {
-  [
-    measure_context_free_consensus_validation_valid_inputs(),
-    measure_context_free_consensus_validation_valid_outputs(),
-    measure_context_free_consensus_validation_duplicate_input(),
-    measure_context_free_consensus_validation_output_overflow(),
-  ]
-}
 
 fn measure_context_free_consensus_validation_valid_inputs() -> PerfSection {
   let cases =
@@ -798,21 +943,6 @@ fn preflight_validate_context_free_consensus(
 // Txid computation & serialization
 // ==============================================================================
 
-/// Measures `compute_txid` and `compute_wtxid` on already-parsed transactions.
-///
-/// This excludes deserialization cost, leaving serialization and double-SHA256 work
-/// inside the timed region.
-fn measure_txid_computation() -> List(PerfSection) {
-  [
-    measure_fixture_txid_computation(),
-    measure_synthetic_input_txid_computation(),
-    measure_synthetic_output_txid_computation(),
-    measure_synthetic_segwit_input_txid_computation(),
-    measure_synthetic_witness_item_txid_computation(),
-    measure_synthetic_witness_payload_txid_computation(),
-  ]
-}
-
 fn measure_fixture_txid_computation() -> PerfSection {
   PerfSection(
     "txid computation / fixtures",
@@ -872,22 +1002,6 @@ fn measure_synthetic_witness_payload_txid_computation() -> PerfSection {
     |> list.flatten
 
   PerfSection("txid computation / synthetic witness payload", cases)
-}
-
-/// Measures `serialize_stripped` and `serialize` on already-parsed
-/// transactions.
-///
-/// The benchmark set includes legacy and SegWit transactions
-/// because witness serialization changes the code path and payload shape.
-fn measure_tx_serialization() -> List(PerfSection) {
-  [
-    measure_fixture_tx_serialization(),
-    measure_synthetic_input_tx_serialization(),
-    measure_synthetic_output_tx_serialization(),
-    measure_synthetic_segwit_input_tx_serialization(),
-    measure_synthetic_witness_item_tx_serialization(),
-    measure_synthetic_witness_payload_tx_serialization(),
-  ]
 }
 
 fn measure_fixture_tx_serialization() -> PerfSection {

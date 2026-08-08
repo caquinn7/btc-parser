@@ -10,11 +10,48 @@ begins. Timed rows measure only the operation named in the `case` column.
 
 ## Commands
 
-Run the suite on the default target from `gleam.toml`, which is Erlang:
+Run the complete suite on the default target from `gleam.toml`, which is Erlang:
 
 ```sh
 gleam dev perf
 ```
+
+List the available section IDs without constructing inputs or running any
+benchmarks:
+
+```sh
+gleam dev perf --list-sections
+```
+
+`--list-sections` is a standalone mode and cannot be combined with `--section`,
+`--out`, or `--format`.
+
+Run one report section by passing its exact ID:
+
+```sh
+gleam dev perf --section deserialize.fixtures
+```
+
+Section IDs are case-sensitive. They use a dot between the section hierarchy
+and dashes between words, such as `deserialize.synthetic-witness-items` and
+`validate-context-free-consensus.duplicate-inputs`. A selector always includes
+the whole report section; individual timed case rows within a section cannot be
+selected.
+
+Repeat `--section` to select more than one section:
+
+```sh
+gleam dev perf \
+  --section deserialize.fixtures \
+  --section serialization.fixtures
+```
+
+Repeated selectors form a union. For example, passing
+`--section deserialize.fixtures --section serialization.fixtures` runs both
+sections. Repeating `--section deserialize.fixtures` in the same command still
+runs that section only once. Selected sections always run in the suite's
+canonical order rather than command-line order. When no `--section` is provided,
+the complete suite runs.
 
 When neither `--out` nor `--format` is provided, the table report is printed to
 stdout.
@@ -30,6 +67,17 @@ Save the table report to a file:
 
 ```sh
 gleam dev perf --format table --out /tmp/btc_parser_perf/perf.txt
+```
+
+Selection composes with the report flags. For example, save only the fixture
+deserialization and serialization sections as CSV:
+
+```sh
+gleam dev perf \
+  --section deserialize.fixtures \
+  --section serialization.fixtures \
+  --format csv \
+  --out /tmp/btc_parser_perf/fixtures.csv
 ```
 
 When `--out` references a file in a directory that does not exist, the missing
