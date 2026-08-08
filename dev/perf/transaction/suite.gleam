@@ -48,7 +48,7 @@ pub type PerfResult {
 pub type PerfSection {
   PerfSection(
     /// Canonical section identifier used for selection and reporting.
-    title: String,
+    id: String,
     cases: List(PerfCaseResult),
   )
 }
