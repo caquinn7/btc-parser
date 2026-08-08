@@ -231,17 +231,12 @@ pub fn compare(target: PowTarget, pow_limit: PowTarget) -> Order {
 pub fn is_satisfied_by(target: PowTarget, block_hash: Hash256) -> Bool {
   let PowTarget(target) = target
 
-  let order =
-    compare_bytes_from_most_significant(
-      hash256.to_bytes_le(block_hash),
-      uint256.to_bytes_le(target),
-      31,
-    )
-
-  case order {
-    Lt | Eq -> True
-    Gt -> False
-  }
+  compare_bytes_from_most_significant(
+    hash256.to_bytes_le(block_hash),
+    uint256.to_bytes_le(target),
+    31,
+  )
+  != Gt
 }
 
 fn compare_bytes_from_most_significant(

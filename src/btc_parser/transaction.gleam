@@ -2,6 +2,7 @@
 
 import btc_parser/internal/compact_size
 import btc_parser/internal/decode
+import btc_parser/internal/double_sha256
 import btc_parser/internal/fixed_int/int64
 import btc_parser/internal/fixed_int/uint64.{type Uint64}
 import btc_parser/internal/hash256.{type Hash256}
@@ -10,7 +11,6 @@ import btc_parser/internal/parser.{type Parser}
 import btc_parser/internal/reader.{type Reader}
 import gleam/bit_array
 import gleam/bool
-import gleam/crypto.{Sha256}
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
@@ -2534,7 +2534,7 @@ pub fn compute_txid(tx: Transaction(state)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
     |> serialize_stripped
-    |> dsha256
+    |> double_sha256.hash
 }
 
 /// Compute the witness transaction identifier (wtxid) for a transaction.
@@ -2547,7 +2547,7 @@ pub fn compute_wtxid(tx: Transaction(state)) -> BitArray {
   let assert <<_:256-bits>> =
     tx
     |> serialize
-    |> dsha256
+    |> double_sha256.hash
 }
 
 /// Serialize a transaction without witness data (the "stripped" form).
@@ -2717,10 +2717,4 @@ fn serialize_witness_item(witness_item: WitnessItem) -> BitArray {
     compact_size.encode(item_length):bits,
     witness_item_bytes:bits,
   >>
-}
-
-fn dsha256(bytes: BitArray) -> BitArray {
-  bytes
-  |> crypto.hash(Sha256, _)
-  |> crypto.hash(Sha256, _)
 }

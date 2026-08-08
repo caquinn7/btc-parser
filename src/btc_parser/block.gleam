@@ -2,6 +2,7 @@
 
 import btc_parser/internal/compact_size
 import btc_parser/internal/decode
+import btc_parser/internal/double_sha256
 import btc_parser/internal/fixed_int/uint64.{type Uint64}
 import btc_parser/internal/hash256.{type Hash256}
 import btc_parser/internal/lifecycle
@@ -11,7 +12,6 @@ import btc_parser/internal/reader.{type Reader}
 import btc_parser/transaction.{type Transaction}
 import gleam/bit_array
 import gleam/bool
-import gleam/crypto.{Sha256}
 import gleam/int
 import gleam/list
 import gleam/order.{Eq, Gt, Lt}
@@ -226,7 +226,9 @@ fn compute_merkle_root_loop(
 ) -> #(List(BitArray), Bool) {
   case hashes {
     [] -> #([<<0:256>>], False)
+
     [h] -> #([h], mutated)
+
     _ -> {
       let level_mutated =
         hashes
@@ -252,7 +254,7 @@ fn compute_merkle_root_loop(
         |> list.sized_chunk(2)
         |> list.map(fn(chunk) {
           let assert [h1, h2] = chunk
-          dsha256(bit_array.append(h1, h2))
+          double_sha256.hash(bit_array.append(h1, h2))
         })
 
       compute_merkle_root_loop(hashes, mutated || level_mutated)
@@ -1303,7 +1305,7 @@ pub fn compute_block_hash(block: Block(state)) -> BitArray {
   let assert <<_:256-bits>> =
     block.header
     |> serialize_header
-    |> dsha256
+    |> double_sha256.hash
 }
 
 /// Serialize a block in its complete Bitcoin wire form.
@@ -1351,10 +1353,4 @@ pub fn serialize_header(header: Header) -> BitArray {
     header.target:32-little,
     header.nonce:32-little,
   >>
-}
-
-fn dsha256(bytes: BitArray) -> BitArray {
-  bytes
-  |> crypto.hash(Sha256, _)
-  |> crypto.hash(Sha256, _)
 }
