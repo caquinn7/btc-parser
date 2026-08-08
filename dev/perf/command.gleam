@@ -30,82 +30,66 @@ type PerfReportFormat {
   Csv
 }
 
-type Args {
-  Args(
+type ReportArgs {
+  ReportArgs(
     output_path: Option(String),
     format: Option(PerfReportFormat),
     section_selectors: List(String),
-    list_sections: Bool,
   )
 }
 
 pub fn parse(args: List(String)) -> Result(Command, ArgsError) {
-  args
-  |> parse_flags(Args(None, None, [], False))
-  |> result.replace_error(InvalidArguments)
-  |> result.try(fn(args) {
-    case args {
-      Args(None, None, [], True) -> Ok(ListPerfSections)
-      Args(_, _, _, True) -> Error(InvalidArguments)
-      Args(output_path, format, section_selectors, False) -> {
-        use selection <- result.try(
-          section_selectors
-          |> list.reverse
-          |> suite.select_sections
-          |> result.map_error(fn(error) {
-            case error {
-              UnknownSectionSelectors(selectors) ->
-                InvalidValue(unknown_section_selectors_message(selectors))
-            }
-          }),
-        )
-
-        case output_path, format {
-          None, None -> Ok(PrintPerfReport(selection))
-          Some(path), None -> Ok(WritePerfReport(selection, path, Csv))
-          Some(path), Some(format) ->
-            Ok(WritePerfReport(selection, path, format))
-          None, Some(_) -> Error(InvalidArguments)
-        }
-      }
-    }
-  })
+  case args {
+    ["--list-sections"] -> Ok(ListPerfSections)
+    _ -> parse_report_command(args)
+  }
 }
 
-fn parse_flags(args: List(String), parsed: Args) -> Result(Args, Nil) {
+fn parse_report_command(args: List(String)) -> Result(Command, ArgsError) {
+  use parsed <- result.try(parse_flags(args, ReportArgs(None, None, [])))
+  let ReportArgs(output_path, format, section_selectors) = parsed
+
+  use selection <- result.try(
+    section_selectors
+    |> list.reverse
+    |> suite.select_sections
+    |> result.map_error(fn(error) {
+      case error {
+        UnknownSectionSelectors(selectors) ->
+          InvalidValue(unknown_section_selectors_message(selectors))
+      }
+    }),
+  )
+
+  case output_path, format {
+    None, None -> Ok(PrintPerfReport(selection))
+    Some(path), None -> Ok(WritePerfReport(selection, path, Csv))
+    Some(path), Some(format) -> Ok(WritePerfReport(selection, path, format))
+    None, Some(_) -> Error(InvalidArguments)
+  }
+}
+
+fn parse_flags(
+  args: List(String),
+  parsed: ReportArgs,
+) -> Result(ReportArgs, ArgsError) {
   case args {
     [] -> Ok(parsed)
 
     ["--out", path, ..rest] ->
       case parsed.output_path, is_flag_value(path) {
         None, True ->
-          parse_flags(
-            rest,
-            Args(
-              Some(path),
-              parsed.format,
-              parsed.section_selectors,
-              parsed.list_sections,
-            ),
-          )
+          parse_flags(rest, ReportArgs(..parsed, output_path: Some(path)))
 
-        _, _ -> Error(Nil)
+        _, _ -> Error(InvalidArguments)
       }
 
     ["--format", format, ..rest] ->
       case parsed.format, parse_perf_report_format(format) {
         None, Ok(format) ->
-          parse_flags(
-            rest,
-            Args(
-              parsed.output_path,
-              Some(format),
-              parsed.section_selectors,
-              parsed.list_sections,
-            ),
-          )
+          parse_flags(rest, ReportArgs(..parsed, format: Some(format)))
 
-        _, _ -> Error(Nil)
+        _, _ -> Error(InvalidArguments)
       }
 
     ["--section", selector, ..rest] ->
@@ -113,34 +97,16 @@ fn parse_flags(args: List(String), parsed: Args) -> Result(Args, Nil) {
         True ->
           parse_flags(
             rest,
-            Args(
-              parsed.output_path,
-              parsed.format,
-              [selector, ..parsed.section_selectors],
-              parsed.list_sections,
-            ),
+            ReportArgs(..parsed, section_selectors: [
+              selector,
+              ..parsed.section_selectors
+            ]),
           )
 
-        False -> Error(Nil)
+        False -> Error(InvalidArguments)
       }
 
-    ["--list-sections", ..rest] ->
-      case parsed.list_sections {
-        False ->
-          parse_flags(
-            rest,
-            Args(
-              parsed.output_path,
-              parsed.format,
-              parsed.section_selectors,
-              True,
-            ),
-          )
-
-        True -> Error(Nil)
-      }
-
-    _ -> Error(Nil)
+    _ -> Error(InvalidArguments)
   }
 }
 
