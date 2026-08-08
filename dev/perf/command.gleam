@@ -1,15 +1,28 @@
 import filepath
 import gleam/io
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import perf/transaction/report
-import perf/transaction/suite.{type PerfResult}
+import perf/transaction/suite.{
+  type PerfResult, type SectionSelection, UnknownSectionSelectors,
+}
 import simplifile.{type FileError}
 
 pub opaque type Command {
-  PrintPerfReport
-  WritePerfReport(path: String, format: PerfReportFormat)
+  ListPerfSections
+  PrintPerfReport(selection: SectionSelection)
+  WritePerfReport(
+    selection: SectionSelection,
+    path: String,
+    format: PerfReportFormat,
+  )
+}
+
+pub type ArgsError {
+  InvalidArguments
+  InvalidValue(String)
 }
 
 type PerfReportFormat {
@@ -17,43 +30,95 @@ type PerfReportFormat {
   Csv
 }
 
-type Args {
-  Args(output_path: Option(String), format: Option(PerfReportFormat))
+type ReportArgs {
+  ReportArgs(
+    output_path: Option(String),
+    format: Option(PerfReportFormat),
+    section_selectors: List(String),
+  )
 }
 
-pub fn parse(args: List(String)) -> Result(Command, Nil) {
-  args
-  |> parse_flags(Args(None, None))
-  |> result.try(fn(args) {
-    case args {
-      Args(None, None) -> Ok(PrintPerfReport)
-      Args(Some(path), None) -> Ok(WritePerfReport(path, Csv))
-      Args(Some(path), Some(format)) -> Ok(WritePerfReport(path, format))
-      Args(None, Some(_)) -> Error(Nil)
-    }
-  })
+pub fn parse(args: List(String)) -> Result(Command, ArgsError) {
+  case args {
+    ["--list-sections"] -> Ok(ListPerfSections)
+    _ -> parse_report_command(args)
+  }
 }
 
-fn parse_flags(args: List(String), parsed: Args) -> Result(Args, Nil) {
+fn parse_report_command(args: List(String)) -> Result(Command, ArgsError) {
+  use parsed <- result.try(parse_flags(args, ReportArgs(None, None, [])))
+  let ReportArgs(output_path, format, section_selectors) = parsed
+
+  use selection <- result.try(
+    section_selectors
+    |> list.reverse
+    |> suite.select_sections
+    |> result.map_error(fn(error) {
+      case error {
+        UnknownSectionSelectors(selectors) ->
+          InvalidValue(unknown_section_selectors_message(selectors))
+      }
+    }),
+  )
+
+  case output_path, format {
+    None, None -> Ok(PrintPerfReport(selection))
+    Some(path), None -> Ok(WritePerfReport(selection, path, Csv))
+    Some(path), Some(format) -> Ok(WritePerfReport(selection, path, format))
+    None, Some(_) -> Error(InvalidArguments)
+  }
+}
+
+fn parse_flags(
+  args: List(String),
+  parsed: ReportArgs,
+) -> Result(ReportArgs, ArgsError) {
   case args {
     [] -> Ok(parsed)
 
     ["--out", path, ..rest] ->
       case parsed.output_path, is_flag_value(path) {
-        None, True -> parse_flags(rest, Args(Some(path), parsed.format))
-        _, _ -> Error(Nil)
+        None, True ->
+          parse_flags(rest, ReportArgs(..parsed, output_path: Some(path)))
+
+        _, _ -> Error(InvalidArguments)
       }
 
     ["--format", format, ..rest] ->
       case parsed.format, parse_perf_report_format(format) {
         None, Ok(format) ->
-          parse_flags(rest, Args(parsed.output_path, Some(format)))
+          parse_flags(rest, ReportArgs(..parsed, format: Some(format)))
 
-        _, _ -> Error(Nil)
+        _, _ -> Error(InvalidArguments)
       }
 
-    _ -> Error(Nil)
+    ["--section", selector, ..rest] ->
+      case is_flag_value(selector) {
+        True ->
+          parse_flags(
+            rest,
+            ReportArgs(..parsed, section_selectors: [
+              selector,
+              ..parsed.section_selectors
+            ]),
+          )
+
+        False -> Error(InvalidArguments)
+      }
+
+    _ -> Error(InvalidArguments)
   }
+}
+
+fn unknown_section_selectors_message(selectors: List(String)) -> String {
+  let description = case selectors {
+    [_] -> "unknown performance section selector: "
+    _ -> "unknown performance section selectors: "
+  }
+
+  description
+  <> string.join(selectors, ", ")
+  <> "\nRun `gleam dev perf --list-sections` to list canonical leaf section IDs."
 }
 
 fn is_flag_value(value: String) -> Bool {
@@ -71,20 +136,30 @@ fn parse_perf_report_format(format: String) -> Result(PerfReportFormat, Nil) {
 /// Runs the performance suite, returning an error when a requested report
 /// cannot be written.
 pub fn run(command: Command) -> Result(Nil, FileError) {
-  io.println("Executing performance tests...\n")
-
-  let perf_result = suite.run()
-
   case command {
-    PrintPerfReport -> {
-      perf_result
+    ListPerfSections -> {
+      suite.section_ids()
+      |> string.join("\n")
+      |> io.println
+
+      Ok(Nil)
+    }
+
+    PrintPerfReport(selection) -> {
+      io.println("Executing performance tests...\n")
+
+      suite.run(selection)
       |> report.to_string
       |> io.println
 
       Ok(Nil)
     }
 
-    WritePerfReport(path, format) -> {
+    WritePerfReport(selection, path, format) -> {
+      io.println("Executing performance tests...\n")
+
+      let perf_result = suite.run(selection)
+
       path
       |> write_perf_report(render_perf_report(perf_result, format))
       |> result.map(fn(_) {

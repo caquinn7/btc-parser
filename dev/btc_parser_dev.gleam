@@ -1,14 +1,16 @@
 import argv
-import fuzz/command.{InvalidNumberOfArgs, InvalidValue} as fuzz_command
+import fuzz/command.{InvalidNumberOfArgs} as fuzz_command
 import gleam/io
 import gleam/string
-import perf/command as perf_command
+import perf/command.{InvalidArguments} as perf_command
 
 const usage_msg = "usage:
   gleam dev [OPTIONS] fuzz <iterations> [seed]
   gleam dev [OPTIONS] perf
-  gleam dev [OPTIONS] perf --out <path>
-  gleam dev [OPTIONS] perf --format <table|csv> --out <path>"
+  gleam dev [OPTIONS] perf [--section <selector>]...
+  gleam dev [OPTIONS] perf [--section <selector>]... --out <path>
+  gleam dev [OPTIONS] perf [--section <selector>]... --format <table|csv> --out <path>
+  gleam dev [OPTIONS] perf --list-sections"
 
 pub fn main() {
   case argv.load().arguments {
@@ -28,7 +30,7 @@ fn fuzz(args: List(String)) -> Nil {
     Error(InvalidNumberOfArgs) -> {
       exit_failure(usage_msg)
     }
-    Error(InvalidValue(msg)) -> {
+    Error(fuzz_command.InvalidValue(msg)) -> {
       exit_failure(msg)
     }
   }
@@ -41,7 +43,8 @@ fn perf(args: List(String)) -> Nil {
         Ok(Nil) -> Nil
         Error(_) -> exit_failure("")
       }
-    Error(Nil) -> exit_failure(usage_msg)
+    Error(InvalidArguments) -> exit_failure(usage_msg)
+    Error(perf_command.InvalidValue(msg)) -> exit_failure(msg)
   }
 }
 

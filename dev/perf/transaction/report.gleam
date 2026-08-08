@@ -47,7 +47,7 @@ pub fn to_string(perf_result: PerfResult) -> String {
 }
 
 fn section_to_width_rows(section: PerfSection) -> List(List(String)) {
-  [[section_title(section)], ..list.map(section.cases, case_result_to_row)]
+  [[section_heading(section)], ..list.map(section.cases, case_result_to_row)]
 }
 
 fn case_result_to_row(case_result: PerfCaseResult) -> List(String) {
@@ -82,8 +82,8 @@ fn format_metric(value: Float) -> String {
   <> string.pad_start(int.to_string(thousandths % 1000), to: 3, with: "0")
 }
 
-fn section_title(section: PerfSection) -> String {
-  "[" <> section.title <> "]"
+fn section_heading(section: PerfSection) -> String {
+  "[" <> section.id <> "]"
 }
 
 fn column_widths(rows: List(List(String))) -> List(Int) {
@@ -120,7 +120,7 @@ fn section_to_string(section: PerfSection, widths: List(Int)) -> String {
       |> row_to_string(widths)
     })
 
-  [section_title(section), ..case_lines]
+  [section_heading(section), ..case_lines]
   |> string.join("\n")
 }
 
@@ -187,12 +187,12 @@ fn section_to_csv_rows(
   section: PerfSection,
 ) -> List(String) {
   section.cases
-  |> list.map(case_result_to_csv_row(metadata, section.title, _))
+  |> list.map(case_result_to_csv_row(metadata, section.id, _))
 }
 
 fn case_result_to_csv_row(
   metadata: PerfMetadata,
-  section_title: String,
+  section_id: String,
   case_result: PerfCaseResult,
 ) -> String {
   [
@@ -200,7 +200,7 @@ fn case_result_to_csv_row(
     csv_string(metadata.runtime),
     csv_string(metadata.os),
     csv_string(metadata.architecture),
-    csv_string(section_title),
+    csv_string(section_id),
     csv_string(case_result.label),
     int.to_string(case_result.input_size_bytes),
     int.to_string(case_result.config.warmup_ms),
