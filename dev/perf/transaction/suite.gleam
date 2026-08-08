@@ -151,7 +151,7 @@ pub fn select_sections(
     |> list.filter(fn(selector) {
       !list.any(definitions, selector_matches_definition(selector, _))
     })
-    |> deduplicate_strings
+    |> list.unique
 
   case unknown_selectors {
     [_, ..] -> Error(UnknownSectionSelectors(unknown_selectors))
@@ -304,24 +304,6 @@ fn section_definitions() -> List(PerfSectionDefinition) {
       measure_synthetic_witness_payload_tx_serialization,
     ),
   ]
-}
-
-fn deduplicate_strings(strings: List(String)) -> List(String) {
-  deduplicate_strings_loop(strings, [])
-}
-
-fn deduplicate_strings_loop(
-  remaining: List(String),
-  seen_reversed: List(String),
-) -> List(String) {
-  case remaining {
-    [] -> list.reverse(seen_reversed)
-    [first, ..rest] ->
-      case list.contains(seen_reversed, first) {
-        True -> deduplicate_strings_loop(rest, seen_reversed)
-        False -> deduplicate_strings_loop(rest, [first, ..seen_reversed])
-      }
-  }
 }
 
 // ==============================================================================
