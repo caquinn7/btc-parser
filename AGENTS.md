@@ -53,8 +53,16 @@ changes.
   validation.
 - `dev/fuzz/transaction/` contains the transaction fuzz suite, report, and seed
   corpus; `dev/fuzz/internal/` contains shared fuzz utilities.
-- `dev/perf/transaction/` contains the transaction benchmark suite and report;
-  `dev/perf/internal/` contains shared runtime metadata.
+- `dev/perf/transaction/` contains transaction-specific benchmark workloads and
+  builders; `dev/perf/block/` contains block-specific workloads;
+  `dev/perf/suite.gleam` combines their canonical registries, resolves domain
+  and nested selectors such as `transaction.deserialize` and
+  `block.compute-merkle-root`, captures metadata once, and runs sections in
+  canonical order. `dev/perf/internal/benchmark.gleam` owns shared measurement
+  primitives, `dev/perf/internal/bitcoin_wire.gleam` owns the shared CompactSize
+  encoder, and `dev/perf/report.gleam` owns domain-neutral table/CSV reporting.
+  The `bytes` column is the complete serialized size of the input value for a
+  row, regardless of its domain.
 - `docs/` documents the public transaction and block APIs and output script
   classification.
 
@@ -231,11 +239,12 @@ file/timer/CLI behavior, or a runtime-specific bug.
   enforcement. Run fuzz with an explicit seed, or record the generated seed from
   the output, so any failure can be reproduced. Record the failing seed/hex if a
   crash or hang is found.
-- Run the transaction perf harness after performance-sensitive changes to shared
-  decode infrastructure or transaction behavior. For block decoding changes,
-  measure relevant block workloads when adding a block benchmark suite. Compare
-  trends within the same machine, target, and runtime rather than treating
-  absolute numbers as portable.
+- Run the combined perf harness after performance-sensitive changes to shared
+  decode infrastructure, transaction behavior, or block behavior. Use prefixed
+  selectors (for example, `transaction.deserialize.fixtures` or
+  `block.compute-merkle-root`) to target a workload. Compare trends within the
+  same machine, target, and runtime rather than treating absolute numbers as
+  portable.
 
 ## Performance Considerations
 

@@ -4,8 +4,8 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import perf/transaction/report
-import perf/transaction/suite.{
+import perf/report
+import perf/suite.{
   type PerfResult, type SectionSelection, UnknownSectionSelectors,
 }
 import simplifile.{type FileError}
@@ -46,11 +46,10 @@ pub fn parse(args: List(String)) -> Result(Command, ArgsError) {
 }
 
 fn parse_report_command(args: List(String)) -> Result(Command, ArgsError) {
-  use parsed <- result.try(parse_flags(args, ReportArgs(None, None, [])))
-  let ReportArgs(output_path, format, section_selectors) = parsed
+  use args <- result.try(parse_flags(args, ReportArgs(None, None, [])))
 
   use selection <- result.try(
-    section_selectors
+    args.section_selectors
     |> list.reverse
     |> suite.select_sections
     |> result.map_error(fn(error) {
@@ -61,7 +60,7 @@ fn parse_report_command(args: List(String)) -> Result(Command, ArgsError) {
     }),
   )
 
-  case output_path, format {
+  case args.output_path, args.format {
     None, None -> Ok(PrintPerfReport(selection))
     Some(path), None -> Ok(WritePerfReport(selection, path, Csv))
     Some(path), Some(format) -> Ok(WritePerfReport(selection, path, format))

@@ -18,15 +18,15 @@ import btc_parser/transaction.{
   TotalOutputValueOutOfRange, UnexpectedEof,
 }
 import gleam/bit_array
-import gleam/float
 import gleam/int
 import gleam/list
-import gleam/string
-import gleamy/bench.{
-  type BenchResults, type Input, type Set as BenchSet, BenchResults, Duration,
-  Function, Input, Quiet, Set as BenchSet, Warmup,
+import perf/internal/benchmark.{
+  type MeasurementCurvePoint, type PerfCaseInput, type PerfCaseResult,
+  type PerfMeasurementConfig, type PerfSectionDefinition, MeasurementCurvePoint,
+  PerfCaseInput, PerfMeasurementConfig, PerfSectionDefinition, measure_cases,
+  measure_curve,
 }
-import perf/internal/metadata.{type PerfMetadata}
+import perf/internal/bitcoin_wire.{compact_size}
 
 /// Legacy P2PKH-style spend: one input, with P2WPKH and P2PKH outputs.
 const simple_legacy_tx = "0200000001f83913d8a4af4da53774c45cf074d35c8c6df3dd322f5b2a63cfba609ce6fb164d0000006b483045022100ce7670637cc52de4d7a0063e8a253271f09e282f3f99e8d78e20240f3b769ec90220742aea257871b277a19665434e6007850e54fc2bc64a4b5ff05c107ebf82ef460121032af93439c5e3debd027f60975cc0decc6c5b4e51bc44cbeb06a67aad69f45efafdffffff02458f0000000000001600148b068869b732322472e647126c6da8ce4d2bc5778d790000000000001976a914c76c2748f354526db26c9fbd2e2de47b990678fe88ac00000000"
@@ -39,65 +39,8 @@ const witness_heavy_p2wsh_tx = "010000000001041d77f8ba9cb7292d2c8d28f7860440c20a
 
 const max_satoshis = 2_100_000_000_000_000
 
-/// Results for one invocation of the performance suite.
-pub type PerfResult {
-  PerfResult(metadata: PerfMetadata, sections: List(PerfSection))
-}
-
-/// Named group of performance cases shown together in the report.
-pub type PerfSection {
-  PerfSection(
-    /// Canonical section identifier used for selection and reporting.
-    id: String,
-    cases: List(PerfCaseResult),
-  )
-}
-
-/// Settings used to collect measurements for a performance case.
-pub type PerfMeasurementConfig {
-  PerfMeasurementConfig(
-    /// Number of operations run between starting and stopping the clock once.
-    /// Timing several operations together reduces the timer's influence on
-    /// fast benchmark cases.
-    operations_per_timed_call: Int,
-    /// Number of milliseconds the case runs before timing is recorded.
-    warmup_ms: Int,
-    /// Number of milliseconds the case attempts to record timings for.
-    duration_ms: Int,
-  )
-}
-
-/// Measurements for one performance case.
-pub type PerfCaseResult {
-  PerfCaseResult(
-    /// Description of the action and transaction shape that were measured.
-    label: String,
-    /// Wire-format size of the transaction used for each operation.
-    input_size_bytes: Int,
-    /// Settings used while collecting the measurements below.
-    config: PerfMeasurementConfig,
-    /// Number of start-clock/run/stop-clock measurements included in the result.
-    timed_call_count: Int,
-    /// Total milliseconds covered by the timed calls used in the calculations.
-    /// This is usually slightly less than `config.duration_ms`.
-    measured_ms: Float,
-    /// Estimated number of individual operations completed each second.
-    operations_per_second: Float,
-    /// Estimated time to complete one individual operation, in microseconds.
-    microseconds_per_operation: Float,
-  )
-}
-
-type PerfCaseInput(a) {
-  PerfCaseInput(label: String, input_size_bytes: Int, value: a)
-}
-
 type FixtureTx {
   FixtureTx(label: String, tx_hex: String)
-}
-
-type MeasurementCurvePoint {
-  MeasurementCurvePoint(values: List(Int), config: PerfMeasurementConfig)
 }
 
 type SyntheticTxSpec {
@@ -111,193 +54,109 @@ type SyntheticTxSpec {
   )
 }
 
-/// A validated selection of performance report sections.
-///
-/// Create a selection with `select_sections`. The type is opaque so `run`
-/// cannot be called with section selectors that have not been validated.
-pub opaque type SectionSelection {
-  SectionSelection(definitions: List(PerfSectionDefinition))
-}
-
-/// An error returned when selecting performance report sections.
-pub type SelectSectionsError {
-  /// One or more section selectors do not match any report section.
-  UnknownSectionSelectors(selectors: List(String))
-}
-
-type PerfSectionDefinition {
-  PerfSectionDefinition(id: String, measure: fn() -> List(PerfCaseResult))
-}
-
-/// Returns all concrete leaf section IDs in canonical suite order.
-pub fn section_ids() -> List(String) {
-  section_definitions()
-  |> list.map(fn(definition) { definition.id })
-}
-
-/// Validates and resolves section selectors.
-///
-/// An exact selector matches one concrete leaf section ID. A group selector
-/// matches every leaf ID that begins with the selector followed by a dot. An
-/// empty list selects the complete suite. Repeated and overlapping selectors
-/// select each leaf once, and selected sections always retain canonical suite
-/// order. All unmatched selectors are returned before any benchmark input is
-/// constructed or timed.
-pub fn select_sections(
-  selectors: List(String),
-) -> Result(SectionSelection, SelectSectionsError) {
-  let definitions = section_definitions()
-  let unknown_selectors =
-    selectors
-    |> list.filter(fn(selector) {
-      !list.any(definitions, selector_matches_definition(selector, _))
-    })
-    |> list.unique
-
-  case unknown_selectors {
-    [_, ..] -> Error(UnknownSectionSelectors(unknown_selectors))
-    [] -> {
-      let selected_definitions = case selectors {
-        [] -> definitions
-        [_, ..] ->
-          list.filter(definitions, fn(definition) {
-            list.any(selectors, selector_matches_definition(_, definition))
-          })
-      }
-
-      Ok(SectionSelection(selected_definitions))
-    }
-  }
-}
-
-/// Returns the concrete leaf section IDs in a validated selection in execution
-/// order.
-pub fn selected_section_ids(selection: SectionSelection) -> List(String) {
-  let SectionSelection(definitions) = selection
-  definitions
-  |> list.map(fn(definition) { definition.id })
-}
-
-/// Runs the selected performance report sections and returns their measurements.
-///
-/// The returned `PerfResult` preserves the report section grouping and canonical
-/// ordering used by the development benchmark command.
-pub fn run(selection: SectionSelection) -> PerfResult {
-  let metadata = metadata.current()
-  let SectionSelection(definitions) = selection
-  let sections =
-    list.map(definitions, fn(definition) {
-      PerfSection(definition.id, definition.measure())
-    })
-
-  PerfResult(metadata:, sections:)
-}
-
-fn selector_matches_definition(
-  selector: String,
-  definition: PerfSectionDefinition,
-) -> Bool {
-  definition.id == selector
-  || string.starts_with(definition.id, selector <> ".")
-}
-
-fn section_definitions() -> List(PerfSectionDefinition) {
+/// Returns concrete transaction benchmark sections in their domain-defined
+/// order. IDs include the `transaction.` domain prefix used by the combined
+/// performance harness.
+pub fn section_definitions() -> List(PerfSectionDefinition) {
   [
-    PerfSectionDefinition("deserialize.fixtures", measure_fixture_tx_decoding),
     PerfSectionDefinition(
-      "deserialize.synthetic-inputs",
+      "transaction.deserialize.fixtures",
+      measure_fixture_tx_decoding,
+    ),
+    PerfSectionDefinition(
+      "transaction.deserialize.synthetic-inputs",
       measure_synthetic_input_tx_decoding,
     ),
     PerfSectionDefinition(
-      "deserialize.synthetic-outputs",
+      "transaction.deserialize.synthetic-outputs",
       measure_synthetic_output_tx_decoding,
     ),
     PerfSectionDefinition(
-      "deserialize.synthetic-segwit-inputs",
+      "transaction.deserialize.synthetic-segwit-inputs",
       measure_synthetic_segwit_input_tx_decoding,
     ),
     PerfSectionDefinition(
-      "deserialize.synthetic-witness-items",
+      "transaction.deserialize.synthetic-witness-items",
       measure_synthetic_witness_item_tx_decoding,
     ),
     PerfSectionDefinition(
-      "deserialize.synthetic-witness-payload",
+      "transaction.deserialize.synthetic-witness-payload",
       measure_synthetic_witness_payload_tx_decoding,
     ),
     PerfSectionDefinition(
-      "deserialize.malformed",
+      "transaction.deserialize.malformed",
       measure_malformed_tx_decoding,
     ),
     PerfSectionDefinition(
-      "deserialize.policy-limits",
+      "transaction.deserialize.policy-limits",
       measure_policy_limit_tx_decoding,
     ),
     PerfSectionDefinition(
-      "inspection.coinbase-shape",
+      "transaction.inspection.coinbase-shape",
       measure_coinbase_shape_inspection,
     ),
     PerfSectionDefinition(
-      "validate-context-free-consensus.valid-inputs",
+      "transaction.validate-context-free-consensus.valid-inputs",
       measure_context_free_consensus_validation_valid_inputs,
     ),
     PerfSectionDefinition(
-      "validate-context-free-consensus.valid-outputs",
+      "transaction.validate-context-free-consensus.valid-outputs",
       measure_context_free_consensus_validation_valid_outputs,
     ),
     PerfSectionDefinition(
-      "validate-context-free-consensus.duplicate-inputs",
+      "transaction.validate-context-free-consensus.duplicate-inputs",
       measure_context_free_consensus_validation_duplicate_input,
     ),
     PerfSectionDefinition(
-      "validate-context-free-consensus.output-overflow",
+      "transaction.validate-context-free-consensus.output-overflow",
       measure_context_free_consensus_validation_output_overflow,
     ),
     PerfSectionDefinition(
-      "txid-computation.fixtures",
+      "transaction.txid-computation.fixtures",
       measure_fixture_txid_computation,
     ),
     PerfSectionDefinition(
-      "txid-computation.synthetic-inputs",
+      "transaction.txid-computation.synthetic-inputs",
       measure_synthetic_input_txid_computation,
     ),
     PerfSectionDefinition(
-      "txid-computation.synthetic-outputs",
+      "transaction.txid-computation.synthetic-outputs",
       measure_synthetic_output_txid_computation,
     ),
     PerfSectionDefinition(
-      "txid-computation.synthetic-segwit-inputs",
+      "transaction.txid-computation.synthetic-segwit-inputs",
       measure_synthetic_segwit_input_txid_computation,
     ),
     PerfSectionDefinition(
-      "txid-computation.synthetic-witness-items",
+      "transaction.txid-computation.synthetic-witness-items",
       measure_synthetic_witness_item_txid_computation,
     ),
     PerfSectionDefinition(
-      "txid-computation.synthetic-witness-payload",
+      "transaction.txid-computation.synthetic-witness-payload",
       measure_synthetic_witness_payload_txid_computation,
     ),
     PerfSectionDefinition(
-      "serialize.fixtures",
+      "transaction.serialize.fixtures",
       measure_fixture_tx_serialization,
     ),
     PerfSectionDefinition(
-      "serialize.synthetic-inputs",
+      "transaction.serialize.synthetic-inputs",
       measure_synthetic_input_tx_serialization,
     ),
     PerfSectionDefinition(
-      "serialize.synthetic-outputs",
+      "transaction.serialize.synthetic-outputs",
       measure_synthetic_output_tx_serialization,
     ),
     PerfSectionDefinition(
-      "serialize.synthetic-segwit-inputs",
+      "transaction.serialize.synthetic-segwit-inputs",
       measure_synthetic_segwit_input_tx_serialization,
     ),
     PerfSectionDefinition(
-      "serialize.synthetic-witness-items",
+      "transaction.serialize.synthetic-witness-items",
       measure_synthetic_witness_item_tx_serialization,
     ),
     PerfSectionDefinition(
-      "serialize.synthetic-witness-payload",
+      "transaction.serialize.synthetic-witness-payload",
       measure_synthetic_witness_payload_tx_serialization,
     ),
   ]
@@ -972,109 +831,6 @@ fn fixture_parsed_tx_cases() -> List(PerfCaseInput(Transaction(Parsed))) {
 }
 
 // ==============================================================================
-// Run cases
-// ==============================================================================
-
-fn measure_curve(
-  curve: List(MeasurementCurvePoint),
-  build_inputs: fn(List(Int)) -> List(PerfCaseInput(a)),
-  function_label: String,
-  measured_function: fn(a) -> b,
-) -> List(PerfCaseResult) {
-  curve
-  |> list.flat_map(fn(point) {
-    let MeasurementCurvePoint(values, config) = point
-
-    values
-    |> build_inputs
-    |> measure_cases(config, function_label, measured_function)
-  })
-}
-
-fn measure_cases(
-  inputs: List(PerfCaseInput(a)),
-  config: PerfMeasurementConfig,
-  function_label: String,
-  measured_function: fn(a) -> b,
-) -> List(PerfCaseResult) {
-  let bench_inputs = list.map(inputs, to_bench_input)
-  let bench_function =
-    Function(
-      function_label,
-      bench.repeat(config.operations_per_timed_call, measured_function),
-    )
-  let bench_options = [
-    Warmup(config.warmup_ms),
-    Duration(config.duration_ms),
-    Quiet,
-  ]
-
-  bench_inputs
-  |> bench.run([bench_function], bench_options)
-  |> build_case_results(inputs, config)
-}
-
-fn to_bench_input(input: PerfCaseInput(a)) -> Input(a) {
-  let PerfCaseInput(label, _, value) = input
-  Input(label, value)
-}
-
-fn build_case_results(
-  results: BenchResults,
-  inputs: List(PerfCaseInput(a)),
-  config: PerfMeasurementConfig,
-) -> List(PerfCaseResult) {
-  let BenchResults(_options, sets) = results
-  list.map(sets, build_set_case_result(_, inputs, config))
-}
-
-fn build_set_case_result(
-  set: BenchSet,
-  inputs: List(PerfCaseInput(a)),
-  config: PerfMeasurementConfig,
-) -> PerfCaseResult {
-  let BenchSet(input_label, fn_label, samples) = set
-
-  let timed_call_count = list.length(samples)
-  let measured_ms = float.sum(samples)
-  let operation_count = timed_call_count * config.operations_per_timed_call
-
-  let operations_per_second =
-    1000.0 *. int.to_float(operation_count) /. measured_ms
-
-  let microseconds_per_operation =
-    measured_ms *. 1000.0 /. int.to_float(operation_count)
-
-  PerfCaseResult(
-    label: fn_label <> " " <> input_label,
-    input_size_bytes: find_input_size_bytes(inputs, input_label),
-    config:,
-    timed_call_count:,
-    measured_ms:,
-    operations_per_second:,
-    microseconds_per_operation:,
-  )
-}
-
-fn find_input_size_bytes(
-  inputs: List(PerfCaseInput(a)),
-  input_label: String,
-) -> Int {
-  let assert Ok(input_size_bytes) =
-    inputs
-    |> list.find_map(fn(input) {
-      let PerfCaseInput(label, input_size_bytes, _) = input
-
-      case label == input_label {
-        True -> Ok(input_size_bytes)
-        False -> Error(Nil)
-      }
-    })
-
-  input_size_bytes
-}
-
-// ==============================================================================
 // Transaction builders
 // ==============================================================================
 
@@ -1348,16 +1104,6 @@ fn concat_reversed(parts: List(BitArray)) -> BitArray {
   parts
   |> list.reverse
   |> bit_array.concat
-}
-
-fn compact_size(n: Int) -> BitArray {
-  case n {
-    _ if n < 0 -> panic as "compact_size: negative values not supported"
-    _ if n <= 252 -> <<n:size(8)>>
-    _ if n <= 65_535 -> <<0xFD, n:little-size(16)>>
-    _ if n <= 4_294_967_295 -> <<0xFE, n:little-size(32)>>
-    _ -> <<0xFF, n:little-size(64)>>
-  }
 }
 
 // ==============================================================================
