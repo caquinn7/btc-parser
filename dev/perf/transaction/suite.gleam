@@ -92,6 +92,10 @@ type PerfCaseInput(a) {
   PerfCaseInput(label: String, input_size_bytes: Int, value: a)
 }
 
+type FixtureTx {
+  FixtureTx(label: String, tx_hex: String)
+}
+
 type MeasurementCurvePoint {
   MeasurementCurvePoint(values: List(Int), config: PerfMeasurementConfig)
 }
@@ -306,16 +310,22 @@ fn section_definitions() -> List(PerfSectionDefinition) {
   ]
 }
 
+fn fixture_txs() -> List(FixtureTx) {
+  [
+    FixtureTx("simple legacy tx", simple_legacy_tx),
+    FixtureTx("simple segwit tx", simple_segwit_tx),
+    FixtureTx("witness-heavy tx", witness_heavy_p2wsh_tx),
+  ]
+}
+
 // ==============================================================================
 // Transaction deserialization
 // ==============================================================================
 
 fn measure_fixture_tx_decoding() -> List(PerfCaseResult) {
-  let fixture_deserialize_inputs = [
-    fixture_deserialize_case("simple legacy tx", simple_legacy_tx),
-    fixture_deserialize_case("simple segwit tx", simple_segwit_tx),
-    fixture_deserialize_case("witness-heavy tx", witness_heavy_p2wsh_tx),
-  ]
+  let fixture_deserialize_inputs =
+    fixture_txs()
+    |> list.map(fixture_deserialize_case)
 
   measure_cases(
     fixture_deserialize_inputs,
@@ -521,14 +531,11 @@ fn synthetic_tx_spec_to_bytes(
   }
 }
 
-fn fixture_deserialize_case(
-  input_label: String,
-  tx_hex: String,
-) -> PerfCaseInput(BitArray) {
-  let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
+fn fixture_deserialize_case(fixture: FixtureTx) -> PerfCaseInput(BitArray) {
+  let assert Ok(tx_bytes) = bit_array.base16_decode(fixture.tx_hex)
   let assert Ok(_) = transaction.deserialize(tx_bytes)
 
-  PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx_bytes)
+  PerfCaseInput(fixture.label, bit_array.byte_size(tx_bytes), tx_bytes)
 }
 
 fn late_truncated_deserialize_case(
@@ -963,17 +970,12 @@ fn synthetic_parsed_case(
 }
 
 fn fixture_parsed_tx_cases() -> List(PerfCaseInput(Transaction(Parsed))) {
-  let fixture_parsed_tx_case = fn(input_label, tx_hex) {
-    let assert Ok(tx_bytes) = bit_array.base16_decode(tx_hex)
+  fixture_txs()
+  |> list.map(fn(fixture) {
+    let assert Ok(tx_bytes) = bit_array.base16_decode(fixture.tx_hex)
     let assert Ok(tx) = transaction.deserialize(tx_bytes)
-    PerfCaseInput(input_label, bit_array.byte_size(tx_bytes), tx)
-  }
-
-  [
-    fixture_parsed_tx_case("simple legacy tx", simple_legacy_tx),
-    fixture_parsed_tx_case("simple segwit tx", simple_segwit_tx),
-    fixture_parsed_tx_case("witness-heavy tx", witness_heavy_p2wsh_tx),
-  ]
+    PerfCaseInput(fixture.label, bit_array.byte_size(tx_bytes), tx)
+  })
 }
 
 // ==============================================================================
