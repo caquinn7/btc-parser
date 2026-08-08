@@ -132,10 +132,7 @@ type PerfSectionDefinition {
 /// Returns all concrete leaf section IDs in canonical suite order.
 pub fn section_ids() -> List(String) {
   section_definitions()
-  |> list.map(fn(definition) {
-    let PerfSectionDefinition(id, _) = definition
-    id
-  })
+  |> list.map(fn(definition) { definition.id })
 }
 
 /// Validates and resolves section selectors.
@@ -178,10 +175,7 @@ pub fn select_sections(
 pub fn selected_section_ids(selection: SectionSelection) -> List(String) {
   let SectionSelection(definitions) = selection
   definitions
-  |> list.map(fn(definition) {
-    let PerfSectionDefinition(id, _) = definition
-    id
-  })
+  |> list.map(fn(definition) { definition.id })
 }
 
 /// Runs the selected performance report sections and returns their measurements.
@@ -193,8 +187,7 @@ pub fn run(selection: SectionSelection) -> PerfResult {
   let SectionSelection(definitions) = selection
   let sections =
     list.map(definitions, fn(definition) {
-      let PerfSectionDefinition(id, measure) = definition
-      PerfSection(id, measure())
+      PerfSection(definition.id, definition.measure())
     })
 
   PerfResult(metadata:, sections:)
@@ -204,8 +197,8 @@ fn selector_matches_definition(
   selector: String,
   definition: PerfSectionDefinition,
 ) -> Bool {
-  let PerfSectionDefinition(id, _) = definition
-  id == selector || string.starts_with(id, selector <> ".")
+  definition.id == selector
+  || string.starts_with(definition.id, selector <> ".")
 }
 
 fn section_definitions() -> List(PerfSectionDefinition) {
