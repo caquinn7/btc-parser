@@ -6,7 +6,7 @@ import gleam/result
 import gleam/string
 import perf/transaction/report
 import perf/transaction/suite.{
-  type PerfResult, type SectionSelection, UnknownSectionIds,
+  type PerfResult, type SectionSelection, UnknownSectionSelectors,
 }
 import simplifile.{type FileError}
 
@@ -34,7 +34,7 @@ type Args {
   Args(
     output_path: Option(String),
     format: Option(PerfReportFormat),
-    requested_section_ids: List(String),
+    section_selectors: List(String),
     list_sections: Bool,
   )
 }
@@ -47,15 +47,15 @@ pub fn parse(args: List(String)) -> Result(Command, ArgsError) {
     case args {
       Args(None, None, [], True) -> Ok(ListPerfSections)
       Args(_, _, _, True) -> Error(InvalidArguments)
-      Args(output_path, format, requested_section_ids, False) -> {
+      Args(output_path, format, section_selectors, False) -> {
         use selection <- result.try(
-          requested_section_ids
+          section_selectors
           |> list.reverse
           |> suite.select_sections
           |> result.map_error(fn(error) {
             case error {
-              UnknownSectionIds(section_ids) ->
-                InvalidValue(unknown_sections_message(section_ids))
+              UnknownSectionSelectors(selectors) ->
+                InvalidValue(unknown_section_selectors_message(selectors))
             }
           }),
         )
@@ -84,7 +84,7 @@ fn parse_flags(args: List(String), parsed: Args) -> Result(Args, Nil) {
             Args(
               Some(path),
               parsed.format,
-              parsed.requested_section_ids,
+              parsed.section_selectors,
               parsed.list_sections,
             ),
           )
@@ -100,7 +100,7 @@ fn parse_flags(args: List(String), parsed: Args) -> Result(Args, Nil) {
             Args(
               parsed.output_path,
               Some(format),
-              parsed.requested_section_ids,
+              parsed.section_selectors,
               parsed.list_sections,
             ),
           )
@@ -108,15 +108,15 @@ fn parse_flags(args: List(String), parsed: Args) -> Result(Args, Nil) {
         _, _ -> Error(Nil)
       }
 
-    ["--section", section_id, ..rest] ->
-      case is_flag_value(section_id) {
+    ["--section", selector, ..rest] ->
+      case is_flag_value(selector) {
         True ->
           parse_flags(
             rest,
             Args(
               parsed.output_path,
               parsed.format,
-              [section_id, ..parsed.requested_section_ids],
+              [selector, ..parsed.section_selectors],
               parsed.list_sections,
             ),
           )
@@ -132,7 +132,7 @@ fn parse_flags(args: List(String), parsed: Args) -> Result(Args, Nil) {
             Args(
               parsed.output_path,
               parsed.format,
-              parsed.requested_section_ids,
+              parsed.section_selectors,
               True,
             ),
           )
@@ -144,15 +144,15 @@ fn parse_flags(args: List(String), parsed: Args) -> Result(Args, Nil) {
   }
 }
 
-fn unknown_sections_message(section_ids: List(String)) -> String {
-  let description = case section_ids {
-    [_] -> "unknown performance section ID: "
-    _ -> "unknown performance section IDs: "
+fn unknown_section_selectors_message(selectors: List(String)) -> String {
+  let description = case selectors {
+    [_] -> "unknown performance section selector: "
+    _ -> "unknown performance section selectors: "
   }
 
   description
-  <> string.join(section_ids, ", ")
-  <> "\nRun `gleam dev perf --list-sections` to list valid section IDs."
+  <> string.join(selectors, ", ")
+  <> "\nRun `gleam dev perf --list-sections` to list canonical leaf section IDs."
 }
 
 fn is_flag_value(value: String) -> Bool {

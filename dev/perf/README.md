@@ -16,42 +16,45 @@ Run the complete suite on the default target from `gleam.toml`, which is Erlang:
 gleam dev perf
 ```
 
-List the available section IDs without constructing inputs or running any
-benchmarks:
+List the 25 concrete leaf section IDs without constructing inputs or running
+any benchmarks:
 
 ```sh
 gleam dev perf --list-sections
 ```
 
 `--list-sections` is a standalone mode and cannot be combined with `--section`,
-`--out`, or `--format`.
+`--out`, or `--format`. It lists concrete leaf IDs only; group selectors are
+resolved from those IDs and are not listed separately.
 
-Run one report section by passing its exact ID:
+Run one report section by passing its exact leaf ID as a selector:
 
 ```sh
 gleam dev perf --section deserialize.fixtures
 ```
 
-Section IDs are case-sensitive. They use a dot between the section hierarchy
-and dashes between words, such as `deserialize.synthetic-witness-items` and
-`validate-context-free-consensus.duplicate-inputs`. A selector always includes
-the whole report section; individual timed case rows within a section cannot be
-selected.
+Section selectors are case-sensitive. An exact selector uses a concrete leaf
+ID, such as `deserialize.synthetic-witness-items` or
+`validate-context-free-consensus.duplicate-inputs`. A dot-delimited group
+selector selects all of its descendants, so `deserialize` selects every
+`deserialize.*` section. Matching happens at a dot boundary: `deserial` does
+not match `deserialize.*`, and `deserialize.` is invalid. A selector always
+includes whole report sections; individual timed case rows within a section
+cannot be selected.
 
 Repeat `--section` to select more than one section:
 
 ```sh
 gleam dev perf \
-  --section deserialize.fixtures \
+  --section deserialize \
   --section serialize.fixtures
 ```
 
-Repeated selectors form a union. For example, passing
-`--section deserialize.fixtures --section serialize.fixtures` runs both
-sections. Repeating `--section deserialize.fixtures` in the same command still
-runs that section only once. Selected sections always run in the suite's
-canonical order rather than command-line order. When no `--section` is provided,
-the complete suite runs.
+Repeated and overlapping selectors form a union. For example, passing
+`--section deserialize --section deserialize.fixtures` runs every
+`deserialize.*` section, with `deserialize.fixtures` only once. Selected
+sections always run in the suite's canonical order rather than command-line
+order. When no `--section` is provided, the complete suite runs.
 
 When neither `--out` nor `--format` is provided, the table report is printed to
 stdout.
@@ -260,9 +263,10 @@ The results table has these columns:
 `deserialize`, `validate_context_free_consensus`, `compute_txid`, or serialization
 call. That means rows with different `ops/call` values can still be compared.
 
-Table headings and CSV `section` values use the same canonical section IDs
-accepted by `--section`. CSV output uses the same measurements as the table
-report, with one row per benchmark case. The leading `run_target`, `run_runtime`,
+Table headings and CSV `section` values use canonical concrete leaf section IDs.
+Each is accepted as an exact `--section` selector; group selectors do not appear
+as report headings. CSV output uses the same measurements as the table report,
+with one row per benchmark case. The leading `run_target`, `run_runtime`,
 `run_os`, and `run_architecture` columns repeat the run metadata on every row so
 the file remains a single rectangular dataset. The remaining columns contain the
 canonical section ID, case label, byte size, timing configuration, sample count,

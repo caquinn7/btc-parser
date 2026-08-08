@@ -7,9 +7,9 @@ import perf/command.{InvalidArguments} as perf_command
 const usage_msg = "usage:
   gleam dev [OPTIONS] fuzz <iterations> [seed]
   gleam dev [OPTIONS] perf
-  gleam dev [OPTIONS] perf [--section <section-id>]...
-  gleam dev [OPTIONS] perf [--section <section-id>]... --out <path>
-  gleam dev [OPTIONS] perf [--section <section-id>]... --format <table|csv> --out <path>
+  gleam dev [OPTIONS] perf [--section <selector>]...
+  gleam dev [OPTIONS] perf [--section <selector>]... --out <path>
+  gleam dev [OPTIONS] perf [--section <selector>]... --format <table|csv> --out <path>
   gleam dev [OPTIONS] perf --list-sections"
 
 pub fn main() {

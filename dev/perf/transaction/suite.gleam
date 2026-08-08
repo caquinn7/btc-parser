@@ -21,6 +21,7 @@ import gleam/bit_array
 import gleam/float
 import gleam/int
 import gleam/list
+import gleam/string
 import gleamy/bench.{
   type BenchResults, type Function, type Input, type Set as BenchSet,
   BenchResults, Duration, Function, Input, Quiet, Set as BenchSet, Warmup,
@@ -105,22 +106,22 @@ type SyntheticTxSpec {
 /// A validated selection of performance report sections.
 ///
 /// Create a selection with `select_sections`. The type is opaque so `run`
-/// cannot be called with section identifiers that have not been validated.
+/// cannot be called with section selectors that have not been validated.
 pub opaque type SectionSelection {
   SectionSelection(definitions: List(PerfSectionDefinition))
 }
 
 /// An error returned when selecting performance report sections.
 pub type SelectSectionsError {
-  /// One or more requested section identifiers do not exist.
-  UnknownSectionIds(section_ids: List(String))
+  /// One or more section selectors do not match any report section.
+  UnknownSectionSelectors(selectors: List(String))
 }
 
 type PerfSectionDefinition {
   PerfSectionDefinition(id: String, measure: fn() -> List(PerfCaseResult))
 }
 
-/// Returns all valid section identifiers in canonical suite order.
+/// Returns all concrete leaf section IDs in canonical suite order.
 pub fn section_ids() -> List(String) {
   section_definitions()
   |> list.map(fn(definition) {
@@ -129,30 +130,33 @@ pub fn section_ids() -> List(String) {
   })
 }
 
-/// Validates and resolves requested section identifiers.
+/// Validates and resolves section selectors.
 ///
-/// An empty list selects the complete suite. Repeated identifiers are selected
-/// once, and selected sections always retain canonical suite order. All unknown
-/// identifiers are returned before any benchmark input is constructed or timed.
+/// An exact selector matches one concrete leaf section ID. A group selector
+/// matches every leaf ID that begins with the selector followed by a dot. An
+/// empty list selects the complete suite. Repeated and overlapping selectors
+/// select each leaf once, and selected sections always retain canonical suite
+/// order. All unmatched selectors are returned before any benchmark input is
+/// constructed or timed.
 pub fn select_sections(
-  requested_ids: List(String),
+  selectors: List(String),
 ) -> Result(SectionSelection, SelectSectionsError) {
   let definitions = section_definitions()
-  let valid_ids = section_ids()
-  let unknown_ids =
-    requested_ids
-    |> list.filter(fn(id) { !list.contains(valid_ids, id) })
+  let unknown_selectors =
+    selectors
+    |> list.filter(fn(selector) {
+      !list.any(definitions, selector_matches_definition(selector, _))
+    })
     |> deduplicate_strings
 
-  case unknown_ids {
-    [_, ..] -> Error(UnknownSectionIds(unknown_ids))
+  case unknown_selectors {
+    [_, ..] -> Error(UnknownSectionSelectors(unknown_selectors))
     [] -> {
-      let selected_definitions = case requested_ids {
+      let selected_definitions = case selectors {
         [] -> definitions
         [_, ..] ->
           list.filter(definitions, fn(definition) {
-            let PerfSectionDefinition(id, _) = definition
-            list.contains(requested_ids, id)
+            list.any(selectors, selector_matches_definition(_, definition))
           })
       }
 
@@ -161,7 +165,8 @@ pub fn select_sections(
   }
 }
 
-/// Returns the identifiers in a validated selection in execution order.
+/// Returns the concrete leaf section IDs in a validated selection in execution
+/// order.
 pub fn selected_section_ids(selection: SectionSelection) -> List(String) {
   let SectionSelection(definitions) = selection
   definitions
@@ -185,6 +190,14 @@ pub fn run(selection: SectionSelection) -> PerfResult {
     })
 
   PerfResult(metadata:, sections:)
+}
+
+fn selector_matches_definition(
+  selector: String,
+  definition: PerfSectionDefinition,
+) -> Bool {
+  let PerfSectionDefinition(id, _) = definition
+  id == selector || string.starts_with(id, selector <> ".")
 }
 
 fn section_definitions() -> List(PerfSectionDefinition) {
