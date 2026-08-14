@@ -230,34 +230,34 @@ fn compute_merkle_root_loop(
     [h] -> #([h], mutated)
 
     _ -> {
-      let level_mutated =
-        hashes
-        |> list.sized_chunk(2)
-        |> list.any(fn(pair) {
-          case pair {
-            [h1, h2] -> h1 == h2
-            _ -> False
-          }
-        })
-
-      let hashes = case int.is_odd(list.length(hashes)) {
-        True -> {
-          let reversed = list.reverse(hashes)
-          let assert [last, ..] = reversed
-          list.reverse([last, ..reversed])
-        }
-        False -> hashes
-      }
-
-      let hashes =
-        hashes
-        |> list.sized_chunk(2)
-        |> list.map(fn(chunk) {
-          let assert [h1, h2] = chunk
-          double_sha256.hash(bit_array.append(h1, h2))
-        })
+      let #(hashes, level_mutated) =
+        compute_merkle_parents_loop(hashes, [], False)
 
       compute_merkle_root_loop(hashes, mutated || level_mutated)
+    }
+  }
+}
+
+fn compute_merkle_parents_loop(
+  hashes: List(BitArray),
+  parents: List(BitArray),
+  mutated: Bool,
+) -> #(List(BitArray), Bool) {
+  case hashes {
+    [] -> #(list.reverse(parents), mutated)
+
+    [h] -> {
+      let parent = double_sha256.hash(bit_array.append(h, h))
+      #(list.reverse([parent, ..parents]), mutated)
+    }
+
+    [h1, h2, ..rest] -> {
+      let parent = double_sha256.hash(bit_array.append(h1, h2))
+      compute_merkle_parents_loop(
+        rest,
+        [parent, ..parents],
+        mutated || h1 == h2,
+      )
     }
   }
 }
