@@ -1,13 +1,13 @@
 //// Combined performance suite selection and execution.
 
-import gleam/list
-import gleam/string
-import perf/block/suite as block_suite
-import perf/internal/benchmark.{
+import btc_parser_benchmarks/block/suite as block_suite
+import btc_parser_benchmarks/internal/benchmark.{
   type PerfSection, type PerfSectionDefinition, PerfSection,
 }
-import perf/internal/metadata.{type PerfMetadata}
-import perf/transaction/suite as transaction_suite
+import btc_parser_benchmarks/internal/metadata.{type PerfMetadata}
+import btc_parser_benchmarks/transaction/suite as transaction_suite
+import gleam/list
+import gleam/string
 
 /// Results for one invocation of the complete performance suite.
 pub type PerfResult {

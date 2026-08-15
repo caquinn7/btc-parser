@@ -1,7 +1,7 @@
 import argv
+import btc_parser_benchmarks/command.{InvalidArguments}
 import gleam/io
 import gleam/string
-import perf/command.{InvalidArguments}
 
 const usage_msg = "usage:
   ./benchmarks/run [GLEAM_OPTIONS]

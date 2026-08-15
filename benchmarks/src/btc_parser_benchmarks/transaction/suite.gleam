@@ -17,16 +17,16 @@ import btc_parser/transaction.{
   InsufficientBytes, MaxScriptSize, PolicyLimitExceeded,
   TotalOutputValueOutOfRange, UnexpectedEof,
 }
-import gleam/bit_array
-import gleam/int
-import gleam/list
-import perf/internal/benchmark.{
+import btc_parser_benchmarks/internal/benchmark.{
   type MeasurementCurvePoint, type PerfCaseInput, type PerfCaseResult,
   type PerfMeasurementConfig, type PerfSectionDefinition, MeasurementCurvePoint,
   PerfCaseInput, PerfMeasurementConfig, PerfSectionDefinition, measure_cases,
   measure_curve,
 }
-import perf/internal/bitcoin_wire.{compact_size}
+import btc_parser_benchmarks/internal/bitcoin_wire.{compact_size}
+import gleam/bit_array
+import gleam/int
+import gleam/list
 
 /// Legacy P2PKH-style spend: one input, with P2WPKH and P2PKH outputs.
 const simple_legacy_tx = "0200000001f83913d8a4af4da53774c45cf074d35c8c6df3dd322f5b2a63cfba609ce6fb164d0000006b483045022100ce7670637cc52de4d7a0063e8a253271f09e282f3f99e8d78e20240f3b769ec90220742aea257871b277a19665434e6007850e54fc2bc64a4b5ff05c107ebf82ef460121032af93439c5e3debd027f60975cc0decc6c5b4e51bc44cbeb06a67aad69f45efafdffffff02458f0000000000001600148b068869b732322472e647126c6da8ce4d2bc5778d790000000000001976a914c76c2748f354526db26c9fbd2e2de47b990678fe88ac00000000"
