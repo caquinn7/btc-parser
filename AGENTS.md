@@ -51,8 +51,11 @@ changes.
 - `src/btc_parser/internal/lifecycle.gleam` provides the shared phantom types
   that mark parsed values and values that passed available context-free
   validation.
-- `dev/fuzz/transaction/` contains the transaction fuzz suite, report, and seed
-  corpus; `dev/fuzz/internal/` contains shared fuzz utilities.
+- `fuzz/` is an independent Gleam project that consumes `btc_parser` through its
+  public API. `fuzz/src/btc_parser_fuzz.gleam` is its CLI entrypoint,
+  `fuzz/src/btc_parser_fuzz/transaction/` contains the transaction suite and
+  report, `fuzz/src/btc_parser_fuzz/internal/` contains the RNG and trace
+  utilities, and `fuzz/corpus/transaction/` contains the seed corpus.
 - `benchmarks/` is an independent Gleam project that consumes `btc_parser`
   through its public API. `benchmarks/src/btc_parser_benchmarks/transaction/`
   and `benchmarks/src/btc_parser_benchmarks/block/` contain domain-specific
@@ -102,8 +105,9 @@ Use these terms consistently across the public API and internal implementation:
   using Deno.
 - `gleam test -t javascript --runtime bun` - run the test suite on JavaScript
   using Bun.
-- See `dev/fuzz/README.md` for fuzz commands, seed replay, scope, and
-  target/runtime guidance.
+- See `fuzz/README.md` for fuzz commands, seed replay, scope, and target/runtime
+  guidance. Run the default target with `./fuzz/run -- <iterations> [seed]`;
+  Gleam target and runtime options go before `--`.
 - See `benchmarks/README.md` for performance commands, report formats,
   benchmark coverage, and target/runtime guidance. Run the complete suite with
   `./benchmarks/run`; benchmark arguments follow `--`, as in
@@ -243,9 +247,9 @@ file/timer/CLI behavior, or a runtime-specific bug.
   should be `NonStandard` or `UnknownWitnessProgram`.
 - Run the transaction fuzz harness after changes to shared byte-level parsing,
   CompactSize handling, reader/parser internals, or transaction decode policy
-  enforcement. Run fuzz with an explicit seed, or record the generated seed from
-  the output, so any failure can be reproduced. Record the failing seed/hex if a
-  crash or hang is found.
+  enforcement. Use `./fuzz/run -- <iterations> [seed]` with an explicit seed, or
+  record the generated seed from the output, so any failure can be reproduced.
+  Record the failing seed/hex if a crash or hang is found.
 - Run the standalone benchmark harness after performance-sensitive changes to
   shared decode infrastructure, transaction behavior, or block behavior. Use
   prefixed selectors (for example,

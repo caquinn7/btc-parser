@@ -87,9 +87,9 @@ gleam test -t javascript --runtime bun
 
 ### Fuzz Testing
 
-The [fuzz harness](dev/fuzz/README.md) exercises parser safety against malformed
-and mutated wire-format inputs. Domain suites can provide their own seed inputs
-and structural mutations while sharing the project-level command workflow.
+The standalone [transaction fuzz harness](fuzz/README.md) exercises parser
+safety against malformed and mutated wire-format inputs. Run it with
+`./fuzz/run -- <iterations> [seed]`; target and runtime options go before `--`.
 
 ### Benchmarking
 

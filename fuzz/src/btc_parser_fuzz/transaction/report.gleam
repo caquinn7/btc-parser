@@ -1,4 +1,4 @@
-import fuzz/transaction/suite.{type FuzzResult, type IterationFailure}
+import btc_parser_fuzz/transaction/suite.{type FuzzResult, type IterationFailure}
 import gleam/int
 import gleam/list
 import gleam/string

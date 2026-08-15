@@ -1,6 +1,6 @@
-import fuzz/internal/rng
-import fuzz/transaction/report
-import fuzz/transaction/suite.{type FuzzResult, type SeedTx}
+import btc_parser_fuzz/internal/rng
+import btc_parser_fuzz/transaction/report
+import btc_parser_fuzz/transaction/suite.{type FuzzResult, type SeedTx}
 import gleam/crypto
 import gleam/int
 import gleam/io
@@ -135,7 +135,7 @@ pub fn run(command: Command) -> Result(Nil, Nil) {
 
 fn read_seed_txs() -> List(SeedTx) {
   let assert Ok(file_content) =
-    simplifile.read("dev/fuzz/transaction/corpus/seed_txs.txt")
+    simplifile.read("corpus/transaction/seed_txs.txt")
 
   suite.parse_seed_txs(file_content)
 }
@@ -148,6 +148,6 @@ fn run_fuzz(seed_txs, iteration_count, rng) -> #(FuzzResult, Int) {
   #(fuzz_result, elapsed)
 }
 
-@external(erlang, "fuzz_ffi", "monotonic_time_ms")
-@external(javascript, "./fuzz_ffi.mjs", "monotonicTimeMs")
+@external(erlang, "btc_parser_fuzz_command_ffi", "monotonic_time_ms")
+@external(javascript, "./btc_parser_fuzz_command_ffi.mjs", "monotonicTimeMs")
 fn monotonic_time_ms() -> Int
