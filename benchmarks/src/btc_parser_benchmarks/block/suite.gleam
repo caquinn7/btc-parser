@@ -5,16 +5,16 @@
 
 import btc_parser/block.{type Block, type Parsed}
 import btc_parser/transaction.{type Transaction}
-import gleam/bit_array
-import gleam/int
-import gleam/list
-import gleam/string
-import perf/internal/benchmark.{
+import btc_parser_benchmarks/internal/benchmark.{
   type PerfCaseInput, type PerfCaseResult, type PerfMeasurementConfig,
   type PerfSectionDefinition, MeasurementCurvePoint, PerfCaseInput,
   PerfMeasurementConfig, PerfSectionDefinition, measure_cases, measure_curve,
 }
-import perf/internal/bitcoin_wire.{compact_size}
+import btc_parser_benchmarks/internal/bitcoin_wire.{compact_size}
+import gleam/bit_array
+import gleam/int
+import gleam/list
+import gleam/string
 import simplifile
 
 /// Returns concrete block benchmark sections in their domain-defined order.
@@ -48,7 +48,7 @@ fn mainnet_898064_block_case() -> PerfCaseInput(Block(Parsed)) {
   let mainnet_898064_base_size = 805_947
 
   let assert Ok(fixture_hex) =
-    simplifile.read("dev/perf/block/fixtures/mainnet-898064.hex")
+    simplifile.read("fixtures/block/mainnet-898064.hex")
   let assert Ok(block_bytes) =
     fixture_hex
     |> string.trim

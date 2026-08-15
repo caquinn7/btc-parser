@@ -1,13 +1,13 @@
+import btc_parser_benchmarks/report
+import btc_parser_benchmarks/suite.{
+  type PerfResult, type SectionSelection, UnknownSectionSelectors,
+}
 import filepath
 import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import perf/report
-import perf/suite.{
-  type PerfResult, type SectionSelection, UnknownSectionSelectors,
-}
 import simplifile.{type FileError}
 
 pub opaque type Command {
@@ -117,7 +117,7 @@ fn unknown_section_selectors_message(selectors: List(String)) -> String {
 
   description
   <> string.join(selectors, ", ")
-  <> "\nRun `gleam dev perf --list-sections` to list canonical leaf section IDs."
+  <> "\nRun `./benchmarks/run -- --list-sections` to list canonical leaf section IDs."
 }
 
 fn is_flag_value(value: String) -> Bool {

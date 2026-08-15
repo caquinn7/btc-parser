@@ -93,7 +93,8 @@ and structural mutations while sharing the project-level command workflow.
 
 ### Benchmarking
 
-The [performance harness](dev/perf/README.md) measures public deserialization and
-inspection workflows across representative inputs, scaling dimensions, and
-fail-fast paths. Domain-specific benchmark suites can be added as the library
-grows.
+The standalone [performance harness](benchmarks/README.md) measures public
+deserialization and inspection workflows across representative inputs, scaling
+dimensions, and fail-fast paths. Run the complete suite with
+`./benchmarks/run`, or pass benchmark arguments after `--`, for example
+`./benchmarks/run -- --section transaction.deserialize.fixtures`.

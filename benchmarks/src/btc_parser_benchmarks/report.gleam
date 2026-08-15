@@ -1,10 +1,12 @@
+import btc_parser_benchmarks/internal/benchmark.{
+  type PerfCaseResult, type PerfSection,
+}
+import btc_parser_benchmarks/internal/metadata.{type PerfMetadata}
+import btc_parser_benchmarks/suite.{type PerfResult}
 import gleam/float
 import gleam/int
 import gleam/list
 import gleam/string
-import perf/internal/benchmark.{type PerfCaseResult, type PerfSection}
-import perf/internal/metadata.{type PerfMetadata}
-import perf/suite.{type PerfResult}
 
 pub fn to_string(perf_result: PerfResult) -> String {
   let headings = [
