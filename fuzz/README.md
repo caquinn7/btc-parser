@@ -6,6 +6,10 @@ The purpose of fuzz testing in the `btc_parser/transaction` module is to check
 that the transaction parser and immediately related inspection APIs handle
 mutated transaction bytes without unhandled exceptions.
 
+The harness is a standalone private Gleam project in `fuzz/`. It consumes
+`btc_parser` through the library's public API and currently contains only the
+transaction workload.
+
 This includes malformed, adversarial, and edge-case data, not just valid Bitcoin
 transactions.
 
@@ -26,38 +30,43 @@ transaction must serialize back to its exact original wire bytes.
 
 ## Commands
 
-Run the harness on the default target from `gleam.toml`, which is Erlang:
+The examples below run from the repository root. The wrapper resolves the fuzz
+project relative to its own location, so it can also be invoked by path from any
+working directory. Arguments before `--` belong to Gleam; arguments after `--`
+belong to the fuzz program.
+
+Run the harness on the default target from `fuzz/gleam.toml`, which is Erlang:
 
 ```sh
-gleam dev fuzz <iterations>
+./fuzz/run -- <iterations>
 ```
 
 Run it on Erlang explicitly:
 
 ```sh
-gleam dev --target erlang fuzz <iterations>
+./fuzz/run -t erlang -- <iterations>
 ```
 
-Run it on JavaScript using the default JavaScript runtime from `gleam.toml`,
-which is Node:
+Run it on JavaScript using the default JavaScript runtime from
+`fuzz/gleam.toml`, which is Node:
 
 ```sh
-gleam dev --target javascript fuzz <iterations>
+./fuzz/run -t javascript -- <iterations>
 ```
 
 Run it on a specific JavaScript runtime:
 
 ```sh
-gleam dev --target javascript --runtime node fuzz <iterations>
-gleam dev --target javascript --runtime deno fuzz <iterations>
-gleam dev --target javascript --runtime bun fuzz <iterations>
+./fuzz/run -t javascript --runtime node -- <iterations>
+./fuzz/run -t javascript --runtime deno -- <iterations>
+./fuzz/run -t javascript --runtime bun -- <iterations>
 ```
 
 Run it with a specific seed to reproduce a previous run:
 
 ```sh
-gleam dev --target erlang fuzz <iterations> <seed>
-gleam dev --target javascript --runtime node fuzz <iterations> <seed>
+./fuzz/run -t erlang -- <iterations> <seed>
+./fuzz/run -t javascript --runtime node -- <iterations> <seed>
 ```
 
 When no seed is provided, the harness generates one and prints it before the
@@ -178,7 +187,7 @@ The harness still runs through `transaction.deserialize`, so the library's defau
 decode policy is active during fuzzing. The harness does not assert the exact
 errors returned when policy limits or structural limits are hit. Use focused
 unit tests for policy-limit behavior and the standalone
-[`./benchmarks/run`](../../benchmarks/README.md) harness for benchmark-style
+[`./benchmarks/run`](../benchmarks/README.md) harness for benchmark-style
 performance analysis.
 
 ---
@@ -186,9 +195,9 @@ performance analysis.
 ## Role of the Seed Corpus
 
 The fuzzing strategy uses a **seed corpus of real Bitcoin transactions** stored
-in `dev/fuzz/transaction/corpus/seed_txs.txt`. Each record contains
+in `fuzz/corpus/transaction/seed_txs.txt`. Each record contains
 `txid|codes|raw_hex`. Corpus-code labels are documented in
-`dev/fuzz/transaction/corpus/seed_txs_codes.txt`.
+`fuzz/corpus/transaction/seed_txs_codes.txt`.
 
 ### Why this matters
 

@@ -11,9 +11,9 @@
 ////  than being rejected at early boundary checks.
 
 import btc_parser/transaction
+import btc_parser_fuzz/internal/rng.{type Rng}
+import btc_parser_fuzz/internal/trace.{type Trace}
 import exception.{type Exception}
-import fuzz/internal/rng.{type Rng}
-import fuzz/internal/trace.{type Trace}
 import gleam/bit_array
 import gleam/bool
 import gleam/int

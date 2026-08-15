@@ -4,6 +4,22 @@ on:
   pull_request:
 
 jobs:
+  format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup runtimes
+        uses: ./.github/actions/setup
+
+      - name: Check root formatting
+        run: gleam format --check
+
+      - name: Check fuzz formatting
+        working-directory: fuzz
+        run: gleam format --check
+
   seed:
     runs-on: ubuntu-latest
 
@@ -17,7 +33,7 @@ jobs:
 
   fuzz:
     runs-on: ubuntu-latest
-    needs: [seed]
+    needs: [format, seed]
 
     strategy:
       fail-fast: false
@@ -39,14 +55,15 @@ jobs:
         with:
           js_runtime: ${{ matrix.js_runtime }}
 
-      - name: Download dependencies
+      - name: Download fuzz dependencies
+        working-directory: fuzz
         run: gleam deps download
 
       - name: Run fuzz test
         timeout-minutes: 5
         run: |
           if [ "${{ matrix.target }}" = "javascript" ]; then
-            gleam dev --target javascript --runtime ${{ matrix.js_runtime }} fuzz 100000 ${{ needs.seed.outputs.seed }}
+            ./fuzz/run --target javascript --runtime ${{ matrix.js_runtime }} -- 100000 ${{ needs.seed.outputs.seed }}
           else
-            gleam dev --target erlang fuzz 100000 ${{ needs.seed.outputs.seed }}
+            ./fuzz/run --target erlang -- 100000 ${{ needs.seed.outputs.seed }}
           fi

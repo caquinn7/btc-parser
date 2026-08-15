@@ -4,7 +4,8 @@
 erl_crash.dump
 /resources
 .DS_Store
-dev/fuzz/**/*.sh
+/fuzz/build
+/fuzz/corpus/transaction/get_seed_txs.sh
 test/btc_parser/block/fixtures/get_block_hex.sh
 /benchmarks/build
 /benchmarks/results/*
