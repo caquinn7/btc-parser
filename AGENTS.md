@@ -54,16 +54,19 @@ changes.
 - `dev/fuzz/transaction/` contains the transaction fuzz suite, report, and seed
   corpus; `dev/fuzz/internal/` contains shared fuzz utilities.
 - `benchmarks/` is an independent Gleam project that consumes `btc_parser`
-  through its public API. `benchmarks/src/perf/transaction/` and
-  `benchmarks/src/perf/block/` contain domain-specific workloads and builders;
-  `benchmarks/src/perf/suite.gleam` combines their canonical registries,
-  resolves domain and nested selectors such as `transaction.deserialize` and
-  `block.compute-merkle-root`, captures metadata once, and runs sections in
-  canonical order. `benchmarks/src/perf/internal/benchmark.gleam` owns shared
-  measurement primitives, `benchmarks/src/perf/internal/bitcoin_wire.gleam`
-  owns the shared CompactSize encoder, and `benchmarks/src/perf/report.gleam`
-  owns domain-neutral table/CSV reporting. The `bytes` column is the complete
-  serialized size of the input value for a row, regardless of its domain.
+  through its public API. `benchmarks/src/btc_parser_benchmarks/transaction/`
+  and `benchmarks/src/btc_parser_benchmarks/block/` contain domain-specific
+  workloads and builders; `benchmarks/src/btc_parser_benchmarks/suite.gleam`
+  combines their canonical registries, resolves domain and nested selectors
+  such as `transaction.deserialize` and `block.compute-merkle-root`, captures
+  metadata once, and runs sections in canonical order.
+  `benchmarks/src/btc_parser_benchmarks/internal/benchmark.gleam` owns shared
+  measurement primitives,
+  `benchmarks/src/btc_parser_benchmarks/internal/bitcoin_wire.gleam` owns the
+  shared CompactSize encoder, and
+  `benchmarks/src/btc_parser_benchmarks/report.gleam` owns domain-neutral
+  table/CSV reporting. The `bytes` column is the complete serialized size of
+  the input value for a row, regardless of its domain.
 - `docs/` documents the public transaction and block APIs and output script
   classification.
 

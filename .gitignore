@@ -6,7 +6,6 @@ erl_crash.dump
 .DS_Store
 dev/fuzz/**/*.sh
 test/btc_parser/block/fixtures/get_block_hex.sh
-dev/perf/*.sh
 /benchmarks/build
 /benchmarks/results/*
 !/benchmarks/results/.gitkeep

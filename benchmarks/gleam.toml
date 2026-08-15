@@ -4,7 +4,7 @@ version = "1.0.0"
 gleam = ">= 1.16.0"
 
 target = "erlang"
-internal_modules = ["perf/internal/*"]
+internal_modules = ["btc_parser_benchmarks/internal/*"]
 
 [javascript]
 runtime = "node"
