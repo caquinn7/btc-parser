@@ -177,7 +177,8 @@ on elapsed time.
 The harness still runs through `transaction.deserialize`, so the library's default
 decode policy is active during fuzzing. The harness does not assert the exact
 errors returned when policy limits or structural limits are hit. Use focused
-unit tests for policy-limit behavior and `gleam dev perf` for benchmark-style
+unit tests for policy-limit behavior and the standalone
+[`./benchmarks/run`](../../benchmarks/README.md) harness for benchmark-style
 performance analysis.
 
 ---

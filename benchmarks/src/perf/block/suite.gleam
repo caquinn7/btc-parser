@@ -48,7 +48,7 @@ fn mainnet_898064_block_case() -> PerfCaseInput(Block(Parsed)) {
   let mainnet_898064_base_size = 805_947
 
   let assert Ok(fixture_hex) =
-    simplifile.read("dev/perf/block/fixtures/mainnet-898064.hex")
+    simplifile.read("fixtures/block/mainnet-898064.hex")
   let assert Ok(block_bytes) =
     fixture_hex
     |> string.trim

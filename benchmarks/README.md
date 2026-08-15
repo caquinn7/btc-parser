@@ -1,26 +1,34 @@
 # Performance Benchmarks
 
-This directory contains the `gleam dev perf` benchmark harness. It combines
+This directory is a standalone Gleam project containing the `btc_parser`
+benchmark harness. It consumes the library through its public API, combines
 domain suites for transactions and blocks, and is intended to catch broad
-performance regressions in public workflows. Compare trends and relative changes within the
-same machine, target, and runtime.
+performance regressions in public workflows. Compare trends and relative
+changes within the same machine, target, and runtime. This development-only
+package is not published independently.
 
 Input construction, hex decoding, and preflight assertions happen before timing
 begins. Timed rows measure only the operation named in the `case` column.
 
 ## Commands
 
-Run the complete suite on the default target from `gleam.toml`, which is Erlang:
+The commands below are run from the repository root. The wrapper changes its
+working directory to `benchmarks/` before invoking `gleam run`, so relative
+fixture and report paths resolve from this directory. Options before `--` belong
+to `gleam run`; options after `--` belong to the benchmark program.
+
+Run the complete suite on the default target from `benchmarks/gleam.toml`, which
+is Erlang:
 
 ```sh
-gleam dev perf
+./benchmarks/run
 ```
 
 List the concrete leaf section IDs without constructing inputs or running
 any benchmarks:
 
 ```sh
-gleam dev perf --list-sections
+./benchmarks/run -- --list-sections
 ```
 
 The list contains all implemented leaf sections in canonical order.
@@ -32,7 +40,7 @@ resolved from those IDs and are not listed separately.
 Run one report section by passing its exact leaf ID as a selector:
 
 ```sh
-gleam dev perf --section transaction.deserialize.fixtures
+./benchmarks/run -- --section transaction.deserialize.fixtures
 ```
 
 Section selectors are case-sensitive. An exact selector uses a concrete leaf
@@ -50,7 +58,7 @@ earlier harness versions are intentionally rejected.
 Repeat `--section` to select more than one section:
 
 ```sh
-gleam dev perf \
+./benchmarks/run -- \
   --section transaction.deserialize \
   --section transaction.serialize.fixtures
 ```
@@ -68,14 +76,14 @@ stdout.
 Save a CSV report to a file. CSV is the default format when `--out` is used:
 
 ```sh
-gleam dev perf --out /tmp/btc_parser_perf/perf.csv
-gleam dev perf --format csv --out /tmp/btc_parser_perf/perf.csv
+./benchmarks/run -- --out results/perf.csv
+./benchmarks/run -- --format csv --out results/perf.csv
 ```
 
 Save the table report to a file:
 
 ```sh
-gleam dev perf --format table --out /tmp/btc_parser_perf/perf.txt
+./benchmarks/run -- --format table --out results/perf.txt
 ```
 
 Selection composes with the report flags. For example, save only the
@@ -83,11 +91,11 @@ Selection composes with the report flags. For example, save only the
 CSV:
 
 ```sh
-gleam dev perf \
+./benchmarks/run -- \
   --section transaction.deserialize.fixtures \
   --section block.compute-merkle-root \
   --format csv \
-  --out /tmp/btc_parser_perf/fixtures.csv
+  --out results/fixtures.csv
 ```
 
 When `--out` references a file in a directory that does not exist, the missing
@@ -96,22 +104,22 @@ parent directories are created before writing the report.
 Run it on Erlang explicitly:
 
 ```sh
-gleam dev --target erlang perf
+./benchmarks/run --target erlang
 ```
 
 Run it on JavaScript using the default JavaScript runtime from `gleam.toml`,
 which is Node:
 
 ```sh
-gleam dev --target javascript perf
+./benchmarks/run --target javascript
 ```
 
 Run it on a specific JavaScript runtime:
 
 ```sh
-gleam dev --target javascript --runtime node perf
-gleam dev --target javascript --runtime deno perf
-gleam dev --target javascript --runtime bun perf
+./benchmarks/run --target javascript --runtime node
+./benchmarks/run --target javascript --runtime deno
+./benchmarks/run --target javascript --runtime bun
 ```
 
 The command exits with a nonzero status when its arguments are invalid or a

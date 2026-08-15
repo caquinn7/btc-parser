@@ -1,0 +1,23 @@
+name = "btc_parser_benchmarks"
+version = "1.0.0"
+
+gleam = ">= 1.16.0"
+
+target = "erlang"
+internal_modules = ["perf/internal/*"]
+
+[javascript]
+runtime = "node"
+source_maps = true
+
+[javascript.deno]
+allow_read = true
+allow_write = true
+
+[dependencies]
+btc_parser = { path = ".." }
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+argv = ">= 1.0.2 and < 2.0.0"
+filepath = ">= 1.1.2 and < 2.0.0"
+simplifile = ">= 2.4.0 and < 3.0.0"
+gleamy_bench = ">= 0.6.0 and < 1.0.0"

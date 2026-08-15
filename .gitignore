@@ -7,4 +7,6 @@ erl_crash.dump
 dev/fuzz/**/*.sh
 test/btc_parser/block/fixtures/get_block_hex.sh
 dev/perf/*.sh
-dev/perf/results/*
+/benchmarks/build
+/benchmarks/results/*
+!/benchmarks/results/.gitkeep

@@ -53,16 +53,17 @@ changes.
   validation.
 - `dev/fuzz/transaction/` contains the transaction fuzz suite, report, and seed
   corpus; `dev/fuzz/internal/` contains shared fuzz utilities.
-- `dev/perf/transaction/` contains transaction-specific benchmark workloads and
-  builders; `dev/perf/block/` contains block-specific workloads;
-  `dev/perf/suite.gleam` combines their canonical registries, resolves domain
-  and nested selectors such as `transaction.deserialize` and
+- `benchmarks/` is an independent Gleam project that consumes `btc_parser`
+  through its public API. `benchmarks/src/perf/transaction/` and
+  `benchmarks/src/perf/block/` contain domain-specific workloads and builders;
+  `benchmarks/src/perf/suite.gleam` combines their canonical registries,
+  resolves domain and nested selectors such as `transaction.deserialize` and
   `block.compute-merkle-root`, captures metadata once, and runs sections in
-  canonical order. `dev/perf/internal/benchmark.gleam` owns shared measurement
-  primitives, `dev/perf/internal/bitcoin_wire.gleam` owns the shared CompactSize
-  encoder, and `dev/perf/report.gleam` owns domain-neutral table/CSV reporting.
-  The `bytes` column is the complete serialized size of the input value for a
-  row, regardless of its domain.
+  canonical order. `benchmarks/src/perf/internal/benchmark.gleam` owns shared
+  measurement primitives, `benchmarks/src/perf/internal/bitcoin_wire.gleam`
+  owns the shared CompactSize encoder, and `benchmarks/src/perf/report.gleam`
+  owns domain-neutral table/CSV reporting. The `bytes` column is the complete
+  serialized size of the input value for a row, regardless of its domain.
 - `docs/` documents the public transaction and block APIs and output script
   classification.
 
@@ -100,15 +101,18 @@ Use these terms consistently across the public API and internal implementation:
   using Bun.
 - See `dev/fuzz/README.md` for fuzz commands, seed replay, scope, and
   target/runtime guidance.
-- See `dev/perf/README.md` for performance commands, report formats, benchmark
-  coverage, and target/runtime guidance.
+- See `benchmarks/README.md` for performance commands, report formats,
+  benchmark coverage, and target/runtime guidance. Run the complete suite with
+  `./benchmarks/run`; benchmark arguments follow `--`, as in
+  `./benchmarks/run -- --section transaction.deserialize.fixtures`.
 
 Run unit tests on both Erlang and at least one JavaScript runtime for meaningful
 library code changes; the number of target-specific tests is small, but almost
-all tests run on every target. Changes confined to the fuzz or perf harnesses do
-not require running the unit test suite; validate the affected harness directly
-on the appropriate targets and runtimes instead. Run unit tests when the same
-change also touches library code or shared behavior covered by those tests.
+all tests run on every target. Changes confined to the fuzz or standalone
+benchmark harnesses do not require running the unit test suite; validate the
+affected harness directly on the appropriate targets and runtimes instead. Run
+unit tests when the same change also touches library code or shared behavior
+covered by those tests.
 Run all JavaScript runtimes before publishing a package release, changing public
 API behavior, or touching runtime-sensitive code such as `BitArray`, fixed-width
 integers, CompactSize, serialization, hashing, or FFI.
@@ -239,12 +243,13 @@ file/timer/CLI behavior, or a runtime-specific bug.
   enforcement. Run fuzz with an explicit seed, or record the generated seed from
   the output, so any failure can be reproduced. Record the failing seed/hex if a
   crash or hang is found.
-- Run the combined perf harness after performance-sensitive changes to shared
-  decode infrastructure, transaction behavior, or block behavior. Use prefixed
-  selectors (for example, `transaction.deserialize.fixtures` or
-  `block.compute-merkle-root`) to target a workload. Compare trends within the
-  same machine, target, and runtime rather than treating absolute numbers as
-  portable.
+- Run the standalone benchmark harness after performance-sensitive changes to
+  shared decode infrastructure, transaction behavior, or block behavior. Use
+  prefixed selectors (for example,
+  `./benchmarks/run -- --section transaction.deserialize.fixtures` or
+  `./benchmarks/run -- --section block.compute-merkle-root`) to target a
+  workload. Compare trends within the same machine, target, and runtime rather
+  than treating absolute numbers as portable.
 
 ## Performance Considerations
 
@@ -263,6 +268,6 @@ file/timer/CLI behavior, or a runtime-specific bug.
   the successful branch.
 - Do not silently relax default policy limits. They protect callers deserializing
   untrusted bytes even though some consensus-valid transactions may exceed them.
-- Keep the default perf suite selective. Add benchmark rows only when they cover
-  a distinct public operation, scaling dimension, fail-fast path, or transaction
-  shape not already represented.
+- Keep the default benchmark suite selective. Add benchmark rows only when they
+  cover a distinct public operation, scaling dimension, fail-fast path, or
+  transaction shape not already represented.

@@ -117,7 +117,7 @@ fn unknown_section_selectors_message(selectors: List(String)) -> String {
 
   description
   <> string.join(selectors, ", ")
-  <> "\nRun `gleam dev perf --list-sections` to list canonical leaf section IDs."
+  <> "\nRun `./benchmarks/run -- --list-sections` to list canonical leaf section IDs."
 }
 
 fn is_flag_value(value: String) -> Bool {
