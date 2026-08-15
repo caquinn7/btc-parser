@@ -4,24 +4,94 @@
 //// timed row measures only the named block operation.
 
 import btc_parser/block.{type Block, type Parsed}
+import btc_parser/transaction.{type Transaction}
 import gleam/bit_array
 import gleam/int
 import gleam/list
+import gleam/string
 import perf/internal/benchmark.{
   type PerfCaseInput, type PerfCaseResult, type PerfMeasurementConfig,
   type PerfSectionDefinition, MeasurementCurvePoint, PerfCaseInput,
-  PerfMeasurementConfig, PerfSectionDefinition, measure_curve,
+  PerfMeasurementConfig, PerfSectionDefinition, measure_cases, measure_curve,
 }
 import perf/internal/bitcoin_wire.{compact_size}
+import simplifile
 
 /// Returns concrete block benchmark sections in their domain-defined order.
 pub fn section_definitions() -> List(PerfSectionDefinition) {
   [
     PerfSectionDefinition(
+      "block.compute-merkle-root.fixtures",
+      measure_fixture_merkle_root,
+    ),
+    PerfSectionDefinition(
       "block.compute-merkle-root.synthetic-transactions",
       measure_synthetic_transaction_merkle_root,
     ),
   ]
+}
+
+fn measure_fixture_merkle_root() -> List(PerfCaseResult) {
+  measure_cases(
+    [mainnet_898064_block_case()],
+    measurement_config(1),
+    "compute_merkle_root",
+    block.compute_merkle_root,
+  )
+}
+
+fn mainnet_898064_block_case() -> PerfCaseInput(Block(Parsed)) {
+  let mainnet_898064_tx_count = 2450
+  let mainnet_898064_legacy_tx_count = 218
+  let mainnet_898064_segwit_tx_count = 2232
+  let mainnet_898064_total_size = 1_576_176
+  let mainnet_898064_base_size = 805_947
+
+  let assert Ok(fixture_hex) =
+    simplifile.read("dev/perf/block/fixtures/mainnet-898064.hex")
+  let assert Ok(block_bytes) =
+    fixture_hex
+    |> string.trim
+    |> bit_array.base16_decode
+
+  assert bit_array.byte_size(block_bytes) == mainnet_898064_total_size
+
+  let assert Ok(parsed_block) = block.deserialize(block_bytes)
+  assert block.get_transaction_count(parsed_block) == mainnet_898064_tx_count
+  assert block.compute_base_size(parsed_block) == mainnet_898064_base_size
+  assert block.compute_total_size(parsed_block) == mainnet_898064_total_size
+
+  let transactions = block.get_transactions(parsed_block)
+  let #(legacy_count, segwit_count) = count_transaction_encodings(transactions)
+
+  assert legacy_count == mainnet_898064_legacy_tx_count
+  assert segwit_count == mainnet_898064_segwit_tx_count
+
+  let #(computed_root, mutated) = block.compute_merkle_root(parsed_block)
+  let header_root =
+    parsed_block
+    |> block.get_header
+    |> block.get_header_merkle_root
+
+  assert computed_root == header_root
+  assert !mutated
+
+  PerfCaseInput(
+    "mainnet block=898064 transactions=2450 base_size=805947",
+    bit_array.byte_size(block_bytes),
+    parsed_block,
+  )
+}
+
+fn count_transaction_encodings(txs: List(Transaction(s))) -> #(Int, Int) {
+  list.fold(txs, #(0, 0), fn(counts, tx) {
+    let #(legacy_count, segwit_count) = counts
+
+    case transaction.is_segwit(tx) {
+      True -> #(legacy_count, segwit_count + 1)
+      False -> #(legacy_count + 1, segwit_count)
+    }
+  })
 }
 
 fn measure_synthetic_transaction_merkle_root() -> List(PerfCaseResult) {
