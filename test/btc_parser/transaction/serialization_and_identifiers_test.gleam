@@ -45,6 +45,7 @@ pub fn compute_sizes_and_weight_for_two_input_segwit_transaction_with_mixed_witn
   assert transaction.compute_base_size(tx) == 101
   assert transaction.compute_total_size(tx) == 362
   assert transaction.compute_weight(tx) == 665
+  assert transaction.serialize(tx) == tx_bytes
 }
 
 // ============================================================================

@@ -2570,7 +2570,6 @@ pub fn serialize_stripped(tx: Transaction(state)) -> BitArray {
   let parts = collect_input_parts(list.reverse(tx.inputs), parts)
   let parts = [compact_size.encode_int(tx.input_count), ..parts]
   let parts = [<<tx.version:32-little>>, ..parts]
-
   bit_array.concat(parts)
 }
 
@@ -2603,7 +2602,8 @@ fn collect_input_parts(
 
 /// Prepend each output's wire fields to a serialization-parts suffix.
 ///
-/// The outputs must be supplied in reverse wire order.
+/// The outputs must be supplied in reverse wire order so this loop remains
+/// tail-recursive while producing parts in wire order.
 fn collect_output_parts(
   reversed_outputs: List(Output),
   parts: List(BitArray),
@@ -2648,119 +2648,55 @@ fn collect_output_parts(
 /// - `compute_wtxid` — hashes this serialization to produce the wtxid
 /// - `serialize_stripped` — the no-witness serialization used for the txid
 pub fn serialize(tx: Transaction(state)) -> BitArray {
-  // safe: input/output counts are non-negative Ints parsed from the wire,
-  // so they fit within Uint64 (and within JS safe integer bounds)
-  let assert Ok(input_count) = uint64.from_int(tx.input_count)
-  let assert Ok(output_count) = uint64.from_int(tx.output_count)
-
-  let #(segwit_marker_and_flag, witnesses) = case tx {
-    Legacy(..) -> #(<<>>, <<>>)
-    Segwit(witnesses:, ..) -> #(<<0x00, 0x01>>, serialize_witnesses(witnesses))
+  let parts = [<<tx.lock_time:32-little>>]
+  let parts = case tx {
+    Legacy(..) -> parts
+    Segwit(witnesses:, ..) ->
+      collect_witness_parts(list.reverse(witnesses), parts)
   }
-
-  <<
-    tx.version:32-little,
-    segwit_marker_and_flag:bits,
-    compact_size.encode(input_count):bits,
-    serialize_inputs(tx.inputs):bits,
-    compact_size.encode(output_count):bits,
-    serialize_outputs(tx.outputs):bits,
-    witnesses:bits,
-    tx.lock_time:32-little,
-  >>
-}
-
-fn serialize_inputs(inputs: List(Input)) -> BitArray {
-  inputs
-  |> list.map(serialize_input)
-  |> bit_array.concat
-}
-
-fn serialize_input(input: Input) -> BitArray {
-  let outpoint_bytes = serialize_outpoint(input.outpoint)
-
-  let script_sig_length_bytes = {
-    let assert Ok(script_sig_length) =
-      input.script_sig
-      |> get_script_size
-      |> uint64.from_int
-
-    compact_size.encode(script_sig_length)
+  let parts = collect_output_parts(list.reverse(tx.outputs), parts)
+  let parts = [compact_size.encode_int(tx.output_count), ..parts]
+  let parts = collect_input_parts(list.reverse(tx.inputs), parts)
+  let parts = [compact_size.encode_int(tx.input_count), ..parts]
+  let parts = case tx {
+    Legacy(..) -> parts
+    Segwit(..) -> [<<0x00, 0x01>>, ..parts]
   }
-
-  <<
-    outpoint_bytes:bits,
-    script_sig_length_bytes:bits,
-    get_raw_script_bytes(input.script_sig):bits,
-    input.sequence:32-little,
-  >>
+  let parts = [<<tx.version:32-little>>, ..parts]
+  bit_array.concat(parts)
 }
 
-fn serialize_outpoint(outpoint: OutPoint) -> BitArray {
-  <<
-    get_outpoint_txid(outpoint):bits,
-    get_outpoint_vout(outpoint):32-little,
-  >>
-}
-
-fn serialize_outputs(outputs: List(Output)) -> BitArray {
-  outputs
-  |> list.map(serialize_output)
-  |> bit_array.concat
-}
-
-fn serialize_output(output: Output) -> BitArray {
-  let assert Ok(satoshis_bytes) = int64.int_to_bytes_le(output.value)
-
-  let script_pubkey_length_bytes = {
-    let assert Ok(script_pubkey_length) =
-      output.script_pubkey
-      |> get_script_size
-      |> uint64.from_int
-
-    compact_size.encode(script_pubkey_length)
+/// Prepend each witness stack's wire fields to a serialization-parts suffix.
+///
+/// The witness stacks must be supplied in reverse wire order. Each stack's
+/// items are reversed internally so both loops remain tail-recursive while
+/// producing parts in wire order.
+fn collect_witness_parts(
+  reversed_witnesses: List(WitnessStack),
+  parts: List(BitArray),
+) -> List(BitArray) {
+  case reversed_witnesses {
+    [] -> parts
+    [witness_stack, ..rest] -> {
+      let parts =
+        collect_witness_item_parts(list.reverse(witness_stack.items), parts)
+      let parts = [compact_size.encode_int(witness_stack.item_count), ..parts]
+      collect_witness_parts(rest, parts)
+    }
   }
-
-  <<
-    satoshis_bytes:bits,
-    script_pubkey_length_bytes:bits,
-    get_raw_script_bytes(output.script_pubkey):bits,
-  >>
 }
 
-fn serialize_witnesses(witnesses: List(WitnessStack)) -> BitArray {
-  witnesses
-  |> list.map(serialize_witness)
-  |> bit_array.concat
-}
-
-fn serialize_witness(stack: WitnessStack) -> BitArray {
-  // safe: the item count is a non-negative Int parsed from the wire,
-  // so it fits within Uint64 (and within JS safe integer bounds)
-  let assert Ok(item_count) = uint64.from_int(stack.item_count)
-
-  <<
-    compact_size.encode(item_count):bits,
-    serialize_witness_items(stack.items):bits,
-  >>
-}
-
-fn serialize_witness_items(witness_items: List(WitnessItem)) -> BitArray {
-  witness_items
-  |> list.map(serialize_witness_item)
-  |> bit_array.concat
-}
-
-fn serialize_witness_item(witness_item: WitnessItem) -> BitArray {
-  let witness_item_bytes = get_witness_item_bytes(witness_item)
-
-  let assert Ok(item_length) =
-    witness_item_bytes
-    |> bit_array.byte_size
-    |> uint64.from_int
-
-  <<
-    compact_size.encode(item_length):bits,
-    witness_item_bytes:bits,
-  >>
+fn collect_witness_item_parts(
+  reversed_items: List(WitnessItem),
+  parts: List(BitArray),
+) -> List(BitArray) {
+  case reversed_items {
+    [] -> parts
+    [item, ..rest] -> {
+      let item_bytes = get_witness_item_bytes(item)
+      let item_length = bit_array.byte_size(item_bytes)
+      let parts = [compact_size.encode_int(item_length), item_bytes, ..parts]
+      collect_witness_item_parts(rest, parts)
+    }
+  }
 }
