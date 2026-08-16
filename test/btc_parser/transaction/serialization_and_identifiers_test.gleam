@@ -58,6 +58,28 @@ pub fn serialize_round_trips_high_bit_version_wire_bytes_test() {
   assert transaction.serialize(result) == original_bytes
 }
 
+pub fn serialize_stripped_preserves_input_and_output_order_test() {
+  let input0 = build_input_bytes(repeat_byte(0x11, 32), 1, <<0x51>>, 0x01020304)
+  let input1 =
+    build_input_bytes(repeat_byte(0x22, 32), 2, <<0x52, 0x53>>, 0x05060708)
+  let output0 = build_output_bytes(<<1000:64-little>>, <<0x54>>)
+  let output1 = build_output_bytes(<<2000:64-little>>, <<0x55, 0x56>>)
+  let tx_bytes = <<
+    transaction_version_1_bytes:bits,
+    compact_size(2):bits,
+    input0:bits,
+    input1:bits,
+    compact_size(2):bits,
+    output0:bits,
+    output1:bits,
+    0x090A0B0C:32-little,
+  >>
+
+  let assert Ok(tx) = transaction.deserialize(tx_bytes)
+
+  assert transaction.serialize_stripped(tx) == tx_bytes
+}
+
 pub fn serialize_and_hashing_accept_context_free_invalid_segwit_tx_test() {
   let input = build_input_bytes(repeat_byte(1, 32), 0, <<>>, 0xFFFFFFFF)
   let witness_item = <<0x42>>

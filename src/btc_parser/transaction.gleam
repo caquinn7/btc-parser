@@ -2569,14 +2569,72 @@ pub fn serialize_stripped(tx: Transaction(state)) -> BitArray {
   let assert Ok(input_count) = uint64.from_int(tx.input_count)
   let assert Ok(output_count) = uint64.from_int(tx.output_count)
 
-  <<
-    tx.version:32-little,
-    compact_size.encode(input_count):bits,
-    serialize_inputs(tx.inputs):bits,
-    compact_size.encode(output_count):bits,
-    serialize_outputs(tx.outputs):bits,
-    tx.lock_time:32-little,
-  >>
+  let parts = [<<tx.lock_time:32-little>>]
+  let parts = collect_output_parts(list.reverse(tx.outputs), parts)
+  let parts = [compact_size.encode(output_count), ..parts]
+  let parts = collect_input_parts(list.reverse(tx.inputs), parts)
+  let parts = [compact_size.encode(input_count), ..parts]
+  let parts = [<<tx.version:32-little>>, ..parts]
+
+  bit_array.concat(parts)
+}
+
+/// Prepend each input's wire fields to a serialization-parts suffix.
+///
+/// The inputs must be supplied in reverse wire order so this loop remains
+/// tail-recursive while producing parts in wire order.
+fn collect_input_parts(
+  reversed_inputs: List(Input),
+  parts: List(BitArray),
+) -> List(BitArray) {
+  case reversed_inputs {
+    [] -> parts
+    [input, ..rest] -> {
+      let script_sig_bytes = get_raw_script_bytes(input.script_sig)
+      let assert Ok(script_sig_length) =
+        script_sig_bytes
+        |> bit_array.byte_size
+        |> uint64.from_int
+
+      let parts = [
+        get_outpoint_txid(input.outpoint),
+        <<get_outpoint_vout(input.outpoint):32-little>>,
+        compact_size.encode(script_sig_length),
+        script_sig_bytes,
+        <<input.sequence:32-little>>,
+        ..parts
+      ]
+      collect_input_parts(rest, parts)
+    }
+  }
+}
+
+/// Prepend each output's wire fields to a serialization-parts suffix.
+///
+/// The outputs must be supplied in reverse wire order.
+fn collect_output_parts(
+  reversed_outputs: List(Output),
+  parts: List(BitArray),
+) -> List(BitArray) {
+  case reversed_outputs {
+    [] -> parts
+    [output, ..rest] -> {
+      let assert Ok(satoshis_bytes) = int64.int_to_bytes_le(output.value)
+      let script_pubkey_bytes = get_raw_script_bytes(output.script_pubkey)
+      let assert Ok(script_pubkey_length) =
+        script_pubkey_bytes
+        |> bit_array.byte_size
+        |> uint64.from_int
+
+      let parts = [
+        satoshis_bytes,
+        compact_size.encode(script_pubkey_length),
+        script_pubkey_bytes,
+        ..parts
+      ]
+      collect_output_parts(rest, parts)
+    }
+  }
 }
 
 /// Serialize a transaction in its full wire form, including witness data.
