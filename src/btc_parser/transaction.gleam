@@ -2611,12 +2611,11 @@ fn collect_output_parts(
   case reversed_outputs {
     [] -> parts
     [output, ..rest] -> {
-      let assert Ok(satoshis_bytes) = int64.int_to_bytes_le(output.value)
       let script_pubkey_bytes = get_raw_script_bytes(output.script_pubkey)
       let script_pubkey_length = bit_array.byte_size(script_pubkey_bytes)
 
       let parts = [
-        satoshis_bytes,
+        <<output.value:64-little>>,
         compact_size.encode_int(script_pubkey_length),
         script_pubkey_bytes,
         ..parts

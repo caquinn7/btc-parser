@@ -2,6 +2,7 @@ import btc_parser/transaction.{NoOutputs}
 import gleam/bit_array
 import gleam/crypto.{Sha256}
 import support/bitcoin_wire.{compact_size}
+import support/target
 import support/transaction_wire.{
   assemble_segwit_transaction_bytes, build_input_bytes,
   build_minimal_legacy_transaction_bytes, build_output_bytes, repeat_byte,
@@ -78,6 +79,56 @@ pub fn serialize_stripped_preserves_input_and_output_order_test() {
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
 
   assert transaction.serialize_stripped(tx) == tx_bytes
+}
+
+pub fn serialize_stripped_preserves_signed_and_large_output_values_test() {
+  let input = build_input_bytes(repeat_byte(0x11, 32), 1, <<>>, 0xFFFFFFFF)
+  let negative_output =
+    build_output_bytes(<<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>, <<>>)
+  let max_money_output =
+    build_output_bytes(<<0x00, 0x40, 0x07, 0x5A, 0xF0, 0x75, 0x07, 0x00>>, <<>>)
+  let tx_bytes = <<
+    transaction_version_1_bytes:bits,
+    compact_size(1):bits,
+    input:bits,
+    compact_size(2):bits,
+    negative_output:bits,
+    max_money_output:bits,
+    0:32-little,
+  >>
+
+  let assert Ok(tx) = transaction.deserialize(tx_bytes)
+
+  assert transaction.serialize_stripped(tx) == tx_bytes
+}
+
+pub fn serialize_stripped_preserves_i64_boundary_output_values_on_erlang_test() {
+  case target.is_javascript() {
+    True -> Nil
+    False -> {
+      let input = build_input_bytes(repeat_byte(0x11, 32), 1, <<>>, 0xFFFFFFFF)
+      let min_i64_output =
+        build_output_bytes(<<0, 0, 0, 0, 0, 0, 0, 0x80>>, <<>>)
+      let max_i64_output =
+        build_output_bytes(
+          <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F>>,
+          <<>>,
+        )
+      let tx_bytes = <<
+        transaction_version_1_bytes:bits,
+        compact_size(1):bits,
+        input:bits,
+        compact_size(2):bits,
+        min_i64_output:bits,
+        max_i64_output:bits,
+        0:32-little,
+      >>
+
+      let assert Ok(tx) = transaction.deserialize(tx_bytes)
+
+      assert transaction.serialize_stripped(tx) == tx_bytes
+    }
+  }
 }
 
 pub fn serialize_and_hashing_accept_context_free_invalid_segwit_tx_test() {
