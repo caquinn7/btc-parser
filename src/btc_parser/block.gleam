@@ -1318,10 +1318,6 @@ pub fn compute_block_hash(block: Block(state)) -> BitArray {
 ///
 /// - `serialize_header` — serializes only the fixed-size block header
 pub fn serialize(block: Block(state)) -> BitArray {
-  // safe: tx count is a non-negative Int parsed from the wire,
-  // so it fits within Uint64 (and within JS safe integer bounds)
-  let assert Ok(tx_count) = uint64.from_int(block.transaction_count)
-
   let tx_list_bytes =
     block.transactions
     |> list.map(transaction.serialize)
@@ -1329,7 +1325,7 @@ pub fn serialize(block: Block(state)) -> BitArray {
 
   <<
     serialize_header(block.header):bits,
-    compact_size.encode(tx_count):bits,
+    compact_size.encode_int(block.transaction_count):bits,
     tx_list_bytes:bits,
   >>
 }

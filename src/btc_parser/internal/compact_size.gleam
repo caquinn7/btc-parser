@@ -125,6 +125,28 @@ pub fn encode(value: Uint64) -> BitArray {
   }
 }
 
+/// Encode a non-negative `Int` as a CompactSize byte array.
+///
+/// This avoids converting target-safe counts and byte lengths to a byte-backed
+/// `Uint64` before encoding the common one-, three-, and five-byte forms.
+/// Values in the nine-byte range still use `Uint64` to preserve exact encoding
+/// and enforce the unsigned 64-bit bound.
+///
+/// Callers must provide a non-negative `Int` representable as a `Uint64` and,
+/// on JavaScript, within the safe integer range. PANICS otherwise.
+pub fn encode_int(value: Int) -> BitArray {
+  case value {
+    _ if value < 0 -> panic as "cannot CompactSize encode a negative Int"
+    _ if value <= 252 -> <<value:8>>
+    _ if value <= 65_535 -> <<0xFD, value:16-little>>
+    _ if value <= 4_294_967_295 -> <<0xFE, value:32-little>>
+    _ -> {
+      let assert Ok(value) = uint64.from_int(value)
+      <<0xFF, uint64.to_bytes_le(value):bits>>
+    }
+  }
+}
+
 /// Return the size in bytes of a value's canonical CompactSize encoding.
 ///
 /// The result is always 1, 3, 5, or 9. This helper determines the size without

@@ -254,6 +254,26 @@ pub fn encode_max_ff_value_test() {
 }
 
 // ===============================
+// Encode Int
+// ===============================
+
+pub fn encode_int_covers_compact_size_boundaries_test() {
+  assert compact_size.encode_int(0) == <<0>>
+  assert compact_size.encode_int(252) == <<0xFC>>
+  assert compact_size.encode_int(253) == <<0xFD, 0xFD, 0>>
+  assert compact_size.encode_int(65_535) == <<0xFD, 0xFF, 0xFF>>
+  assert compact_size.encode_int(65_536) == <<0xFE, 0, 0, 1, 0>>
+  assert compact_size.encode_int(4_294_967_295)
+    == <<0xFE, 0xFF, 0xFF, 0xFF, 0xFF>>
+  assert compact_size.encode_int(4_294_967_296)
+    == <<0xFF, 0, 0, 0, 0, 1, 0, 0, 0>>
+}
+
+pub fn encode_int_panics_for_negative_value_test() {
+  let assert Error(_) = exception.rescue(fn() { compact_size.encode_int(-1) })
+}
+
+// ===============================
 // Encoded size
 // ===============================
 
