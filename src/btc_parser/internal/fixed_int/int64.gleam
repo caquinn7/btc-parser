@@ -1,6 +1,5 @@
 import gleam/bit_array
 import gleam/int
-import gleam/result
 
 /// A signed 64-bit integer stored as 8 little-endian bytes.
 ///
@@ -55,13 +54,6 @@ pub fn from_bytes_le(bytes: BitArray) -> Result(Int64, FromBytesError) {
   }
 }
 
-/// Returns the raw little-endian byte representation of the value.
-///
-/// The returned `BitArray` is always exactly 8 bytes long.
-pub fn to_bytes_le(i: Int64) -> BitArray {
-  i.bytes_le
-}
-
 /// Attempts to convert the value to an `Int`.
 ///
 /// **Target-specific behavior:**
@@ -83,81 +75,6 @@ fn do_to_int(bytes_le: BitArray) -> Result(Int, Nil) {
   |> Ok
 }
 
-///An error that occurred while constructing an `Int64` from an `Int`.
-pub type FromIntError {
-  /// The value is outside JavaScript's safe integer range.
-  UnsafeInteger
-  /// The value is less than the minimum signed 64-bit integer.
-  BelowMinInt64
-  /// The value is greater than the maximum signed 64-bit integer.
-  ExceedsInt64
-}
-
-/// Constructs an `Int64` from a Gleam `Int`.
-///
-/// **Target-specific behavior:**
-/// - **Erlang**: Returns `Error(ExceedsInt64)` for values greater than
-///   2^63 - 1 and `Error(BelowMinInt64)` for values less than -2^63.
-/// - **JavaScript**: Returns `Error(UnsafeInteger)` for values outside the safe
-///   integer range [-(2^53 - 1), 2^53 - 1], which prevents encoding values
-///   that may have already lost precision.
-///
-/// ## Examples
-///
-/// ```gleam
-/// from_int(42)
-/// // -> Ok(Int64) representing 42
-///
-/// from_int(-1)
-/// // -> Ok(Int64) representing -1
-///
-/// // On Erlang:
-/// from_int(9_223_372_036_854_775_808)  // 2^63, exceeds max
-/// // -> Error(ExceedsInt64)
-///
-/// from_int(-9_223_372_036_854_775_809)  // less than -2^63
-/// // -> Error(BelowMinInt64)
-///
-/// // On JavaScript:
-/// from_int(9_007_199_254_740_992)  // 2^53, exceeds safe range
-/// // -> Error(UnsafeInteger)
-/// ```
-pub fn from_int(i: Int) -> Result(Int64, FromIntError) {
-  i
-  |> do_from_int
-  |> result.map(fn(bytes) {
-    let assert Ok(i64) = from_bytes_le(bytes)
-    i64
-  })
-  |> result.map_error(fn(_) {
-    case running_on_javascript() {
-      True -> UnsafeInteger
-      // `do_from_int` has already established that this exact Erlang integer is
-      // outside the signed 64-bit range, so its sign identifies the failed bound.
-      False ->
-        case i < 0 {
-          True -> BelowMinInt64
-          False -> ExceedsInt64
-        }
-    }
-  })
-}
-
-@external(javascript, "./fixed_int_ffi.mjs", "runningOnJavaScript")
-fn running_on_javascript() -> Bool {
-  False
-}
-
-@external(javascript, "./fixed_int_ffi.mjs", "int64FromInt")
-fn do_from_int(i: Int) -> Result(BitArray, Nil) {
-  // On Erlang, integers are arbitrary precision, so we must check bounds.
-  // The valid range for signed 64-bit is [-2^63, 2^63 - 1].
-  case -9_223_372_036_854_775_808 <= i && i <= 9_223_372_036_854_775_807 {
-    True -> Ok(<<i:64-little>>)
-    False -> Error(Nil)
-  }
-}
-
 /// Converts the value to its base-10 string representation.
 ///
 /// This function always succeeds and preserves the full numeric value on all
@@ -173,34 +90,6 @@ fn do_to_string(bytes_le: BitArray) -> String {
   bytes_le
   |> decode_int64_le
   |> int.to_string
-}
-
-/// Converts a Gleam `Int` directly to its little-endian byte representation.
-///
-/// This is a convenience wrapper around `from_int` and `to_bytes_le`.
-/// The returned `BitArray` is always exactly 8 bytes long.
-///
-/// Returns the same errors as `from_int`:
-/// - **Erlang**: `ExceedsInt64` above 2^63 - 1 and `BelowMinInt64` below -2^63.
-/// - **JavaScript**: `UnsafeInteger` outside the safe integer range
-///   [-(2^53 - 1), 2^53 - 1].
-///
-/// ## Examples
-///
-/// ```gleam
-/// int_to_bytes_le(1)
-/// // -> Ok(<<1, 0, 0, 0, 0, 0, 0, 0>>)
-///
-/// int_to_bytes_le(-1)
-/// // -> Ok(<<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>)
-///
-/// int_to_bytes_le(9_223_372_036_854_775_808)  // 2^63, exceeds max on Erlang
-/// // -> Error(ExceedsInt64)
-/// ```
-pub fn int_to_bytes_le(i: Int) -> Result(BitArray, FromIntError) {
-  i
-  |> from_int
-  |> result.map(to_bytes_le)
 }
 
 fn decode_int64_le(bytes_le: BitArray) -> Int {

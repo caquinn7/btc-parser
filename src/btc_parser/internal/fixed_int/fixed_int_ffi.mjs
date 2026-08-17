@@ -120,30 +120,3 @@ export function uint64FromInt(i) {
 export function runningOnJavaScript() {
   return true;
 }
-
-export function int64FromInt(i) {
-  if (typeof i !== 'number' || !Number.isInteger(i)) {
-    throw new Error("Expected an integer");
-  }
-
-  // Unsafe integers may already be rounded by the time they reach this
-  // function, so Gleam maps this generic failure to UnsafeInteger.
-  if (i < Number.MIN_SAFE_INTEGER || i > Number.MAX_SAFE_INTEGER) {
-    return Result$Error(undefined);
-  }
-
-  const x = BigInt(i);
-
-  // Encode negative values using 64-bit two's complement.
-  let u = x;
-  if (u < 0n) {
-    u = (1n << 64n) + u;  // Two's complement for negative values
-  }
-
-  const u8 = new Uint8Array(8);
-  for (let k = 0; k < 8; k++) {
-    u8[k] = Number((u >> (8n * BigInt(k))) & 0xffn);
-  }
-
-  return Result$Ok(new BitArray(u8));
-}
