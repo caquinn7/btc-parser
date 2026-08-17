@@ -37,15 +37,6 @@ pub fn from_bytes_le_returns_ok_when_input_is_8_bytes_test() {
   let assert Ok(_) = int64.from_bytes_le(shared_inputs.one_bytes)
 }
 
-// to_bytes_le
-
-pub fn to_bytes_le_returns_bytes_test() {
-  let bytes = shared_inputs.one_bytes
-  let assert Ok(x) = int64.from_bytes_le(bytes)
-
-  assert int64.to_bytes_le(x) == bytes
-}
-
 // to_int
 
 pub fn to_int_max_i64_test() {

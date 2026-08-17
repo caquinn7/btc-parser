@@ -54,13 +54,6 @@ pub fn from_bytes_le(bytes: BitArray) -> Result(Int64, FromBytesError) {
   }
 }
 
-/// Returns the raw little-endian byte representation of the value.
-///
-/// The returned `BitArray` is always exactly 8 bytes long.
-pub fn to_bytes_le(i: Int64) -> BitArray {
-  i.bytes_le
-}
-
 /// Attempts to convert the value to an `Int`.
 ///
 /// **Target-specific behavior:**
@@ -80,16 +73,6 @@ fn do_to_int(bytes_le: BitArray) -> Result(Int, Nil) {
   bytes_le
   |> decode_int64_le
   |> Ok
-}
-
-///An error that occurred while constructing an `Int64` from an `Int`.
-pub type FromIntError {
-  /// The value is outside JavaScript's safe integer range.
-  UnsafeInteger
-  /// The value is less than the minimum signed 64-bit integer.
-  BelowMinInt64
-  /// The value is greater than the maximum signed 64-bit integer.
-  ExceedsInt64
 }
 
 /// Converts the value to its base-10 string representation.
