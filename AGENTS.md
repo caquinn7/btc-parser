@@ -266,6 +266,21 @@ file/timer/CLI behavior, or a runtime-specific bug.
   witness stacks, and cumulative witness payload limits.
 - Avoid conversions that lose precision on JavaScript. Keep 64-bit and 256-bit
   values as byte-backed wrappers until a safe conversion is proven.
+- Treat immutable `BitArray` construction as a whole-value cost. In serialization
+  hot paths, avoid helpers that materialize complete sections which an outer
+  caller immediately concatenates. Accumulate raw bytes and small encoded
+  fragments in wire order and perform one final `bit_array.concat`.
+- Review binary hot paths for copy and allocation amplification as well as
+  asymptotic complexity. Several linear passes over the same payload can still
+  dominate runtime and garbage-collection behavior on Erlang and JavaScript.
+- Preserve byte-backed fixed-width wrappers when exactness requires them, but do
+  not round-trip a target-safe `Int` through `Uint64` or `Int64` merely to
+  serialize it. Once bounds and target safety are proven, encode the final wire
+  bytes directly.
+- For fragment collectors, reverse each source list once and prepend fields to a
+  suffix so recursion remains tail-recursive while the final fragment list stays
+  in wire order. Apply the same pattern at each level of nested structures such
+  as witness stacks and items.
 - Avoid quadratic (O(n^2)) list or `BitArray` work in parser hot paths.
   Accumulate lists in reverse and reverse once, as the parser helpers do.
 - Keep recursive parser loops syntactically tail-recursive. Do not place the
