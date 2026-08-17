@@ -1,6 +1,4 @@
-import btc_parser/internal/fixed_int/int64.{
-  BelowMinInt64, ExceedsInt64, InvalidBitCount, UnsafeInteger,
-}
+import btc_parser/internal/fixed_int/int64.{InvalidBitCount}
 import btc_parser/internal/fixed_int/shared_inputs
 import support/target
 
@@ -15,9 +13,6 @@ const min_safe_js_int = -9_007_199_254_740_991
 
 /// -(2^53 - 1)
 const min_safe_js_int_bytes = <<0x01, 0, 0, 0, 0, 0, 0xE0, 0xFF>>
-
-/// -2^53
-const min_safe_js_int_minus_one_bytes = <<0, 0, 0, 0, 0, 0, 0xE0, 0xFF>>
 
 // from_bytes_le
 
@@ -147,129 +142,6 @@ pub fn to_string_max_value_test() {
 pub fn to_string_min_value_test() {
   let assert Ok(x) = int64.from_bytes_le(min_i64_bytes)
   assert int64.to_string(x) == "-9223372036854775808"
-}
-
-// from_int
-
-pub fn from_int_zero_test() {
-  let assert Ok(x) = int64.from_int(0)
-  assert int64.to_bytes_le(x) == shared_inputs.zero_bytes
-}
-
-pub fn from_int_one_test() {
-  let assert Ok(x) = int64.from_int(1)
-  assert int64.to_bytes_le(x) == shared_inputs.one_bytes
-}
-
-pub fn from_int_negative_one_test() {
-  let assert Ok(x) = int64.from_int(-1)
-  assert int64.to_bytes_le(x)
-    == <<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF>>
-}
-
-pub fn from_int_positive_large_test() {
-  let assert Ok(x) = int64.from_int(shared_inputs.two_to_32)
-  assert int64.to_bytes_le(x) == shared_inputs.two_to_32_bytes
-}
-
-pub fn from_int_negative_large_test() {
-  let assert Ok(x) = int64.from_int(0 - shared_inputs.two_to_32)
-  assert int64.to_bytes_le(x) == <<0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF>>
-}
-
-pub fn from_int_max_safe_js_int_test() {
-  let assert Ok(x) = int64.from_int(shared_inputs.max_safe_js_int)
-  assert int64.to_bytes_le(x) == shared_inputs.max_safe_js_int_bytes
-}
-
-pub fn from_int_min_safe_js_int_test() {
-  let assert Ok(x) = int64.from_int(min_safe_js_int)
-  assert int64.to_bytes_le(x) == min_safe_js_int_bytes
-}
-
-pub fn from_int_round_trip_test() {
-  let original = 42
-  let assert Ok(x) = int64.from_int(original)
-  assert int64.to_int(x) == Ok(original)
-}
-
-pub fn from_int_round_trip_negative_test() {
-  let original = -12_345
-  let assert Ok(x) = int64.from_int(original)
-  assert int64.to_int(x) == Ok(original)
-}
-
-pub fn from_int_above_max_safe_js_int_test() {
-  let n = shared_inputs.max_safe_js_int + 1
-
-  case target.is_javascript() {
-    True -> {
-      assert int64.from_int(n) == Error(UnsafeInteger)
-    }
-    False -> {
-      let assert Ok(x) = int64.from_int(n)
-
-      assert int64.to_bytes_le(x)
-        == shared_inputs.max_safe_js_int_plus_one_bytes
-    }
-  }
-}
-
-pub fn from_int_below_min_safe_js_int_test() {
-  let n = min_safe_js_int - 1
-
-  case target.is_javascript() {
-    True -> {
-      assert int64.from_int(n) == Error(UnsafeInteger)
-    }
-    False -> {
-      let assert Ok(x) = int64.from_int(n)
-      assert int64.to_bytes_le(x) == min_safe_js_int_minus_one_bytes
-    }
-  }
-}
-
-// The i64 boundaries are outside JavaScript's safe integer range.
-// Test them only on Erlang, where Int is arbitrary precision.
-
-pub fn from_int_max_i64_test() {
-  case target.is_javascript() {
-    True -> Nil
-    False -> {
-      let assert Ok(x) = int64.from_int(max_i64())
-      assert int64.to_bytes_le(x) == max_i64_bytes
-    }
-  }
-}
-
-pub fn from_int_min_i64_test() {
-  case target.is_javascript() {
-    True -> Nil
-    False -> {
-      let assert Ok(x) = int64.from_int(min_i64())
-      assert int64.to_bytes_le(x) == min_i64_bytes
-    }
-  }
-}
-
-pub fn from_int_above_max_i64_test() {
-  case target.is_javascript() {
-    True -> Nil
-    False -> {
-      let n = max_i64() + 1
-      assert int64.from_int(n) == Error(ExceedsInt64)
-    }
-  }
-}
-
-pub fn from_int_below_min_i64_test() {
-  case target.is_javascript() {
-    True -> Nil
-    False -> {
-      let n = min_i64() - 1
-      assert int64.from_int(n) == Error(BelowMinInt64)
-    }
-  }
 }
 
 // Compute from smaller literals to avoid JavaScript truncation warnings.

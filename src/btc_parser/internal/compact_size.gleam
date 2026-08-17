@@ -105,26 +105,6 @@ fn read_from(
   |> result.map_error(ReaderError)
 }
 
-/// Encode an unsigned 64-bit integer as a CompactSize byte array.
-///
-/// This helper matches the Bitcoin CompactSize encoding rules:
-/// - 0-252: single byte
-/// - 253-65535: 0xFD followed by 2 bytes (little-endian)
-/// - 65536-4294967295: 0xFE followed by 4 bytes (little-endian)
-/// - 4294967296+: 0xFF followed by 8 bytes (little-endian)
-pub fn encode(value: Uint64) -> BitArray {
-  case uint64.to_int(value) {
-    Ok(v) if v <= 252 -> <<v:8>>
-    Ok(v) if v <= 65_535 -> <<0xFD, v:16-little>>
-    Ok(v) if v <= 4_294_967_295 -> <<0xFE, v:32-little>>
-    Ok(_) | Error(Nil) -> {
-      // Value is > 4_294_967_295 or too large for Int on JS target
-      let bytes = uint64.to_bytes_le(value)
-      <<0xFF, bytes:bits>>
-    }
-  }
-}
-
 /// Encode a non-negative `Int` as a CompactSize byte array.
 ///
 /// This avoids converting target-safe counts and byte lengths to a byte-backed
