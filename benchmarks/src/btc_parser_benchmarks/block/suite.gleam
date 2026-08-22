@@ -30,17 +30,7 @@ import gleam/list
 import gleam/string
 import simplifile
 
-const mainnet_898064_transaction_count = 2450
-
-const mainnet_898064_legacy_transaction_count = 218
-
-const mainnet_898064_segwit_transaction_count = 2232
-
 const mainnet_898064_total_size = 1_576_176
-
-const mainnet_898064_base_size = 805_947
-
-const mainnet_898064_weight = 3_994_017
 
 const mainnet_898064_label = "mainnet block=898064 transactions=2450 base_size=805947"
 
@@ -332,18 +322,17 @@ fn mainnet_898064_block_bytes() -> BitArray {
 fn mainnet_898064_parsed_block(block_bytes: BitArray) -> Block(Parsed) {
   let assert Ok(parsed_block) = block.deserialize(block_bytes)
 
-  assert block.get_transaction_count(parsed_block)
-    == mainnet_898064_transaction_count
-  assert block.compute_base_size(parsed_block) == mainnet_898064_base_size
+  assert block.get_transaction_count(parsed_block) == 2450
+  assert block.compute_base_size(parsed_block) == 805_947
   assert block.compute_total_size(parsed_block) == mainnet_898064_total_size
-  assert block.compute_weight(parsed_block) == mainnet_898064_weight
+  assert block.compute_weight(parsed_block) == 3_994_017
   assert block.serialize(parsed_block) == block_bytes
 
   let transactions = block.get_transactions(parsed_block)
   let #(legacy_count, segwit_count) = count_transaction_encodings(transactions)
 
-  assert legacy_count == mainnet_898064_legacy_transaction_count
-  assert segwit_count == mainnet_898064_segwit_transaction_count
+  assert legacy_count == 218
+  assert segwit_count == 2232
 
   let #(computed_root, mutated) = block.compute_merkle_root(parsed_block)
   let header_root =
