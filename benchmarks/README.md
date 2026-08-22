@@ -125,7 +125,118 @@ Run it on a specific JavaScript runtime:
 The command exits with a nonzero status when its arguments are invalid or a
 requested report cannot be written.
 
-## Deserialize
+## Comparing Two Worktrees
+
+`benchmarks/scripts/compare.py` runs the current checkout's benchmark harness
+against two caller-managed library worktrees. It requires Python 3.9 or newer
+and uses only the Python standard library. The target's Gleam toolchain and, for
+JavaScript, the selected runtime must also be available.
+
+Create or select two existing Git worktrees before running a comparison. For
+example, keep the candidate in the current checkout and add a baseline beside
+it:
+
+```sh
+git worktree add ../btc-parser-baseline main
+
+python3 benchmarks/scripts/compare.py \
+  --baseline ../btc-parser-baseline \
+  --candidate . \
+  --section block.compute-merkle-root \
+  --target erlang \
+  --trials-per-variant 4
+```
+
+Both paths must be Git worktree roots whose `gleam.toml` declares the
+`btc_parser` package. They may be clean or dirty, and the runner never modifies
+them. It records each worktree's path, commit, branch or detached state, and
+porcelain status in the report. A dirty worktree is useful while developing,
+but its results are not completely reproducible from the recorded commit.
+
+At least one repeatable `--section` selector is required unless
+`--all-sections` is supplied. The selector rules are the same as for
+`./benchmarks/run`. Erlang is the default target. JavaScript defaults to Node;
+`--runtime` is valid only with the JavaScript target. Select another installed
+JavaScript runtime explicitly when needed:
+
+```sh
+python3 benchmarks/scripts/compare.py \
+  --baseline ../btc-parser-baseline \
+  --candidate . \
+  --section transaction.deserialize \
+  --section transaction.serialize.fixtures \
+  --target javascript \
+  --runtime deno
+```
+
+The default is four trials for each variant: four baseline runs and four
+candidate runs, for eight numbered runs total. Consequently,
+`--trials-per-variant 8` produces sixteen numbered runs. An explicit per-variant
+trial count must be a positive multiple of four so the runner can repeat its
+balanced `ABBA`, `BAAB` schedule. Every trial uses a fresh process, and adjacent
+opposite-variant runs form one paired round. Dependencies are resolved and each
+variant is built before measurement; dependency, build, and trial subprocesses
+each have a fixed 1,800-second timeout.
+
+The runner snapshots the invoking checkout's benchmark manifest, sources, and
+fixtures into two temporary wrappers, then points one copy at each library
+worktree. This ensures both variants use the same harness and `(section, case)`
+identities. Compiler checks and process startup happen outside the harness's
+internal timings. The temporary wrappers are removed even when the comparison
+fails or is interrupted.
+
+Results are stored under a timestamped directory in `benchmarks/results/` by
+default. Use `--results-root` to choose another root; an explicit relative path
+is resolved from the directory where the command was invoked. A successful run
+contains:
+
+```text
+<results-root>/<utc-timestamp>/
+  runs/
+    setup-baseline-dependencies.log
+    setup-baseline-build.log
+    setup-candidate-dependencies.log
+    setup-candidate-build.log
+    001-baseline.csv
+    001-baseline.log
+    002-candidate.csv
+    ...
+  comparison.csv
+  report.md
+```
+
+Each numbered log contains its trial process's standard output and error; the
+four `setup-*.log` files capture dependency and build subprocesses. If setup or
+a trial fails, the result directory and completed artifacts are retained and
+`failure.txt` records the reason. `report.md` includes the exact command,
+UTC timestamp, target and runtime, selected sections, harness commit, both
+worktree states, and the executed schedule.
+
+The main comparison for each row is the median paired ratio:
+
+```text
+paired ratio = candidate us/op / baseline us/op
+percentage change = (median paired ratio - 1) * 100
+```
+
+A ratio below `1.0` and a negative percentage mean the candidate was faster; a
+ratio above `1.0` and a positive percentage mean it was slower. The report also
+shows independent median baseline and candidate latency for context. Before
+computing ratios, the runner requires identical case sets and matching target,
+runtime, operating system, architecture, input byte size, timing configuration,
+and operations per timed call across every trial.
+
+Treat the output as a focused local performance signal, not a statistical
+significance result. The runner compares aggregate harness rows, does not retain
+raw inner samples, and does not calculate confidence intervals, thresholds, or
+a combined score. Machine load, thermal state, target, and runtime can affect
+the ratios, so compare focused sections on the same otherwise-idle machine and
+repeat suspicious results. Only the selected sections are covered, and natural
+control rows receive no special interpretation.
+
+## Transaction
+
+### Deserialize
 
 `transaction.deserialize.fixtures` measures real transaction fixtures. These rows are smoke
 tests for common legacy, SegWit, and witness-heavy shapes that synthetic cases
@@ -164,14 +275,14 @@ late-failure paths and ensure truncation checks stay precise.
 payload work. This should remain cheap even when the serialized input includes
 large payload bytes.
 
-## Inspection
+### Inspection
 
 `transaction.inspection.coinbase-shape` measures `has_coinbase_shape` over
 context-free-validated transactions with many ordinary inputs. Deserialization
 and validation happen before timing begins, isolating the cost of the private
 coinbase-marker scan used by the public inspection helper.
 
-## Context-Free Consensus Validation
+### Context-Free Consensus Validation
 
 `transaction.validate-context-free-consensus.valid-inputs` measures successful
 context-free consensus validation as input count grows. It exercises the full
@@ -191,7 +302,7 @@ overflow late in the output list. This is meant to catch regressions in
 output-sum validation and to compare failure-path cost with the valid output
 curve.
 
-## Txid Computation
+### Txid Computation
 
 `transaction.txid-computation.fixtures` measures `compute_txid` and `compute_wtxid` on
 real parsed fixtures. These rows cover common real shapes and the witness-heavy
@@ -217,7 +328,7 @@ or hashing regressions driven by item count rather than payload size.
 witness payload bytes grow. This should scale with payload size because witness
 serialization and double-SHA256 must read those bytes.
 
-## Serialize
+### Serialize
 
 `transaction.serialize.fixtures` measures `serialize_stripped` and `serialize`
 on real parsed fixtures. These rows cover common real shapes and confirm the
@@ -245,6 +356,51 @@ are emitted into the serialized transaction.
 
 ## Block
 
+All block rows use a 250 ms warmup and a 1,000 ms measurement duration. The
+`bytes` value is always the complete serialized block size, including for
+base-size and weight rows. Fixture loading and hex decoding, synthetic
+transaction and deterministic-header construction, proof-of-work setup and
+mining, and correctness preflight all happen outside timed regions. Parsing is
+also outside timing for rows that take parsed blocks; deserialize rows time it
+as their named operation.
+
+Every fixture section uses mainnet block 898,064. Its 1,576,176-byte complete
+serialization contains 2,450 transactions—218 legacy and 2,232 SegWit—with a
+base size of 805,947 bytes and a weight of 3,994,017. Before timing, setup
+verifies those values, exact `block.serialize` round-trip bytes, the header
+Merkle root and non-mutated tree, and successful
+`block.validate_context_free_consensus` with the mainnet proof-of-work limit.
+
+### Deserialize
+
+`block.deserialize.fixtures` measures `block.deserialize` on the raw mainnet
+898,064 fixture bytes. Fixture decoding and preflight occur before timing; the
+row uses one operation per timed call.
+
+`block.deserialize.synthetic-transactions` measures `block.deserialize` as a
+structurally valid minimal-legacy block grows through `1`, `10`, `100`,
+and `1,000` transactions. Construction and count, serialization-round-trip,
+and legacy size/weight preflight occur before timing, so each timed operation
+deserializes only the complete block bytes. The points use `100`, `100`,
+`10`, and `1` operations per timed call respectively.
+
+### Size and Weight
+
+`block.size-and-weight.fixtures` measures `compute_base_size`,
+`compute_total_size`, and `compute_weight` as separate rows over parsed
+mainnet block 898,064. Parsing and fixture preflight occur before timing; each
+row uses 10 operations per timed call.
+
+`block.size-and-weight.synthetic-transactions` measures the same three
+operation labels as separate rows over prebuilt, parsed structurally valid
+minimal-legacy blocks with `1`, `10`, `100`, and `1,000` transactions.
+Preflight checks the transaction count, exact serialization round trip,
+`base_size == total_size`, and `weight == total_size * 4`; construction and
+parsing are untimed. The points use `1,000`, `1,000`, `100`, and `10`
+operations per timed call respectively.
+
+### Merkle Root
+
 `block.compute-merkle-root.fixtures` measures `block.compute_merkle_root` over
 mainnet block 898,064. Its 1,576,176-byte complete serialization contains 2,450
 transactions—218 legacy and 2,232 SegWit—and has a base size of 805,947 bytes.
@@ -254,20 +410,52 @@ transaction encoding counts, and non-mutated tree. The row uses one operation
 per timed call, with a 250 ms warmup and a 1,000 ms measurement duration.
 
 `block.compute-merkle-root.synthetic-transactions` measures
-`block.compute_merkle_root` over prebuilt, parsed blocks containing `1`, `100`,
-and `1,000` unique minimal legacy transactions. Transaction versions make the
-transactions unique, so the preflight mutation flag remains false. Block
-construction and deserialization occur before timing; each timed operation
-computes only the Merkle root. The curve uses `100`, `10`, and `1` operations per
-timed call respectively, with a 250 ms warmup and a 1,000 ms measurement
-duration.
+`block.compute_merkle_root` over prebuilt, parsed blocks containing `1`, `10`,
+`100`, and `1,000` unique minimal legacy transactions. Transaction versions
+make the transactions unique, so the preflight mutation flag remains false.
+Block construction and deserialization occur before timing; each timed operation
+computes only the Merkle root. The curve uses `100`, `100`, `10`, and `1`
+operations per timed call respectively, with a 250 ms warmup and a 1,000 ms
+measurement duration.
+
+### Context-Free Consensus Validation
+
+`block.validate-context-free-consensus.fixtures` measures successful
+`block.validate_context_free_consensus` for parsed mainnet block 898,064 using
+the mainnet proof-of-work limit. Fixture parsing and validation preflight occur
+before timing; the row uses one operation per timed call.
+
+`block.validate-context-free-consensus.synthetic-transactions` measures
+successful `block.validate_context_free_consensus` on deterministic
+regtest-target blocks with `1`, `10`, `100`, and `1,000` total
+transactions. Each block contains one valid coinbase followed by unique regular
+legacy transactions, so the count-one point is coinbase-only. Header
+construction and proof-of-work setup and mining, Merkle-root and non-mutation
+checks, proof-of-work verification, and successful validation are all
+preflight work. The points use `100`, `100`, `10`, and `1` operations per
+timed call respectively.
+
+### Serialize
+
+`block.serialize.fixtures` measures `block.serialize` over parsed mainnet
+block 898,064. Fixture parsing and exact serialization-round-trip preflight
+occur before timing; the row uses one operation per timed call.
+
+`block.serialize.synthetic-transactions` measures `block.serialize` over
+prebuilt, parsed structurally valid minimal-legacy blocks containing `1`,
+`10`, `100`, and `1,000` transactions. Construction, parsing,
+transaction-count checks, and exact round-trip preflight are untimed. The
+points use `100`, `100`, `10`, and `1` operations per timed call
+respectively.
 
 ## Reading Results
 
-The suite uses a lean set of scaling points by default. Count-based deserialization
-curves use `1`, `100`, and `1000`; other count-based transaction curves use
-`20`, `100`, and `1000`; the block Merkle-root curve uses `1`, `100`, and
-`1000`; witness payload curves use `64`, `10_000`, and `100_000` bytes.
+The suite uses a lean set of scaling points by default. Count-based transaction
+deserialization curves use `1`, `100`, and `1,000`; other count-based
+transaction curves use `20`, `100`, and `1,000`; every synthetic block
+transaction-count curve—deserialize, size-and-weight, Merkle-root, validation,
+and serialize—uses `1`, `10`, `100`, and `1,000`; witness payload curves
+use `64`, `10_000`, and `100_000` bytes.
 
 Table reports begin with metadata describing the target, runtime, operating
 system, and architecture used for the run:
@@ -296,8 +484,10 @@ The results table has these columns:
 - `us/op`: Estimated microseconds per logical operation.
 
 `ops/s` and `us/op` are normalized back to one logical operation, such as one
-`deserialize`, `validate_context_free_consensus`, `compute_txid`, or serialization
-call. That means rows with different `ops/call` values can still be compared.
+`deserialize`, `compute_base_size`, `compute_total_size`, `compute_weight`,
+`compute_merkle_root`, `validate_context_free_consensus`, `compute_txid`, or
+`serialize` call. That means rows with different `ops/call` values can still
+be compared.
 
 Table headings and CSV `section` values use canonical concrete leaf section IDs.
 Each is accepted as an exact `--section` selector; group selectors do not appear
