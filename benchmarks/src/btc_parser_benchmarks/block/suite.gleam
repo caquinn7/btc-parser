@@ -513,14 +513,22 @@ fn build_valid_minimal_coinbase_legacy_transaction() -> BitArray {
 }
 
 fn mine_regtest_header(merkle_root: BitArray, nonce: Int) -> BitArray {
-  let header = build_regtest_header(merkle_root, nonce)
-  let assert Ok(header_block) = block.deserialize(<<header:bits, 0>>)
-  let header_hash = block.compute_block_hash(header_block)
-  let assert <<_:bytes-size(31), most_significant_byte>> = header_hash
+  let max_block_header_nonce = 4_294_967_295
+  case nonce > max_block_header_nonce {
+    True ->
+      panic as "regtest proof-of-work search exhausted the 32-bit nonce range"
 
-  case most_significant_byte < 0x7F {
-    True -> header
-    False -> mine_regtest_header(merkle_root, nonce + 1)
+    False -> {
+      let header = build_regtest_header(merkle_root, nonce)
+      let assert Ok(header_block) = block.deserialize(<<header:bits, 0>>)
+      let header_hash = block.compute_block_hash(header_block)
+      let assert <<_:bytes-size(31), most_significant_byte>> = header_hash
+
+      case most_significant_byte < 0x7F {
+        True -> header
+        False -> mine_regtest_header(merkle_root, nonce + 1)
+      }
+    }
   }
 }
 
