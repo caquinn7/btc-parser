@@ -112,6 +112,10 @@ Use these terms consistently across the public API and internal implementation:
   benchmark coverage, and target/runtime guidance. Run the complete suite with
   `./benchmarks/run`; benchmark arguments follow `--`, as in
   `./benchmarks/run -- --section transaction.deserialize.fixtures`.
+- For before-and-after measurements, run `benchmarks/scripts/compare.py` with
+  two caller-managed Git worktrees and focused section selectors. It snapshots
+  the invoking checkout's harness for both variants, accepts dirty worktrees
+  while recording their state, and leaves both worktrees unchanged.
 
 Run unit tests on both Erlang and at least one JavaScript runtime for meaningful
 library code changes; the number of target-specific tests is small, but almost
@@ -257,6 +261,9 @@ file/timer/CLI behavior, or a runtime-specific bug.
   `./benchmarks/run -- --section block.compute-merkle-root`) to target a
   workload. Compare trends within the same machine, target, and runtime rather
   than treating absolute numbers as portable.
+- Use the comparison runner for measured regression claims. Interpret its
+  paired ratios as local evidence rather than significance tests or CI gates;
+  rerun suspicious results under the same machine, target, and runtime.
 
 ## Performance Considerations
 
