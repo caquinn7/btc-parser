@@ -1118,8 +1118,41 @@ fn validate_block_size_limits(
 ) -> Result(Nil, ConsensusViolation) {
   use _ <- result.try(validate_at_least_one_transaction(block))
   use _ <- result.try(validate_transaction_count(block))
-  use _ <- result.try(validate_base_size(block))
-  validate_weight(block)
+
+  let base_size = compute_base_size(block)
+  let max_block_base_size = max_block_weight / witness_scale_factor
+
+  use <- bool.guard(
+    base_size > max_block_base_size,
+    Error(BaseSizeLimitExceeded(base_size)),
+  )
+
+  let witness_serialized_size =
+    compute_txs_witness_serialized_size(block.transactions)
+
+  let weight = base_size * witness_scale_factor + witness_serialized_size
+  case weight > max_block_weight {
+    True -> Error(WeightLimitExceeded(weight))
+    False -> Ok(Nil)
+  }
+}
+
+fn compute_txs_witness_serialized_size(txs: List(Transaction(state))) -> Int {
+  compute_txs_witness_serialized_size_loop(txs, 0)
+}
+
+fn compute_txs_witness_serialized_size_loop(
+  txs: List(Transaction(state)),
+  acc: Int,
+) -> Int {
+  case txs {
+    [] -> acc
+    [tx, ..rest] ->
+      compute_txs_witness_serialized_size_loop(
+        rest,
+        acc + transaction.compute_witness_serialized_size(tx),
+      )
+  }
 }
 
 fn validate_at_least_one_transaction(
@@ -1140,26 +1173,6 @@ fn validate_transaction_count(
 ) -> Result(Nil, ConsensusViolation) {
   case block.transaction_count * witness_scale_factor > max_block_weight {
     True -> Error(ImpossiblyLargeTransactionCount)
-    False -> Ok(Nil)
-  }
-}
-
-/// Enforce the 1,000,000-byte consensus limit using `compute_base_size`.
-fn validate_base_size(block: Block(Parsed)) -> Result(Nil, ConsensusViolation) {
-  let base_size = compute_base_size(block)
-  let max_block_base_size = max_block_weight / witness_scale_factor
-
-  case base_size > max_block_base_size {
-    True -> Error(BaseSizeLimitExceeded(base_size))
-    False -> Ok(Nil)
-  }
-}
-
-/// Enforce the 4,000,000 weight-unit consensus limit using `compute_weight`.
-fn validate_weight(block: Block(Parsed)) -> Result(Nil, ConsensusViolation) {
-  let weight = compute_weight(block)
-  case weight > max_block_weight {
-    True -> Error(WeightLimitExceeded(weight))
     False -> Ok(Nil)
   }
 }
