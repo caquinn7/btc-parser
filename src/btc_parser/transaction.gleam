@@ -1718,8 +1718,8 @@ fn segwit_detection_parser() -> Parser(ParseContext, Bool, DecodeError) {
 /// `segwit_detection_parser` consumes the marker and flag bytes after this
 /// parser recognizes 0x00 0x01.
 fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
-  // Uses `parser.new` directly due to special peek semantics and EOF error recovery.
-  parser.new(fn(reader, ctx) {
+  // Constructs a parser directly due to special peek semantics and EOF error recovery.
+  fn(reader, ctx) {
     case reader.peek_bytes(reader, 2) {
       Ok(bytes) -> {
         let assert <<marker, flag>> = bytes
@@ -1745,7 +1745,7 @@ fn segwit_lookahead_parser() -> Parser(ParseContext, Bool, DecodeError) {
         Ok(#(reader, False))
       }
     }
-  })
+  }
 }
 
 /// Construct a parser that consumes the SegWit marker and flag bytes when run.

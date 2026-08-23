@@ -32,8 +32,9 @@ changes.
   context-free consensus validation using a caller-supplied proof-of-work limit.
 - `src/btc_parser/internal/reader.gleam` is the byte reader. It owns offset
   tracking and byte-aligned reads.
-- `src/btc_parser/internal/parser.gleam` is a small parser combinator layer
-  used to attach parse contexts and indexed locations to errors.
+- `src/btc_parser/internal/parser.gleam` is a function-backed parser combinator
+  layer used to thread readers and parse contexts and attach indexed locations
+  to errors.
 - `src/btc_parser/internal/decode.gleam` maps shared reader and CompactSize
   errors into domain-owned decode errors and converts exact unsigned 64-bit
   values to target-safe `Int`s.
@@ -290,6 +291,11 @@ file/timer/CLI behavior, or a runtime-specific bug.
   as witness stacks and items.
 - Avoid quadratic (O(n^2)) list or `BitArray` work in parser hot paths.
   Accumulate lists in reverse and reverse once, as the parser helpers do.
+- Keep the internal `Parser` representation as a direct function type alias.
+  Wrapping parser functions in a custom type adds allocation and unwrapping
+  without enforcing an additional validity invariant, and is particularly
+  expensive on JavaScript. Benchmark deserialization on both Erlang and Node
+  before changing this representation.
 - Keep recursive parser loops syntactically tail-recursive. Do not place the
   recursive call inside a `use` continuation, `result.try` callback, or other
   closure; the JavaScript backend cannot optimize hidden recursion and may

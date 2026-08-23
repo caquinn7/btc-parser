@@ -744,7 +744,7 @@ fn transaction_parser() -> Parser(
   Transaction(Parsed),
   DecodeError,
 ) {
-  parser.new(fn(reader, ctx) {
+  fn(reader, ctx) {
     let tx_policy = transaction.default_decode_policy()
     let tx_start_offset = reader.get_offset(reader)
 
@@ -781,7 +781,7 @@ fn transaction_parser() -> Parser(
     )
 
     Ok(#(reader, tx))
-  })
+  }
 }
 
 fn validate_parsed_transaction_count(
