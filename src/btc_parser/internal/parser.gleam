@@ -1,3 +1,16 @@
+//// Parser primitives for threading byte readers, contexts, values, and errors.
+////
+//// This module intentionally favors direct `case` expressions over more compact
+//// `use` chains with `result.try`. These functions are used in deserialization
+//// hot paths, where direct matching avoids callback and closure overhead and
+//// makes failure propagation explicit. The repeat loops also keep recursive
+//// calls syntactically in tail position; hiding recursion in a continuation can
+//// prevent the JavaScript backend from optimizing it and exhaust the stack on
+//// large policy-allowed inputs.
+////
+//// Preserve this control-flow shape unless an alternative is benchmarked on
+//// Erlang and JavaScript and tested for JavaScript stack safety at policy limits.
+
 import btc_parser/internal/reader.{type Reader}
 import gleam/list
 
