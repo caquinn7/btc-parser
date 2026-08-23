@@ -1,24 +1,17 @@
 import btc_parser/internal/reader.{type Reader}
 import gleam/list
 
-pub opaque type Parser(ctx, a, err) {
-  Parser(fn(Reader, List(ctx)) -> Result(#(Reader, a), err))
-}
+/// A composable parser over a byte `Reader`.
+///
+/// A parser receives the current reader and parse-context stack. On success it
+/// returns the advanced reader paired with the parsed value; on failure it
+/// returns the parser's error type.
+pub type Parser(ctx, value, error) =
+  fn(Reader, List(ctx)) -> Result(#(Reader, value), error)
 
 // ============================================================================
 // Core Construction & Execution
 // ============================================================================
-
-/// Create a parser from a function.
-///
-/// This is the low-level constructor used when you need full control over parsing
-/// logic. Most of the time you'll use higher-level combinators like `map`, `then`,
-/// or `try` instead.
-pub fn new(
-  f: fn(Reader, List(ctx)) -> Result(#(Reader, a), err),
-) -> Parser(ctx, a, err) {
-  Parser(f)
-}
 
 /// Create a parser from a reader function, mapping its low-level error.
 ///
@@ -28,14 +21,14 @@ pub fn from_reader(
   read: fn(Reader) -> Result(#(Reader, a), e),
   map_error: fn(e, Int, List(ctx)) -> err,
 ) -> Parser(ctx, a, err) {
-  Parser(fn(reader, ctx) {
+  fn(reader, ctx) {
     let start_offset = reader.get_offset(reader)
 
     case read(reader) {
       Ok(result) -> Ok(result)
       Error(error) -> Error(map_error(error, start_offset, ctx))
     }
-  })
+  }
 }
 
 /// Execute a parser and return its raw result.
@@ -43,41 +36,15 @@ pub fn from_reader(
 /// This is the primitive evaluator for `Parser`. It runs the parser with the given
 /// reader and context, returning the updated reader and parsed value, or an error.
 ///
-/// Prefer building parsers with combinators like `map`, `then`, and `try`.
+/// Prefer building parsers with combinators like `map` and `then`.
 /// Use `run` when you need to evaluate a parser immediately, such as at the
 /// top level or inside imperative control flow.
-/// 
-/// Use `run_then` to execute a parser and continue with its result.
 pub fn run(
   parser: Parser(ctx, a, err),
   reader: Reader,
   context: List(ctx),
 ) -> Result(#(Reader, a), err) {
-  let Parser(parse) = parser
-  parse(reader, context)
-}
-
-/// Execute a parser and continue with its result.
-///
-/// Runs the parser with the given reader and context, then passes the updated
-/// reader and parsed value to a continuation function.
-///
-/// This is useful when you need to sequence parsing steps imperatively while
-/// retaining access to intermediate results.
-/// 
-/// Use `run` instead if you only need the parser's raw result.
-pub fn run_then(
-  parser: Parser(ctx, a, err),
-  reader: Reader,
-  context: List(ctx),
-  next: fn(Reader, a) -> Result(b, err),
-) -> Result(b, err) {
-  let Parser(parse) = parser
-
-  case parse(reader, context) {
-    Ok(#(next_reader, value)) -> next(next_reader, value)
-    Error(error) -> Error(error)
-  }
+  parser(reader, context)
 }
 
 // ============================================================================
@@ -86,19 +53,17 @@ pub fn run_then(
 
 /// Lift a value into a parser without consuming input.
 pub fn return(value: a) -> Parser(ctx, a, err) {
-  Parser(fn(reader, _) { Ok(#(reader, value)) })
+  fn(reader, _) { Ok(#(reader, value)) }
 }
 
 /// Transform the successful result of a parser.
 pub fn map(parser: Parser(ctx, a, err), f: fn(a) -> b) -> Parser(ctx, b, err) {
-  let Parser(parse) = parser
-
-  Parser(fn(reader, ctx) {
-    case parse(reader, ctx) {
+  fn(reader, ctx) {
+    case parser(reader, ctx) {
       Ok(#(next_reader, value)) -> Ok(#(next_reader, f(value)))
       Error(error) -> Error(error)
     }
-  })
+  }
 }
 
 // ============================================================================
@@ -115,19 +80,16 @@ pub fn map2(
   parser2: Parser(ctx, b, err),
   f: fn(a, b) -> c,
 ) -> Parser(ctx, c, err) {
-  let Parser(parse1) = parser1
-  let Parser(parse2) = parser2
-
-  Parser(fn(reader, ctx) {
-    case parse1(reader, ctx) {
+  fn(reader, ctx) {
+    case parser1(reader, ctx) {
       Ok(#(next_reader, value1)) ->
-        case parse2(next_reader, ctx) {
+        case parser2(next_reader, ctx) {
           Ok(#(final_reader, value2)) -> Ok(#(final_reader, f(value1, value2)))
           Error(error) -> Error(error)
         }
       Error(error) -> Error(error)
     }
-  })
+  }
 }
 
 /// Combine three independent parsers and transform their results.
@@ -141,16 +103,12 @@ pub fn map3(
   parser3: Parser(ctx, c, err),
   f: fn(a, b, c) -> d,
 ) -> Parser(ctx, d, err) {
-  let Parser(parse1) = parser1
-  let Parser(parse2) = parser2
-  let Parser(parse3) = parser3
-
-  Parser(fn(reader, ctx) {
-    case parse1(reader, ctx) {
+  fn(reader, ctx) {
+    case parser1(reader, ctx) {
       Ok(#(reader_after_first, value1)) ->
-        case parse2(reader_after_first, ctx) {
+        case parser2(reader_after_first, ctx) {
           Ok(#(reader_after_second, value2)) ->
-            case parse3(reader_after_second, ctx) {
+            case parser3(reader_after_second, ctx) {
               Ok(#(final_reader, value3)) ->
                 Ok(#(final_reader, f(value1, value2, value3)))
               Error(error) -> Error(error)
@@ -159,7 +117,7 @@ pub fn map3(
         }
       Error(error) -> Error(error)
     }
-  })
+  }
 }
 
 // ============================================================================
@@ -174,44 +132,21 @@ pub fn map3(
 /// This is useful when you need to parse something based on a previously parsed value,
 /// such as reading a count then reading that many items.
 ///
-/// Use `try` instead if your transformation returns a `Result` rather than a `Parser`.
+/// For fallible transformations that need parser state, use `try_with_reader`
+/// or `try_with_start_offset`.
 pub fn then(
   parser: Parser(ctx, a, err),
   f: fn(a) -> Parser(ctx, b, err),
 ) -> Parser(ctx, b, err) {
-  let Parser(parse) = parser
-
-  Parser(fn(reader, ctx) {
-    case parse(reader, ctx) {
+  fn(reader, ctx) {
+    case parser(reader, ctx) {
       Ok(#(next_reader, value)) -> {
-        let Parser(next_parse) = f(value)
+        let next_parse = f(value)
         next_parse(next_reader, ctx)
       }
       Error(error) -> Error(error)
     }
-  })
-}
-
-/// Chain a parser with another parser selected from its value and end offset.
-///
-/// The continuation receives the parsed value and the offset after it was read.
-/// It runs with that same advanced reader and context. This avoids allocating a
-/// wrapper parser or an intermediate tuple when a caller needs an end offset.
-pub fn then_with_end_offset(
-  parser: Parser(ctx, a, err),
-  next: fn(a, Int) -> Parser(ctx, b, err),
-) -> Parser(ctx, b, err) {
-  let Parser(parse) = parser
-
-  Parser(fn(reader, ctx) {
-    case parse(reader, ctx) {
-      Ok(#(next_reader, value)) -> {
-        let Parser(next_parse) = next(value, reader.get_offset(next_reader))
-        next_parse(next_reader, ctx)
-      }
-      Error(error) -> Error(error)
-    }
-  })
+  }
 }
 
 /// Run two parsers in sequence, keeping only the first result.
@@ -222,58 +157,27 @@ pub fn keep_left(
   parser1: Parser(ctx, a, err),
   parser2: Parser(ctx, b, err),
 ) -> Parser(ctx, a, err) {
-  let Parser(parse1) = parser1
-  let Parser(parse2) = parser2
-
-  Parser(fn(reader, ctx) {
-    case parse1(reader, ctx) {
+  fn(reader, ctx) {
+    case parser1(reader, ctx) {
       Ok(#(reader_after_first, value)) ->
-        case parse2(reader_after_first, ctx) {
+        case parser2(reader_after_first, ctx) {
           Ok(#(final_reader, _)) -> Ok(#(final_reader, value))
           Error(error) -> Error(error)
         }
       Error(error) -> Error(error)
     }
-  })
+  }
 }
 
 // ============================================================================
 // Error Handling & Validation
 // ============================================================================
 
-/// Chain a parser with a fallible transformation.
-///
-/// This function takes a parser's successful result and applies a transformation
-/// that can fail (returns `Result`). If the transformation fails, the parser fails
-/// with the resulting error. If it succeeds, the parser continues with the new value.
-///
-/// This is useful for validation, type conversion, and other operations that depend
-/// on the parsed value and can produce errors with the same error type.
-///
-/// Use `then` instead if your transformation returns a `Parser` rather than a `Result`.
-pub fn try(
-  parser: Parser(ctx, a, err),
-  f: fn(a) -> Result(b, err),
-) -> Parser(ctx, b, err) {
-  let Parser(parse) = parser
-
-  Parser(fn(reader, ctx) {
-    case parse(reader, ctx) {
-      Ok(#(next_reader, value)) ->
-        case f(value) {
-          Ok(new_value) -> Ok(#(next_reader, new_value))
-          Error(error) -> Error(error)
-        }
-      Error(error) -> Error(error)
-    }
-  })
-}
-
 /// Chain a parser with a fallible transformation that needs reader context.
 ///
-/// Like `try`, but the transformation function receives the current reader state
-/// and context stack in addition to the parsed value. This is useful for validation
-/// that depends on:
+/// The transformation function receives the current reader state and context
+/// stack in addition to the parsed value. This is useful for validation that
+/// depends on:
 /// - Remaining bytes in the input
 /// - Position information for error reporting
 /// - Context stack for creating properly located errors
@@ -284,10 +188,8 @@ pub fn try_with_reader(
   parser: Parser(ctx, a, err),
   f: fn(a, Reader, List(ctx)) -> Result(b, err),
 ) -> Parser(ctx, b, err) {
-  let Parser(parse) = parser
-
-  Parser(fn(reader, ctx) {
-    case parse(reader, ctx) {
+  fn(reader, ctx) {
+    case parser(reader, ctx) {
       Ok(#(next_reader, value)) ->
         case f(value, next_reader, ctx) {
           Ok(new_value) -> Ok(#(next_reader, new_value))
@@ -295,7 +197,7 @@ pub fn try_with_reader(
         }
       Error(error) -> Error(error)
     }
-  })
+  }
 }
 
 /// Chain a parser with a fallible transformation that needs the start offset.
@@ -316,12 +218,10 @@ pub fn try_with_start_offset(
   parser: Parser(ctx, a, err),
   f: fn(a, Int, Reader, List(ctx)) -> Result(b, err),
 ) -> Parser(ctx, b, err) {
-  let Parser(parse) = parser
-
-  Parser(fn(reader, ctx) {
+  fn(reader, ctx) {
     let start_offset = reader.get_offset(reader)
 
-    case parse(reader, ctx) {
+    case parser(reader, ctx) {
       Ok(#(next_reader, value)) ->
         case f(value, start_offset, next_reader, ctx) {
           Ok(new_value) -> Ok(#(next_reader, new_value))
@@ -329,19 +229,19 @@ pub fn try_with_start_offset(
         }
       Error(error) -> Error(error)
     }
-  })
+  }
 }
 
 /// Require the parser to have consumed all input.
 pub fn end_of_input(
   make_error: fn(Int, Reader, List(ctx)) -> err,
 ) -> Parser(ctx, Nil, err) {
-  Parser(fn(reader, contexts) {
+  fn(reader, contexts) {
     case reader.bytes_remaining(reader) {
       0 -> Ok(#(reader, Nil))
       remaining_bytes -> Error(make_error(remaining_bytes, reader, contexts))
     }
-  })
+  }
 }
 
 // ============================================================================
@@ -361,8 +261,7 @@ pub fn with_context(
   parser: Parser(ctx, a, err),
   context: ctx,
 ) -> Parser(ctx, a, err) {
-  let Parser(parse) = parser
-  Parser(fn(reader, outer_ctx) { parse(reader, [context, ..outer_ctx]) })
+  fn(reader, outer_ctx) { parser(reader, [context, ..outer_ctx]) }
 }
 
 // ============================================================================
@@ -379,11 +278,17 @@ pub fn indexed_repeat(
   item_parser: Parser(ctx, a, err),
   index_to_context: fn(Int) -> ctx,
 ) -> Parser(ctx, List(a), err) {
-  let Parser(parse_item) = item_parser
-
-  Parser(fn(reader, ctx) {
-    indexed_repeat_loop(0, count, reader, [], ctx, parse_item, index_to_context)
-  })
+  fn(reader, ctx) {
+    indexed_repeat_loop(
+      0,
+      count,
+      reader,
+      [],
+      ctx,
+      item_parser,
+      index_to_context,
+    )
+  }
 }
 
 fn indexed_repeat_loop(
@@ -438,9 +343,7 @@ pub fn indexed_repeat_with_limit(
   limit: Int,
   on_limit_exceeded: fn(Int, Int, List(ctx)) -> err,
 ) -> Parser(ctx, List(a), err) {
-  let Parser(parse_item) = item_parser
-
-  Parser(fn(reader, ctx) {
+  fn(reader, ctx) {
     indexed_repeat_with_limit_loop(
       0,
       count,
@@ -448,12 +351,12 @@ pub fn indexed_repeat_with_limit(
       [],
       0,
       ctx,
-      parse_item,
+      item_parser,
       index_to_context,
       limit,
       on_limit_exceeded,
     )
-  })
+  }
 }
 
 fn indexed_repeat_with_limit_loop(

@@ -18,12 +18,12 @@ type TestError {
 }
 
 fn byte_parser() -> Parser(TestContext, Int, TestError) {
-  parser.new(fn(reader, _) {
+  fn(reader, _) {
     case reader.read_u8(reader) {
       Ok(result) -> Ok(result)
       Error(_) -> Error(ByteReadFailed)
     }
-  })
+  }
 }
 
 // from_reader
@@ -46,7 +46,7 @@ pub fn from_reader_maps_error_at_the_original_reader_offset_test() {
 pub fn then_threads_the_advanced_reader_and_preserves_context_test() {
   let parser =
     parser.then(byte_parser(), fn(first) {
-      parser.new(fn(reader, context) {
+      fn(reader, context) {
         case context {
           [Outer] ->
             case reader.read_u8(reader) {
@@ -55,7 +55,7 @@ pub fn then_threads_the_advanced_reader_and_preserves_context_test() {
             }
           _ -> Error(WrongContext(context))
         }
-      })
+      }
     })
 
   let assert Ok(#(final_reader, value)) =
@@ -65,90 +65,30 @@ pub fn then_threads_the_advanced_reader_and_preserves_context_test() {
   assert reader.get_offset(final_reader) == 2
 }
 
-pub fn then_and_then_with_end_offset_stop_before_their_continuations_test() {
-  let failing: Parser(TestContext, Int, TestError) =
-    parser.new(fn(_, _) { Error(FirstFailure) })
+pub fn then_stops_before_its_continuation_test() {
+  let failing = fn(_, _) { Error(FirstFailure) }
 
   let then_parser =
-    parser.then(failing, fn(_) {
-      parser.new(fn(_, _) { Error(ContinuationWasInvoked) })
-    })
-  let end_offset_parser =
-    parser.then_with_end_offset(failing, fn(_, _) {
-      parser.new(fn(_, _) { Error(ContinuationWasInvoked) })
-    })
+    parser.then(failing, fn(_) { fn(_, _) { Error(ContinuationWasInvoked) } })
   let source_reader = reader.new(<<0x01>>)
 
   assert parser.run(then_parser, source_reader, [Outer]) == Error(FirstFailure)
-  assert parser.run(end_offset_parser, source_reader, [Outer])
-    == Error(FirstFailure)
-}
-
-// then_with_end_offset
-
-pub fn then_with_end_offset_passes_zero_based_end_offset_test() {
-  let parser =
-    parser.then_with_end_offset(byte_parser(), fn(first, end_offset) {
-      parser.new(fn(reader, context) {
-        case context {
-          [Outer] ->
-            case reader.read_u8(reader) {
-              Ok(#(next_reader, second)) ->
-                Ok(#(next_reader, #(first, second, end_offset)))
-              Error(_) -> Error(ByteReadFailed)
-            }
-          _ -> Error(WrongContext(context))
-        }
-      })
-    })
-
-  let assert Ok(#(final_reader, result)) =
-    parser.run(parser, reader.new(<<0x05, 0x07>>), [Outer])
-
-  assert result == #(5, 7, 1)
-  assert reader.get_offset(final_reader) == 2
-}
-
-pub fn then_with_end_offset_uses_an_existing_reader_offset_test() {
-  let source_reader = reader.new(<<0x00, 0x05, 0x07>>)
-  let assert Ok(#(advanced_reader, _)) = reader.read_u8(source_reader)
-
-  let parser =
-    parser.then_with_end_offset(byte_parser(), fn(first, end_offset) {
-      parser.new(fn(reader, context) {
-        case context {
-          [Outer] ->
-            case reader.read_u8(reader) {
-              Ok(#(next_reader, second)) ->
-                Ok(#(next_reader, #(first, second, end_offset)))
-              Error(_) -> Error(ByteReadFailed)
-            }
-          _ -> Error(WrongContext(context))
-        }
-      })
-    })
-
-  let assert Ok(#(final_reader, result)) =
-    parser.run(parser, advanced_reader, [Outer])
-
-  assert result == #(5, 7, 2)
-  assert reader.get_offset(final_reader) == 3
 }
 
 // indexed_repeat
 
 pub fn indexed_repeat_preserves_context_order_result_order_and_reader_state_test() {
-  let item_parser =
-    parser.new(fn(reader, context) {
-      case context {
-        [AtIndex(index), Inner, Outer] ->
-          case reader.read_u8(reader) {
-            Ok(#(next_reader, value)) -> Ok(#(next_reader, #(index, value)))
-            Error(_) -> Error(ByteReadFailed)
-          }
-        _ -> Error(WrongContext(context))
-      }
-    })
+  let item_parser = fn(reader, context) {
+    case context {
+      [AtIndex(index), Inner, Outer] ->
+        case reader.read_u8(reader) {
+          Ok(#(next_reader, value)) -> Ok(#(next_reader, #(index, value)))
+          Error(_) -> Error(ByteReadFailed)
+        }
+      _ -> Error(WrongContext(context))
+    }
+  }
+
   let parser =
     parser.indexed_repeat(3, item_parser, AtIndex)
     |> parser.with_context(Inner)
@@ -161,14 +101,14 @@ pub fn indexed_repeat_preserves_context_order_result_order_and_reader_state_test
 }
 
 pub fn indexed_repeat_stops_before_later_items_after_an_error_test() {
-  let item_parser: Parser(TestContext, Int, TestError) =
-    parser.new(fn(_, context) {
-      case context {
-        [AtIndex(0), ..] -> Error(FirstFailure)
-        [AtIndex(_), ..] -> Error(LaterItemWasInvoked)
-        _ -> Error(WrongContext(context))
-      }
-    })
+  let item_parser = fn(_, context) {
+    case context {
+      [AtIndex(0), ..] -> Error(FirstFailure)
+      [AtIndex(_), ..] -> Error(LaterItemWasInvoked)
+      _ -> Error(WrongContext(context))
+    }
+  }
+
   let parser = parser.indexed_repeat(2, item_parser, AtIndex)
 
   assert parser.run(parser, reader.new(<<>>), [Outer]) == Error(FirstFailure)
@@ -177,13 +117,13 @@ pub fn indexed_repeat_stops_before_later_items_after_an_error_test() {
 // indexed_repeat_with_limit
 
 pub fn indexed_repeat_with_limit_reports_item_start_offset_and_context_test() {
-  let item_parser =
-    parser.new(fn(reader, _) {
-      case reader.read_u8(reader) {
-        Ok(#(next_reader, value)) -> Ok(#(next_reader, #(value, 2)))
-        Error(_) -> Error(ByteReadFailed)
-      }
-    })
+  let item_parser = fn(reader, _) {
+    case reader.read_u8(reader) {
+      Ok(#(next_reader, value)) -> Ok(#(next_reader, #(value, 2)))
+      Error(_) -> Error(ByteReadFailed)
+    }
+  }
+
   let parser =
     parser.indexed_repeat_with_limit(
       2,
@@ -194,6 +134,7 @@ pub fn indexed_repeat_with_limit_reports_item_start_offset_and_context_test() {
         LimitExceeded(total:, start_offset:, context:)
       },
     )
+
   let source_reader = reader.new(<<0x00, 0x01, 0x02>>)
   let assert Ok(#(advanced_reader, _)) = reader.read_u8(source_reader)
 
@@ -204,14 +145,14 @@ pub fn indexed_repeat_with_limit_reports_item_start_offset_and_context_test() {
 }
 
 pub fn indexed_repeat_with_limit_stops_before_later_items_after_an_error_test() {
-  let item_parser: Parser(TestContext, #(Int, Int), TestError) =
-    parser.new(fn(_, context) {
-      case context {
-        [AtIndex(0), ..] -> Error(FirstFailure)
-        [AtIndex(_), ..] -> Error(LaterItemWasInvoked)
-        _ -> Error(WrongContext(context))
-      }
-    })
+  let item_parser = fn(_, context) {
+    case context {
+      [AtIndex(0), ..] -> Error(FirstFailure)
+      [AtIndex(_), ..] -> Error(LaterItemWasInvoked)
+      _ -> Error(WrongContext(context))
+    }
+  }
+
   let parser =
     parser.indexed_repeat_with_limit(
       2,
@@ -227,18 +168,18 @@ pub fn indexed_repeat_with_limit_stops_before_later_items_after_an_error_test() 
 }
 
 pub fn indexed_repeat_with_limit_stops_before_later_items_after_limit_test() {
-  let item_parser =
-    parser.new(fn(reader, context) {
-      case context {
-        [AtIndex(2), ..] -> Error(LaterItemWasInvoked)
-        [AtIndex(_), ..] ->
-          case reader.read_u8(reader) {
-            Ok(#(next_reader, value)) -> Ok(#(next_reader, #(value, 2)))
-            Error(_) -> Error(ByteReadFailed)
-          }
-        _ -> Error(WrongContext(context))
-      }
-    })
+  let item_parser = fn(reader, context) {
+    case context {
+      [AtIndex(2), ..] -> Error(LaterItemWasInvoked)
+      [AtIndex(_), ..] ->
+        case reader.read_u8(reader) {
+          Ok(#(next_reader, value)) -> Ok(#(next_reader, #(value, 2)))
+          Error(_) -> Error(ByteReadFailed)
+        }
+      _ -> Error(WrongContext(context))
+    }
+  }
+
   let parser =
     parser.indexed_repeat_with_limit(
       3,
