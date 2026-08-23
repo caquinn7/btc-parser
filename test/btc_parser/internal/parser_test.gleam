@@ -12,7 +12,9 @@ type TestError {
   FirstFailure
   ContinuationWasInvoked
   LaterItemWasInvoked
+  InputRemaining(remaining: Int, offset: Int, context: List(TestContext))
   WrongContext(List(TestContext))
+  WrongOffset(Int)
   LimitExceeded(total: Int, start_offset: Int, context: List(TestContext))
   MappedReadFailure(start_offset: Int, context: List(TestContext))
 }
@@ -28,6 +30,18 @@ fn byte_parser() -> Parser(TestContext, Int, TestError) {
 
 // from_reader
 
+pub fn from_reader_preserves_a_successful_reader_result_test() {
+  let parser =
+    parser.from_reader(reader.read_u8, fn(_, _, _) { MappedReadFailure(0, []) })
+
+  let assert Ok(#(advanced_reader, value)) =
+    parser.run(parser, reader.new(<<0x2A, 0xFF>>), [Outer])
+
+  assert value == 42
+  assert reader.get_offset(advanced_reader) == 1
+  assert reader.get_remaining(advanced_reader) == <<0xFF>>
+}
+
 pub fn from_reader_maps_error_at_the_original_reader_offset_test() {
   let source_reader = reader.new(<<0x01>>)
   let assert Ok(#(advanced_reader, _)) = reader.read_u8(source_reader)
@@ -39,6 +53,71 @@ pub fn from_reader_maps_error_at_the_original_reader_offset_test() {
 
   assert parser.run(parser, advanced_reader, [Outer])
     == Error(MappedReadFailure(start_offset: 1, context: [Outer]))
+}
+
+// Basic building blocks
+
+pub fn return_returns_its_value_without_consuming_input_test() {
+  let source_reader = reader.new(<<0x2A>>)
+
+  let assert Ok(#(final_reader, value)) =
+    parser.run(parser.return(7), source_reader, [Outer])
+
+  assert value == 7
+  assert reader.get_offset(final_reader) == 0
+  assert reader.get_remaining(final_reader) == <<0x2A>>
+}
+
+pub fn map_transforms_a_success_without_consuming_additional_input_test() {
+  let mapped = parser.map(byte_parser(), fn(value) { value * 2 })
+
+  let assert Ok(#(final_reader, value)) =
+    parser.run(mapped, reader.new(<<0x15, 0xFF>>), [Outer])
+
+  assert value == 42
+  assert reader.get_offset(final_reader) == 1
+  assert reader.get_remaining(final_reader) == <<0xFF>>
+}
+
+// Combining parsers
+
+pub fn map2_threads_both_readers_and_combines_results_test() {
+  let combined =
+    parser.map2(byte_parser(), byte_parser(), fn(first, second) {
+      first + second
+    })
+
+  let assert Ok(#(final_reader, value)) =
+    parser.run(combined, reader.new(<<0x05, 0x07>>), [Outer])
+
+  assert value == 12
+  assert reader.get_offset(final_reader) == 2
+}
+
+pub fn map3_threads_all_readers_and_combines_results_test() {
+  let combined =
+    parser.map3(
+      byte_parser(),
+      byte_parser(),
+      byte_parser(),
+      fn(first, second, third) { first + second + third },
+    )
+
+  let assert Ok(#(final_reader, value)) =
+    parser.run(combined, reader.new(<<0x05, 0x07, 0x0B>>), [Outer])
+
+  assert value == 23
+  assert reader.get_offset(final_reader) == 3
+}
+
+pub fn keep_left_discards_the_second_result_after_consuming_it_test() {
+  let kept = parser.keep_left(byte_parser(), byte_parser())
+
+  let assert Ok(#(final_reader, value)) =
+    parser.run(kept, reader.new(<<0x2A, 0xFF>>), [Outer])
+
+  assert value == 42
+  assert reader.get_offset(final_reader) == 2
 }
 
 // then
@@ -73,6 +152,71 @@ pub fn then_stops_before_its_continuation_test() {
   let source_reader = reader.new(<<0x01>>)
 
   assert parser.run(then_parser, source_reader, [Outer]) == Error(FirstFailure)
+}
+
+// Error handling and validation
+
+pub fn try_with_reader_receives_the_advanced_reader_and_context_test() {
+  let checked =
+    parser.try_with_reader(byte_parser(), fn(value, next_reader, context) {
+      case
+        context,
+        reader.get_offset(next_reader),
+        reader.bytes_remaining(next_reader)
+      {
+        [Outer], 1, 1 -> Ok(value * 2)
+        _, offset, _ -> Error(WrongOffset(offset))
+      }
+    })
+
+  let assert Ok(#(final_reader, value)) =
+    parser.run(checked, reader.new(<<0x15, 0xFF>>), [Outer])
+
+  assert value == 42
+  assert reader.get_offset(final_reader) == 1
+}
+
+pub fn try_with_start_offset_receives_the_field_start_and_advanced_reader_test() {
+  let source_reader = reader.new(<<0x00, 0x15, 0xFF>>)
+  let assert Ok(#(advanced_reader, _)) = reader.read_u8(source_reader)
+
+  let checked =
+    parser.try_with_start_offset(
+      byte_parser(),
+      fn(value, start_offset, next_reader, context) {
+        case context, start_offset, reader.get_offset(next_reader) {
+          [Outer], 1, 2 -> Ok(value * 2)
+          _, _, offset -> Error(WrongOffset(offset))
+        }
+      },
+    )
+
+  let assert Ok(#(final_reader, value)) =
+    parser.run(checked, advanced_reader, [Outer])
+
+  assert value == 42
+  assert reader.get_offset(final_reader) == 2
+}
+
+pub fn end_of_input_accepts_an_exhausted_reader_and_reports_remaining_input_test() {
+  let end =
+    parser.end_of_input(fn(remaining, current_reader, context) {
+      InputRemaining(
+        remaining:,
+        offset: reader.get_offset(current_reader),
+        context:,
+      )
+    })
+
+  let exhausted_reader = reader.new(<<>>)
+  assert parser.run(end, exhausted_reader, [Outer])
+    == Ok(#(exhausted_reader, Nil))
+
+  let source_reader = reader.new(<<0x00, 0x01>>)
+  let assert Ok(#(advanced_reader, _)) = reader.read_u8(source_reader)
+
+  assert parser.run(end, advanced_reader, [Outer])
+    == Error(InputRemaining(remaining: 1, offset: 1, context: [Outer]))
 }
 
 // indexed_repeat
