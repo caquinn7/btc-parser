@@ -1318,16 +1318,11 @@ pub fn compute_block_hash(block: Block(state)) -> BitArray {
 ///
 /// - `serialize_header` — serializes only the fixed-size block header
 pub fn serialize(block: Block(state)) -> BitArray {
-  let tx_list_bytes =
-    block.transactions
-    |> list.map(transaction.serialize)
-    |> bit_array.concat
-
-  <<
-    serialize_header(block.header):bits,
-    compact_size.encode_int(block.transaction_count):bits,
-    tx_list_bytes:bits,
-  >>
+  bit_array.concat([
+    serialize_header(block.header),
+    compact_size.encode_int(block.transaction_count),
+    ..list.map(block.transactions, transaction.serialize)
+  ])
 }
 
 /// Serialize a block header in its 80-byte Bitcoin wire form.
