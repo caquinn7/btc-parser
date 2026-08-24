@@ -215,11 +215,49 @@ fn compute_txs_weight_loop(txs: List(Transaction(state)), acc: Int) -> Int {
 /// This function does not compare the computed root with the block header or
 /// otherwise validate the block.
 pub fn compute_merkle_root(block: Block(state)) -> #(BitArray, Bool) {
-  let txids = list.map(block.transactions, transaction.compute_txid)
-  let assert #([h], mutated) = compute_merkle_root_loop(txids, False)
-  #(h, mutated)
+  case block.transactions {
+    [] -> #(<<0:256>>, False)
+    [tx] -> #(transaction.compute_txid(tx), False)
+    txs -> {
+      let #(parents, mutated) =
+        compute_merkle_parents_from_transactions_loop(txs, [], False)
+      let assert #([root], mutated) = compute_merkle_root_loop(parents, mutated)
+      #(root, mutated)
+    }
+  }
 }
 
+/// Build the first Merkle parent level directly from transaction IDs.
+///
+/// Pairing IDs as they are computed avoids retaining a complete leaf list.
+fn compute_merkle_parents_from_transactions_loop(
+  txs: List(Transaction(state)),
+  parents: List(BitArray),
+  mutated: Bool,
+) -> #(List(BitArray), Bool) {
+  case txs {
+    [] -> #(list.reverse(parents), mutated)
+    [tx] -> {
+      let txid = transaction.compute_txid(tx)
+      let parent = double_sha256.hash(bit_array.append(txid, txid))
+      #(list.reverse([parent, ..parents]), mutated)
+    }
+    [tx1, tx2, ..rest] -> {
+      let txid1 = transaction.compute_txid(tx1)
+      let txid2 = transaction.compute_txid(tx2)
+      let parent = double_sha256.hash(bit_array.append(txid1, txid2))
+
+      compute_merkle_parents_from_transactions_loop(
+        rest,
+        [parent, ..parents],
+        mutated || txid1 == txid2,
+      )
+    }
+  }
+}
+
+/// Reduce successive Merkle hash levels until only the root remains, carrying
+/// forward mutation detected at any level.
 fn compute_merkle_root_loop(
   hashes: List(BitArray),
   mutated: Bool,
@@ -238,6 +276,8 @@ fn compute_merkle_root_loop(
   }
 }
 
+/// Build the next Merkle level by hashing adjacent hashes from the current
+/// level. An odd final hash is duplicated for padding without marking mutation.
 fn compute_merkle_parents_loop(
   hashes: List(BitArray),
   parents: List(BitArray),
