@@ -20,6 +20,7 @@ pub fn compute_sizes_and_weight_for_one_minimal_legacy_transaction_test() {
   assert transaction.compute_base_size(tx) == 60
   assert transaction.compute_total_size(tx) == 60
   assert transaction.compute_weight(tx) == 240
+  assert transaction.compute_witness_serialized_size(tx) == 0
 }
 
 pub fn compute_sizes_and_weight_for_two_input_segwit_transaction_with_mixed_witness_stacks_test() {
@@ -45,6 +46,7 @@ pub fn compute_sizes_and_weight_for_two_input_segwit_transaction_with_mixed_witn
   assert transaction.compute_base_size(tx) == 101
   assert transaction.compute_total_size(tx) == 362
   assert transaction.compute_weight(tx) == 665
+  assert transaction.compute_witness_serialized_size(tx) == 261
   assert transaction.serialize(tx) == tx_bytes
 }
 
