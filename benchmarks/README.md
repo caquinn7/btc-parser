@@ -439,12 +439,12 @@ timed call respectively.
 size-limit rejection paths after valid regtest proof-of-work and untimed
 preflight checks. Its base-size row contains 16,665 transactions, has a base
 size of 1,000,001 bytes and a weight of 4,001,009, and includes one
-base-equivalent SegWit transaction with 1,000 empty witness items; it uses one
-operation per timed call, explicitly retaining the witness-traversal cost before
-the base-size failure. Its weight row has a base size of 141 bytes, total size
-of 3,999,578 bytes, and weight of 4,000,001; it uses 100 operations per timed
-call. Block construction, mining, parsing, and exact rejection assertions are
-outside the timed regions.
+base-equivalent SegWit transaction with 1,000 empty witness items, making
+regressions that traverse witness data before the base-size rejection
+observable; it uses one operation per timed call. Its weight row has a base size
+of 141 bytes, total size of 3,999,578 bytes, and weight of 4,000,001; it uses 100
+operations per timed call. Block construction, mining, parsing, and exact
+rejection assertions are outside the timed regions.
 
 ### Serialize
 
