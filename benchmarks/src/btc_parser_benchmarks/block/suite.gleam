@@ -15,7 +15,10 @@
 //// `deserialize`, `compute_weight`, or
 //// `validate_context_free_consensus` call.
 
-import btc_parser/block.{type Block, type Parsed, type PowLimit}
+import btc_parser/block.{
+  type Block, type ConsensusViolation, type Parsed, type PowLimit,
+  BaseSizeLimitExceeded, WeightLimitExceeded,
+}
 import btc_parser/transaction.{type Transaction}
 import btc_parser_benchmarks/internal/benchmark.{
   type MeasurementCurvePoint, type PerfCaseInput, type PerfCaseResult,
@@ -75,6 +78,10 @@ pub fn section_definitions() -> List(PerfSectionDefinition) {
     PerfSectionDefinition(
       "block.validate-context-free-consensus.synthetic-transactions",
       measure_synthetic_transaction_context_free_consensus_validation,
+    ),
+    PerfSectionDefinition(
+      "block.validate-context-free-consensus.size-limits",
+      measure_context_free_consensus_validation_size_limits,
     ),
     PerfSectionDefinition(
       "block.serialize.fixtures",
@@ -235,6 +242,28 @@ fn measure_synthetic_transaction_context_free_consensus_validation() -> List(
   )
 }
 
+fn measure_context_free_consensus_validation_size_limits() -> List(
+  PerfCaseResult,
+) {
+  let pow_limit = regtest_pow_limit()
+
+  [
+    measure_cases(
+      [base_size_limit_rejection_block_case(pow_limit)],
+      measurement_config(1),
+      "validate_context_free_consensus",
+      block.validate_context_free_consensus(_, pow_limit),
+    ),
+    measure_cases(
+      [weight_limit_rejection_block_case(pow_limit)],
+      measurement_config(100),
+      "validate_context_free_consensus",
+      block.validate_context_free_consensus(_, pow_limit),
+    ),
+  ]
+  |> list.flatten
+}
+
 fn validation_synthetic_transaction_block_case(
   tx_count: Int,
   pow_limit: PowLimit,
@@ -268,6 +297,82 @@ fn validation_synthetic_transaction_block_case(
     bit_array.byte_size(block_bytes),
     parsed_block,
   )
+}
+
+fn base_size_limit_rejection_block_case(
+  pow_limit: PowLimit,
+) -> PerfCaseInput(Block(Parsed)) {
+  let tx_count = 16_665
+  let txs = [
+    build_valid_minimal_coinbase_legacy_transaction(),
+    build_base_equivalent_segwit_transaction(1000),
+    ..build_unique_minimal_legacy_transactions(tx_count - 2)
+  ]
+
+  size_limit_rejection_block_case(
+    "base-size rejection transactions=16665 witness-items=1000",
+    txs,
+    1_000_001,
+    1_001_006,
+    4_001_009,
+    BaseSizeLimitExceeded(1_000_001),
+    pow_limit,
+  )
+}
+
+fn weight_limit_rejection_block_case(
+  pow_limit: PowLimit,
+) -> PerfCaseInput(Block(Parsed)) {
+  let txs = [build_weight_limit_segwit_transaction()]
+
+  size_limit_rejection_block_case(
+    "weight rejection transactions=1 witness-bytes=3999429",
+    txs,
+    141,
+    3_999_578,
+    4_000_001,
+    WeightLimitExceeded(4_000_001),
+    pow_limit,
+  )
+}
+
+fn size_limit_rejection_block_case(
+  label: String,
+  txs: List(BitArray),
+  expected_base_size: Int,
+  expected_total_size: Int,
+  expected_weight: Int,
+  expected_violation: ConsensusViolation,
+  pow_limit: PowLimit,
+) -> PerfCaseInput(Block(Parsed)) {
+  let block_bytes = build_validation_block_bytes(txs)
+  let assert Ok(parsed_block) = block.deserialize(block_bytes)
+
+  assert block.get_transaction_count(parsed_block) == list.length(txs)
+  assert bit_array.byte_size(block_bytes) == expected_total_size
+  assert block.compute_base_size(parsed_block) == expected_base_size
+  assert block.compute_total_size(parsed_block) == expected_total_size
+  assert block.compute_weight(parsed_block) == expected_weight
+  assert block.serialize(parsed_block) == block_bytes
+  assert block.get_header_target(block.get_header(parsed_block))
+    == regtest_compact_target
+
+  let #(computed_root, mutated) = block.compute_merkle_root(parsed_block)
+  let header_root =
+    parsed_block
+    |> block.get_header
+    |> block.get_header_merkle_root
+
+  assert computed_root == header_root
+  assert !mutated
+
+  let block_hash = block.compute_block_hash(parsed_block)
+  let assert <<_:bytes-size(31), most_significant_byte>> = block_hash
+  assert most_significant_byte < 0x7F
+  assert block.validate_context_free_consensus(parsed_block, pow_limit)
+    == Error([expected_violation])
+
+  PerfCaseInput(label, expected_total_size, parsed_block)
 }
 
 // ==============================================================================
@@ -464,6 +569,12 @@ fn build_validation_synthetic_block_bytes(tx_count: Int) -> BitArray {
     build_valid_minimal_coinbase_legacy_transaction(),
     ..build_unique_minimal_legacy_transactions(tx_count - 1)
   ]
+
+  build_validation_block_bytes(txs)
+}
+
+fn build_validation_block_bytes(txs: List(BitArray)) -> BitArray {
+  let tx_count = list.length(txs)
   let transaction_payload = bit_array.concat(txs)
   let provisional_block_bytes = <<
     build_regtest_header(<<0:256>>, 0):bits,
@@ -481,6 +592,51 @@ fn build_validation_synthetic_block_bytes(tx_count: Int) -> BitArray {
     header:bits,
     compact_size(tx_count):bits,
     transaction_payload:bits,
+  >>
+}
+
+fn build_base_equivalent_segwit_transaction(
+  witness_item_count: Int,
+) -> BitArray {
+  let output_script = <<0:size(128)>>
+  let witness_stack = <<
+    compact_size(witness_item_count):bits,
+    0:size({ witness_item_count * 8 }),
+  >>
+
+  build_minimal_segwit_transaction(output_script, witness_stack)
+}
+
+fn build_weight_limit_segwit_transaction() -> BitArray {
+  let witness_item_size = 3_999_429
+  let witness_stack = <<
+    compact_size(1):bits,
+    compact_size(witness_item_size):bits,
+    0:size({ witness_item_size * 8 }),
+  >>
+
+  build_minimal_segwit_transaction(<<>>, witness_stack)
+}
+
+fn build_minimal_segwit_transaction(
+  output_script: BitArray,
+  witness_stack: BitArray,
+) -> BitArray {
+  <<
+    1:little-size(32),
+    0x00,
+    0x01,
+    compact_size(1):bits,
+    0:size(256),
+    0:little-size(32),
+    compact_size(0):bits,
+    0:little-size(32),
+    compact_size(1):bits,
+    0:little-size(64),
+    compact_size(bit_array.byte_size(output_script)):bits,
+    output_script:bits,
+    witness_stack:bits,
+    0:little-size(32),
   >>
 }
 

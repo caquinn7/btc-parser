@@ -215,11 +215,49 @@ fn compute_txs_weight_loop(txs: List(Transaction(state)), acc: Int) -> Int {
 /// This function does not compare the computed root with the block header or
 /// otherwise validate the block.
 pub fn compute_merkle_root(block: Block(state)) -> #(BitArray, Bool) {
-  let txids = list.map(block.transactions, transaction.compute_txid)
-  let assert #([h], mutated) = compute_merkle_root_loop(txids, False)
-  #(h, mutated)
+  case block.transactions {
+    [] -> #(<<0:256>>, False)
+    [tx] -> #(transaction.compute_txid(tx), False)
+    txs -> {
+      let #(parents, mutated) =
+        compute_merkle_parents_from_transactions_loop(txs, [], False)
+      let assert #([root], mutated) = compute_merkle_root_loop(parents, mutated)
+      #(root, mutated)
+    }
+  }
 }
 
+/// Build the first Merkle parent level directly from transaction IDs.
+///
+/// Pairing IDs as they are computed avoids retaining a complete leaf list.
+fn compute_merkle_parents_from_transactions_loop(
+  txs: List(Transaction(state)),
+  parents: List(BitArray),
+  mutated: Bool,
+) -> #(List(BitArray), Bool) {
+  case txs {
+    [] -> #(list.reverse(parents), mutated)
+    [tx] -> {
+      let txid = transaction.compute_txid(tx)
+      let parent = double_sha256.hash(bit_array.append(txid, txid))
+      #(list.reverse([parent, ..parents]), mutated)
+    }
+    [tx1, tx2, ..rest] -> {
+      let txid1 = transaction.compute_txid(tx1)
+      let txid2 = transaction.compute_txid(tx2)
+      let parent = double_sha256.hash(bit_array.append(txid1, txid2))
+
+      compute_merkle_parents_from_transactions_loop(
+        rest,
+        [parent, ..parents],
+        mutated || txid1 == txid2,
+      )
+    }
+  }
+}
+
+/// Reduce successive Merkle hash levels until only the root remains, carrying
+/// forward mutation detected at any level.
 fn compute_merkle_root_loop(
   hashes: List(BitArray),
   mutated: Bool,
@@ -238,6 +276,8 @@ fn compute_merkle_root_loop(
   }
 }
 
+/// Build the next Merkle level by hashing adjacent hashes from the current
+/// level. An odd final hash is duplicated for padding without marking mutation.
 fn compute_merkle_parents_loop(
   hashes: List(BitArray),
   parents: List(BitArray),
@@ -1118,8 +1158,41 @@ fn validate_block_size_limits(
 ) -> Result(Nil, ConsensusViolation) {
   use _ <- result.try(validate_at_least_one_transaction(block))
   use _ <- result.try(validate_transaction_count(block))
-  use _ <- result.try(validate_base_size(block))
-  validate_weight(block)
+
+  let base_size = compute_base_size(block)
+  let max_block_base_size = max_block_weight / witness_scale_factor
+
+  use <- bool.guard(
+    base_size > max_block_base_size,
+    Error(BaseSizeLimitExceeded(base_size)),
+  )
+
+  let witness_serialized_size =
+    compute_txs_witness_serialized_size(block.transactions)
+
+  let weight = base_size * witness_scale_factor + witness_serialized_size
+  case weight > max_block_weight {
+    True -> Error(WeightLimitExceeded(weight))
+    False -> Ok(Nil)
+  }
+}
+
+fn compute_txs_witness_serialized_size(txs: List(Transaction(state))) -> Int {
+  compute_txs_witness_serialized_size_loop(txs, 0)
+}
+
+fn compute_txs_witness_serialized_size_loop(
+  txs: List(Transaction(state)),
+  acc: Int,
+) -> Int {
+  case txs {
+    [] -> acc
+    [tx, ..rest] ->
+      compute_txs_witness_serialized_size_loop(
+        rest,
+        acc + transaction.compute_witness_serialized_size(tx),
+      )
+  }
 }
 
 fn validate_at_least_one_transaction(
@@ -1140,26 +1213,6 @@ fn validate_transaction_count(
 ) -> Result(Nil, ConsensusViolation) {
   case block.transaction_count * witness_scale_factor > max_block_weight {
     True -> Error(ImpossiblyLargeTransactionCount)
-    False -> Ok(Nil)
-  }
-}
-
-/// Enforce the 1,000,000-byte consensus limit using `compute_base_size`.
-fn validate_base_size(block: Block(Parsed)) -> Result(Nil, ConsensusViolation) {
-  let base_size = compute_base_size(block)
-  let max_block_base_size = max_block_weight / witness_scale_factor
-
-  case base_size > max_block_base_size {
-    True -> Error(BaseSizeLimitExceeded(base_size))
-    False -> Ok(Nil)
-  }
-}
-
-/// Enforce the 4,000,000 weight-unit consensus limit using `compute_weight`.
-fn validate_weight(block: Block(Parsed)) -> Result(Nil, ConsensusViolation) {
-  let weight = compute_weight(block)
-  case weight > max_block_weight {
-    True -> Error(WeightLimitExceeded(weight))
     False -> Ok(Nil)
   }
 }
@@ -1318,16 +1371,11 @@ pub fn compute_block_hash(block: Block(state)) -> BitArray {
 ///
 /// - `serialize_header` — serializes only the fixed-size block header
 pub fn serialize(block: Block(state)) -> BitArray {
-  let tx_list_bytes =
-    block.transactions
-    |> list.map(transaction.serialize)
-    |> bit_array.concat
-
-  <<
-    serialize_header(block.header):bits,
-    compact_size.encode_int(block.transaction_count):bits,
-    tx_list_bytes:bits,
-  >>
+  bit_array.concat([
+    serialize_header(block.header),
+    compact_size.encode_int(block.transaction_count),
+    ..list.map(block.transactions, transaction.serialize)
+  ])
 }
 
 /// Serialize a block header in its 80-byte Bitcoin wire form.

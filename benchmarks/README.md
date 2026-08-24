@@ -435,6 +435,17 @@ checks, proof-of-work verification, and successful validation are all
 preflight work. The points use `100`, `100`, `10`, and `1` operations per
 timed call respectively.
 
+`block.validate-context-free-consensus.size-limits` measures the two
+size-limit rejection paths after valid regtest proof-of-work and untimed
+preflight checks. Its base-size row contains 16,665 transactions, has a base
+size of 1,000,001 bytes and a weight of 4,001,009, and includes one
+base-equivalent SegWit transaction with 1,000 empty witness items, making
+regressions that traverse witness data before the base-size rejection
+observable; it uses one operation per timed call. Its weight row has a base size
+of 141 bytes, total size of 3,999,578 bytes, and weight of 4,000,001; it uses 100
+operations per timed call. Block construction, mining, parsing, and exact
+rejection assertions are outside the timed regions.
+
 ### Serialize
 
 `block.serialize.fixtures` measures `block.serialize` over parsed mainnet

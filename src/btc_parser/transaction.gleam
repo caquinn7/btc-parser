@@ -305,6 +305,25 @@ pub fn compute_weight(tx: Transaction(state)) -> Int {
   }
 }
 
+/// Compute the transaction bytes included in total size but excluded from base
+/// size.
+///
+/// Returns `0` for legacy transactions. For SegWit transactions, this includes
+/// the marker, flag, and serialized witness stacks. The result is equivalent to
+/// `compute_total_size(tx) - compute_base_size(tx)`.
+///
+/// This internal helper is used when calculating block weight during validation.
+@internal
+pub fn compute_witness_serialized_size(tx: Transaction(state)) -> Int {
+  case tx {
+    Legacy(..) -> 0
+    Segwit(witnesses:, ..) -> {
+      let segwit_marker_and_flag_size = 2
+      segwit_marker_and_flag_size + compute_witnesses_size(witnesses)
+    }
+  }
+}
+
 fn compute_witnesses_size(witnesses: List(WitnessStack)) -> Int {
   compute_witnesses_size_loop(witnesses, 0)
 }

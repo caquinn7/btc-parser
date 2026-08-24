@@ -262,9 +262,9 @@ pub fn validate_context_free_consensus_accepts_block_at_base_size_and_weight_lim
 }
 
 pub fn validate_context_free_consensus_prioritizes_base_size_over_weight_limit_test() {
-  let block_bytes = build_base_size_boundary_block_bytes(18)
+  let block_bytes = build_base_size_over_weight_limit_block_bytes()
 
-  assert bit_array.byte_size(block_bytes) == 1_000_001
+  assert bit_array.byte_size(block_bytes) == 1_001_006
   let assert Ok(parsed_block) =
     deserialize_with_limits(
       block_bytes,
@@ -273,7 +273,8 @@ pub fn validate_context_free_consensus_prioritizes_base_size_over_weight_limit_t
     )
 
   assert block.compute_base_size(parsed_block) == 1_000_001
-  assert block.compute_weight(parsed_block) == 4_000_004
+  assert block.compute_total_size(parsed_block) == 1_001_006
+  assert block.compute_weight(parsed_block) == 4_001_009
   assert block.validate_context_free_consensus(
       parsed_block,
       regtest_pow_limit(),
@@ -910,10 +911,6 @@ fn build_invalid_legacy_transaction_bytes(version: Int) -> BitArray {
 fn build_base_size_boundary_block_bytes(
   output_script_padding: Int,
 ) -> BitArray {
-  let tx_count = 16_665
-
-  let coinbase_tx = build_valid_coinbase_legacy_transaction_bytes(0)
-
   // The coinbase is two bytes larger than a minimal regular transaction, so
   // reduce the existing output-script padding by two to preserve the boundary.
   let adjusted_output_script_padding = output_script_padding - 2
@@ -921,6 +918,28 @@ fn build_base_size_boundary_block_bytes(
     build_valid_legacy_transaction_bytes(1, <<
       0:size({ adjusted_output_script_padding * 8 }),
     >>)
+
+  build_base_size_boundary_block_with_padded_transaction_bytes(padded_tx)
+}
+
+fn build_base_size_over_weight_limit_block_bytes() -> BitArray {
+  let output_script = <<0:size(128)>>
+  let input = build_input_bytes(<<1, 0:size(248)>>, 0, <<>>, 0)
+  let output = build_output_bytes(<<0:little-size(64)>>, output_script)
+  let witness_stack = <<compact_size(1000):bits, 0:size(8000)>>
+  let base_equivalent_segwit_tx =
+    assemble_segwit_transaction_bytes([input], [output], [witness_stack])
+
+  build_base_size_boundary_block_with_padded_transaction_bytes(
+    base_equivalent_segwit_tx,
+  )
+}
+
+fn build_base_size_boundary_block_with_padded_transaction_bytes(
+  padded_tx: BitArray,
+) -> BitArray {
+  let tx_count = 16_665
+  let coinbase_tx = build_valid_coinbase_legacy_transaction_bytes(0)
 
   // Distinct versions preserve the fixed transaction size while producing
   // distinct txids, avoiding equal Merkle-tree siblings and mutation errors.
