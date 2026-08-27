@@ -18,6 +18,13 @@ pub fn get_remaining_returns_all_remaining_bytes_test() {
   assert reader.get_remaining(reader) == <<0x03>>
 }
 
+pub fn get_remaining_preserves_non_byte_aligned_input_test() {
+  let bytes = <<0xAB, 0b101:size(3)>>
+  let reader = reader.new(bytes)
+
+  assert reader.get_remaining(reader) == bytes
+}
+
 // bytes_remaining
 
 pub fn bytes_remaining_returns_remaining_bytes_test() {
@@ -90,6 +97,18 @@ pub fn read_bytes_reads_bytes_when_exact_count_test() {
   assert reader.get_remaining(reader) == <<>>
 }
 
+pub fn read_bytes_rejects_non_byte_aligned_input_test() {
+  let reader = reader.new(<<0xAB, 1:size(1)>>)
+
+  assert reader.read_bytes(reader, 0)
+    == Error(UnexpectedEof(bytes_needed: 0, remaining: 2))
+
+  assert reader.read_bytes(reader, 1)
+    == Error(UnexpectedEof(bytes_needed: 1, remaining: 2))
+
+  assert reader.get_offset(reader) == 0
+}
+
 // skip_bytes
 
 pub fn skip_bytes_returns_invalid_read_count_when_count_is_negative_test() {
@@ -128,6 +147,18 @@ pub fn skip_bytes_skips_bytes_when_exact_count_test() {
 
   assert reader.get_offset(reader) == 1
   assert reader.get_remaining(reader) == <<>>
+}
+
+pub fn skip_bytes_rejects_non_byte_aligned_input_test() {
+  let reader = reader.new(<<0xAB, 1:size(1)>>)
+
+  assert reader.skip_bytes(reader, 0)
+    == Error(UnexpectedEof(bytes_needed: 0, remaining: 2))
+
+  assert reader.skip_bytes(reader, 1)
+    == Error(UnexpectedEof(bytes_needed: 1, remaining: 2))
+
+  assert reader.get_offset(reader) == 0
 }
 
 // peek_bytes
@@ -249,6 +280,46 @@ pub fn take_bytes_new_reader_starts_at_offset_zero_test() {
 
   assert reader.get_remaining(sub_reader) == <<0x02, 0x03>>
   assert reader.get_offset(sub_reader) == 0
+}
+
+// mixed reader operations
+
+pub fn mixed_reader_operations_track_cursor_and_final_eof_test() {
+  let reader = reader.new(<<0xA1, 0xB2, 0x34, 0x12, 0xD4>>)
+
+  let assert Ok(#(reader, first)) = reader.read_u8(reader)
+  assert first == 0xA1
+  assert reader.get_offset(reader) == 1
+  assert reader.bytes_remaining(reader) == 4
+
+  let assert Ok(peeked) = reader.peek_bytes(reader, 2)
+  assert peeked == <<0xB2, 0x34>>
+  assert reader.get_offset(reader) == 1
+  assert reader.get_remaining(reader) == <<0xB2, 0x34, 0x12, 0xD4>>
+
+  let assert Ok(reader) = reader.skip_bytes(reader, 1)
+  assert reader.get_offset(reader) == 2
+  assert reader.bytes_remaining(reader) == 3
+
+  let assert Ok(#(reader, value)) = reader.read_u16_le(reader)
+  assert value == 0x1234
+  assert reader.get_offset(reader) == 4
+  assert reader.bytes_remaining(reader) == 1
+
+  let assert Ok(last) = reader.peek_bytes(reader, 1)
+  assert last == <<0xD4>>
+  assert reader.get_offset(reader) == 4
+
+  let assert Ok(#(reader, last)) = reader.read_bytes(reader, 1)
+  assert last == <<0xD4>>
+  assert reader.get_offset(reader) == 5
+  assert reader.bytes_remaining(reader) == 0
+  assert reader.get_remaining(reader) == <<>>
+
+  assert reader.read_u8(reader)
+    == Error(UnexpectedEof(bytes_needed: 1, remaining: 0))
+
+  assert reader.get_offset(reader) == 5
 }
 
 // read_u8
