@@ -1,7 +1,7 @@
 import btc_parser/block.{
   DecodeFailed, InsufficientBytes, IntegerOutOfRange, InvalidHex, MaxBlockSize,
-  MaxTransactionCount, NonMinimalCompactSize, PolicyLimitExceeded, TrailingBytes,
-  TransactionDecodeFailed, UnexpectedEof,
+  MaxTransactionCount, NonByteAlignedInput, NonMinimalCompactSize,
+  PolicyLimitExceeded, TrailingBytes, TransactionDecodeFailed, UnexpectedEof,
 }
 import btc_parser/transaction
 import gleam/bit_array
@@ -177,6 +177,22 @@ pub fn deserialize_with_policy_rejects_bytes_exceeding_max_block_size_test() {
     == PolicyLimitExceeded(MaxBlockSize, block_size, block_size - 1)
 }
 
+pub fn deserialize_with_policy_prioritizes_non_byte_aligned_input_over_max_block_size_test() {
+  let bytes =
+    build_header_only_block(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let unaligned = <<bytes:bits, 0:1>>
+  let max_block_size = bit_array.byte_size(unaligned) - 1
+
+  let assert Error(error) =
+    block.deserialize_with_policy(
+      unaligned,
+      policy_with_max_block_size(max_block_size),
+    )
+
+  assert check_block_decode_error(error, 0, "block")
+    == NonByteAlignedInput(bit_array.bit_size(unaligned))
+}
+
 pub fn deserialize_with_policy_accepts_bytes_at_max_block_size_test() {
   let bytes =
     build_header_only_block(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
@@ -266,11 +282,8 @@ pub fn deserialize_rejects_non_byte_aligned_input_test() {
 
   let assert Error(error) = block.deserialize(unaligned)
 
-  assert check_block_decode_error(error, 0, "block.header.version")
-    == UnexpectedEof(
-      bytes_needed: 4,
-      remaining: bit_array.byte_size(aligned) + 1,
-    )
+  assert check_block_decode_error(error, 0, "block")
+    == NonByteAlignedInput(bit_array.bit_size(unaligned))
 }
 
 // ============================================================================

@@ -1,5 +1,6 @@
 import btc_parser/internal/parser.{type Parser}
 import btc_parser/internal/reader
+import gleam/result
 
 type TestContext {
   Outer
@@ -21,10 +22,9 @@ type TestError {
 
 fn byte_parser() -> Parser(TestContext, Int, TestError) {
   fn(reader, _) {
-    case reader.read_u8(reader) {
-      Ok(result) -> Ok(result)
-      Error(_) -> Error(ByteReadFailed)
-    }
+    reader
+    |> reader.read_u8
+    |> result.replace_error(ByteReadFailed)
   }
 }
 
@@ -34,8 +34,8 @@ pub fn from_reader_preserves_a_successful_reader_result_test() {
   let parser =
     parser.from_reader(reader.read_u8, fn(_, _, _) { MappedReadFailure(0, []) })
 
-  let assert Ok(#(advanced_reader, value)) =
-    parser.run(parser, reader.new(<<0x2A, 0xFF>>), [Outer])
+  let assert Ok(reader) = reader.new(<<0x2A, 0xFF>>)
+  let assert Ok(#(advanced_reader, value)) = parser.run(parser, reader, [Outer])
 
   assert value == 42
   assert reader.get_offset(advanced_reader) == 1
@@ -43,7 +43,7 @@ pub fn from_reader_preserves_a_successful_reader_result_test() {
 }
 
 pub fn from_reader_maps_error_at_the_original_reader_offset_test() {
-  let source_reader = reader.new(<<0x01>>)
+  let assert Ok(source_reader) = reader.new(<<0x01>>)
   let assert Ok(#(advanced_reader, _)) = reader.read_u8(source_reader)
 
   let parser =
@@ -58,7 +58,7 @@ pub fn from_reader_maps_error_at_the_original_reader_offset_test() {
 // Basic building blocks
 
 pub fn return_returns_its_value_without_consuming_input_test() {
-  let source_reader = reader.new(<<0x2A>>)
+  let assert Ok(source_reader) = reader.new(<<0x2A>>)
 
   let assert Ok(#(final_reader, value)) =
     parser.run(parser.return(7), source_reader, [Outer])
@@ -71,8 +71,8 @@ pub fn return_returns_its_value_without_consuming_input_test() {
 pub fn map_transforms_a_success_without_consuming_additional_input_test() {
   let mapped = parser.map(byte_parser(), fn(value) { value * 2 })
 
-  let assert Ok(#(final_reader, value)) =
-    parser.run(mapped, reader.new(<<0x15, 0xFF>>), [Outer])
+  let assert Ok(reader) = reader.new(<<0x15, 0xFF>>)
+  let assert Ok(#(final_reader, value)) = parser.run(mapped, reader, [Outer])
 
   assert value == 42
   assert reader.get_offset(final_reader) == 1
@@ -87,8 +87,8 @@ pub fn map2_threads_both_readers_and_combines_results_test() {
       first + second
     })
 
-  let assert Ok(#(final_reader, value)) =
-    parser.run(combined, reader.new(<<0x05, 0x07>>), [Outer])
+  let assert Ok(reader) = reader.new(<<0x05, 0x07>>)
+  let assert Ok(#(final_reader, value)) = parser.run(combined, reader, [Outer])
 
   assert value == 12
   assert reader.get_offset(final_reader) == 2
@@ -103,8 +103,8 @@ pub fn map3_threads_all_readers_and_combines_results_test() {
       fn(first, second, third) { first + second + third },
     )
 
-  let assert Ok(#(final_reader, value)) =
-    parser.run(combined, reader.new(<<0x05, 0x07, 0x0B>>), [Outer])
+  let assert Ok(reader) = reader.new(<<0x05, 0x07, 0x0B>>)
+  let assert Ok(#(final_reader, value)) = parser.run(combined, reader, [Outer])
 
   assert value == 23
   assert reader.get_offset(final_reader) == 3
@@ -113,8 +113,8 @@ pub fn map3_threads_all_readers_and_combines_results_test() {
 pub fn keep_left_discards_the_second_result_after_consuming_it_test() {
   let kept = parser.keep_left(byte_parser(), byte_parser())
 
-  let assert Ok(#(final_reader, value)) =
-    parser.run(kept, reader.new(<<0x2A, 0xFF>>), [Outer])
+  let assert Ok(reader) = reader.new(<<0x2A, 0xFF>>)
+  let assert Ok(#(final_reader, value)) = parser.run(kept, reader, [Outer])
 
   assert value == 42
   assert reader.get_offset(final_reader) == 2
@@ -137,8 +137,8 @@ pub fn then_threads_the_advanced_reader_and_preserves_context_test() {
       }
     })
 
-  let assert Ok(#(final_reader, value)) =
-    parser.run(parser, reader.new(<<0x05, 0x07>>), [Outer])
+  let assert Ok(reader) = reader.new(<<0x05, 0x07>>)
+  let assert Ok(#(final_reader, value)) = parser.run(parser, reader, [Outer])
 
   assert value == 12
   assert reader.get_offset(final_reader) == 2
@@ -149,7 +149,7 @@ pub fn then_stops_before_its_continuation_test() {
 
   let then_parser =
     parser.then(failing, fn(_) { fn(_, _) { Error(ContinuationWasInvoked) } })
-  let source_reader = reader.new(<<0x01>>)
+  let assert Ok(source_reader) = reader.new(<<0x01>>)
 
   assert parser.run(then_parser, source_reader, [Outer]) == Error(FirstFailure)
 }
@@ -169,15 +169,15 @@ pub fn try_with_reader_receives_the_advanced_reader_and_context_test() {
       }
     })
 
-  let assert Ok(#(final_reader, value)) =
-    parser.run(checked, reader.new(<<0x15, 0xFF>>), [Outer])
+  let assert Ok(reader) = reader.new(<<0x15, 0xFF>>)
+  let assert Ok(#(final_reader, value)) = parser.run(checked, reader, [Outer])
 
   assert value == 42
   assert reader.get_offset(final_reader) == 1
 }
 
 pub fn try_with_start_offset_receives_the_field_start_and_advanced_reader_test() {
-  let source_reader = reader.new(<<0x00, 0x15, 0xFF>>)
+  let assert Ok(source_reader) = reader.new(<<0x00, 0x15, 0xFF>>)
   let assert Ok(#(advanced_reader, _)) = reader.read_u8(source_reader)
 
   let checked =
@@ -208,11 +208,11 @@ pub fn end_of_input_accepts_an_exhausted_reader_and_reports_remaining_input_test
       )
     })
 
-  let exhausted_reader = reader.new(<<>>)
+  let assert Ok(exhausted_reader) = reader.new(<<>>)
   assert parser.run(end, exhausted_reader, [Outer])
     == Ok(#(exhausted_reader, Nil))
 
-  let source_reader = reader.new(<<0x00, 0x01>>)
+  let assert Ok(source_reader) = reader.new(<<0x00, 0x01>>)
   let assert Ok(#(advanced_reader, _)) = reader.read_u8(source_reader)
 
   assert parser.run(end, advanced_reader, [Outer])
@@ -237,8 +237,8 @@ pub fn indexed_repeat_preserves_context_order_result_order_and_reader_state_test
     parser.indexed_repeat(3, item_parser, AtIndex)
     |> parser.with_context(Inner)
 
-  let assert Ok(#(final_reader, values)) =
-    parser.run(parser, reader.new(<<0x0A, 0x14, 0x1E>>), [Outer])
+  let assert Ok(reader) = reader.new(<<0x0A, 0x14, 0x1E>>)
+  let assert Ok(#(final_reader, values)) = parser.run(parser, reader, [Outer])
 
   assert values == [#(0, 10), #(1, 20), #(2, 30)]
   assert reader.get_offset(final_reader) == 3
@@ -255,7 +255,8 @@ pub fn indexed_repeat_stops_before_later_items_after_an_error_test() {
 
   let parser = parser.indexed_repeat(2, item_parser, AtIndex)
 
-  assert parser.run(parser, reader.new(<<>>), [Outer]) == Error(FirstFailure)
+  let assert Ok(reader) = reader.new(<<>>)
+  assert parser.run(parser, reader, [Outer]) == Error(FirstFailure)
 }
 
 // indexed_repeat_with_limit
@@ -279,7 +280,7 @@ pub fn indexed_repeat_with_limit_reports_item_start_offset_and_context_test() {
       },
     )
 
-  let source_reader = reader.new(<<0x00, 0x01, 0x02>>)
+  let assert Ok(source_reader) = reader.new(<<0x00, 0x01, 0x02>>)
   let assert Ok(#(advanced_reader, _)) = reader.read_u8(source_reader)
 
   assert parser.run(parser, advanced_reader, [Outer])
@@ -308,7 +309,8 @@ pub fn indexed_repeat_with_limit_stops_before_later_items_after_an_error_test() 
       },
     )
 
-  assert parser.run(parser, reader.new(<<>>), [Outer]) == Error(FirstFailure)
+  let assert Ok(reader) = reader.new(<<>>)
+  assert parser.run(parser, reader, [Outer]) == Error(FirstFailure)
 }
 
 pub fn indexed_repeat_with_limit_stops_before_later_items_after_limit_test() {
@@ -335,7 +337,8 @@ pub fn indexed_repeat_with_limit_stops_before_later_items_after_limit_test() {
       },
     )
 
-  assert parser.run(parser, reader.new(<<0x00, 0x01, 0x02>>), [Outer])
+  let assert Ok(reader) = reader.new(<<0x00, 0x01, 0x02>>)
+  assert parser.run(parser, reader, [Outer])
     == Error(
       LimitExceeded(total: 4, start_offset: 1, context: [AtIndex(1), Outer]),
     )

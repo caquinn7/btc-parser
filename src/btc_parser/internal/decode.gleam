@@ -11,13 +11,11 @@ import gleam/result
 ///
 /// `UnexpectedEof` is converted with the supplied callback so transaction,
 /// block, and future domains can keep their own public error variants.
-///
-/// `InvalidReadCount` represents an internal invariant violation and PANICS
-/// with a consistent message.
 pub fn map_reader_error(
-  reader_error: reader.ReaderError,
+  reader_error: reader.OperationError,
   unexpected_eof: fn(Int, Int) -> e,
 ) -> e {
+  // InvalidReadCount represents an internal invariant violation.
   case reader_error {
     InvalidReadCount(i) ->
       panic as {
