@@ -8,7 +8,7 @@ pub type ReadError {
   ///
   /// This occurs when the prefix indicates a certain number of bytes should follow,
   /// but the reader does not have enough remaining bytes to read them.
-  ReaderError(reader.ReaderError)
+  ReaderError(reader.OperationError)
 
   /// A CompactSize was encoded using more bytes than necessary for its value,
   /// violating Bitcoin’s minimal encoding rules
@@ -98,7 +98,7 @@ pub fn read(reader: Reader) -> Result(#(Reader, Uint64), ReadError) {
 
 fn read_from(
   reader: Reader,
-  read_fn: fn(Reader) -> Result(#(Reader, a), reader.ReaderError),
+  read_fn: fn(Reader) -> Result(#(Reader, a), reader.OperationError),
 ) -> Result(#(Reader, a), ReadError) {
   reader
   |> read_fn

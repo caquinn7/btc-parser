@@ -1,7 +1,7 @@
 import btc_parser/transaction.{
   DecodeFailed, InsufficientBytes, IntegerOutOfRange, InvalidHex,
-  InvalidSegwitMarkerFlag, NonMinimalCompactSize, SuperfluousWitnessRecord,
-  TrailingBytes, UnexpectedEof,
+  InvalidSegwitMarkerFlag, NonByteAlignedInput, NonMinimalCompactSize,
+  SuperfluousWitnessRecord, TrailingBytes, UnexpectedEof,
 }
 import gleam/bit_array
 import support/bitcoin_wire.{compact_size}
@@ -71,16 +71,13 @@ pub fn deserialize_errors_when_input_shorter_than_4_bytes_test() {
 }
 
 pub fn deserialize_errors_on_non_byte_aligned_input_test() {
-  // A trailing bit makes the remainder non-byte-aligned, so the first
-  // fixed-width read fails even though byte_size rounds up.
   let valid_bytes = build_minimal_legacy_transaction_bytes(1)
   let unaligned = <<valid_bytes:bits, 0:1>>
 
   let assert Error(decode_err) = transaction.deserialize(unaligned)
 
-  let expected_remaining = bit_array.byte_size(valid_bytes) + 1
-  assert check_transaction_decode_error(decode_err, 0, "transaction.version")
-    == UnexpectedEof(bytes_needed: 4, remaining: expected_remaining)
+  assert check_transaction_decode_error(decode_err, 0, "transaction")
+    == NonByteAlignedInput(bit_array.bit_size(unaligned))
 }
 
 pub fn deserialize_does_not_misclassify_segwit_when_marker_and_flag_are_missing_test() {

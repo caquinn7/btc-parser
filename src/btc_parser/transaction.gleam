@@ -1050,6 +1050,12 @@ pub opaque type DecodeError {
 ///
 /// Categorizes decode failures into distinct variants.
 pub type DecodeErrorKind {
+  /// The input does not contain a whole number of bytes.
+  ///
+  /// Bitcoin wire-format inputs are byte-aligned. The wrapped value is the
+  /// exact total number of bits in the supplied input.
+  NonByteAlignedInput(bit_count: Int)
+
   /// The input ended before enough bytes could be read.
   UnexpectedEof(
     /// The number of bytes the decoder required.
@@ -1513,17 +1519,32 @@ pub fn deserialize_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
 ) -> Result(Transaction(Parsed), DecodeError) {
+  let error_at_zero_offset = fn(err) {
+    err
+    |> new_decode_error(0)
+    |> with_context([InTransaction])
+  }
+
+  use reader <- result.try(
+    bytes
+    |> reader.new
+    |> result.map_error(fn(err) {
+      case err {
+        reader.NonByteAlignedInput(bit_count) ->
+          error_at_zero_offset(NonByteAlignedInput(bit_count))
+      }
+    }),
+  )
+
   let tx_size = bit_array.byte_size(bytes)
   use <- bool.guard(
     tx_size > policy.max_tx_size,
     PolicyLimitExceeded(MaxTransactionSize, tx_size, policy.max_tx_size)
-      |> new_decode_error(0)
-      |> with_context([InTransaction])
+      |> error_at_zero_offset
       |> Error,
   )
 
-  bytes
-  |> reader.new
+  reader
   |> parser.run(tx_parser(policy), _, [InTransaction])
   |> result.map(pair.second)
 }
@@ -1533,18 +1554,21 @@ pub fn deserialize_with_policy(
 /// This is intended for internal use by block decoding. It does not require the
 /// input to end after the transaction and does not apply the policy's top-level
 /// `max_tx_size` check; callers that decode an enclosing structure are expected
-/// to enforce their own envelope limits.
+/// to enforce their own envelope limits. Callers must supply byte-aligned input;
+/// public whole-value deserializers enforce this before decoding begins.
 @internal
 pub fn decode_prefix_with_policy(
   bytes: BitArray,
   policy: DecodePolicy,
 ) -> Result(#(Transaction(Parsed), Int), DecodeError) {
+  let assert Ok(reader) = reader.new(bytes)
+
   policy
   |> tx_body_parser
   |> parser.try_with_reader(fn(tx, reader, _ctx) {
     Ok(#(tx, reader.get_offset(reader)))
   })
-  |> parser.run(reader.new(bytes), [InTransaction])
+  |> parser.run(reader, [InTransaction])
   |> result.map(pair.second)
 }
 
@@ -1671,7 +1695,7 @@ fn end_of_tx_parser() -> Parser(ParseContext, Nil, DecodeError) {
 /// Construct a parser for a field, adding error mapping and context wrapping.
 fn field_parser(
   field: ParseField,
-  read_fn: fn(Reader) -> Result(#(Reader, a), reader.ReaderError),
+  read_fn: fn(Reader) -> Result(#(Reader, a), reader.OperationError),
 ) -> Parser(ParseContext, a, DecodeError) {
   parser.from_reader(read_fn, fn(err, start_offset, ctx) {
     err

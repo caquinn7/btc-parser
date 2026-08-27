@@ -1,7 +1,7 @@
 import btc_parser/transaction.{
   DecodeFailed, InsufficientBytes, MaxInputCount, MaxOutputCount, MaxScriptSize,
   MaxTransactionSize, MaxWitnessStackItemCount, MaxWitnessStackPayloadSize,
-  PolicyLimitExceeded,
+  NonByteAlignedInput, PolicyLimitExceeded,
 }
 import gleam/bit_array
 import gleam/int
@@ -145,6 +145,21 @@ pub fn deserialize_with_policy_rejects_tx_well_above_max_tx_size_test() {
 
   assert check_transaction_decode_error(decode_err, 0, "transaction")
     == PolicyLimitExceeded(MaxTransactionSize, tx_size, max_tx_size)
+}
+
+pub fn deserialize_with_policy_prioritizes_non_byte_aligned_input_over_max_tx_size_test() {
+  let tx_bytes = build_minimal_legacy_transaction_bytes(1)
+  let unaligned = <<tx_bytes:bits, 0:1>>
+  let max_tx_size = bit_array.byte_size(unaligned) - 1
+
+  let assert Error(error) =
+    transaction.deserialize_with_policy(
+      unaligned,
+      policy_with_max_tx_size(max_tx_size),
+    )
+
+  assert check_transaction_decode_error(error, 0, "transaction")
+    == NonByteAlignedInput(bit_array.bit_size(unaligned))
 }
 
 // ============================================================================
