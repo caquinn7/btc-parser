@@ -7,7 +7,7 @@ import btc_parser/internal/reader.{InvalidReadCount, UnexpectedEof}
 import gleam/int
 import gleam/result
 
-/// Map a `ReaderError` into a caller-owned decode error type.
+/// Map a `reader.OperationError` into a caller-owned decode error type.
 ///
 /// `UnexpectedEof` is converted with the supplied callback so transaction,
 /// block, and future domains can keep their own public error variants.
