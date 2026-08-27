@@ -2,10 +2,10 @@ import gleam/bit_array
 
 /// A sequential reader for parsing binary data.
 ///
-/// Maintains the current position while reading through a `BitArray`,
-/// tracking both the remaining input and the number of bytes consumed.
+/// Retains the original input `BitArray` while tracking the number of bytes
+/// consumed with a cursor.
 pub opaque type Reader {
-  Reader(remaining: BitArray, offset: Int)
+  Reader(bytes: BitArray, offset: Int)
 }
 
 /// Creates a new `Reader` from the given `BitArray` with offset set to `0`.
@@ -13,24 +13,26 @@ pub fn new(bytes: BitArray) -> Reader {
   Reader(bytes, 0)
 }
 
-/// Advances the reader by the given number of bytes, updating both the
-/// remaining input and the offset position.
-fn advance_reader(
-  reader: Reader,
-  bytes_consumed: Int,
-  remaining: BitArray,
-) -> Reader {
-  Reader(remaining:, offset: reader.offset + bytes_consumed)
+/// Advances the reader cursor by the given number of bytes.
+///
+/// Call this only after a successful bounds and alignment check.
+fn advance_reader(reader: Reader, bytes_consumed: Int) -> Reader {
+  Reader(bytes: reader.bytes, offset: reader.offset + bytes_consumed)
 }
 
-/// Returns all remaining unconsumed bytes from the reader.
+/// Returns a lazy slice of all remaining unconsumed bits from the reader.
 pub fn get_remaining(reader: Reader) -> BitArray {
-  reader.remaining
+  // Safe: Reader is opaque, starts at offset zero, and advances only after a
+  // successful match proves enough complete bytes remain. The bits suffix
+  // preserves any trailing non-byte-aligned input.
+  let offset = reader.offset
+  let assert <<_:bytes-size(offset), remaining:bits>> = reader.bytes
+  remaining
 }
 
 /// Returns the number of unconsumed bytes remaining in the reader.
 pub fn bytes_remaining(reader: Reader) -> Int {
-  bit_array.byte_size(reader.remaining)
+  bit_array.byte_size(reader.bytes) - reader.offset
 }
 
 /// Returns the number of bytes consumed
@@ -67,10 +69,11 @@ pub fn read_bytes(
   count: Int,
 ) -> Result(#(Reader, BitArray), ReaderError) {
   use count <- validate_count(count)
+  let offset = reader.offset
 
-  case reader.remaining {
-    <<bytes:bytes-size(count), rest:bytes>> ->
-      Ok(#(advance_reader(reader, count, rest), bytes))
+  case reader.bytes {
+    <<_:bytes-size(offset), bytes:bytes-size(count), _:bytes>> ->
+      Ok(#(advance_reader(reader, count), bytes))
 
     _ -> Error(eof_error(reader, count))
   }
@@ -81,10 +84,11 @@ pub fn read_bytes(
 /// Returns the updated reader, or an error if there are insufficient bytes remaining.
 pub fn skip_bytes(reader: Reader, count: Int) -> Result(Reader, ReaderError) {
   use count <- validate_count(count)
+  let offset = reader.offset
 
-  case reader.remaining {
-    <<_:bytes-size(count), rest:bytes>> ->
-      Ok(advance_reader(reader, count, rest))
+  case reader.bytes {
+    <<_:bytes-size(offset), _:bytes-size(count), _:bytes>> ->
+      Ok(advance_reader(reader, count))
 
     _ -> Error(eof_error(reader, count))
   }
@@ -96,9 +100,10 @@ pub fn skip_bytes(reader: Reader, count: Int) -> Result(Reader, ReaderError) {
 /// The reader position remains unchanged.
 pub fn peek_bytes(reader: Reader, count: Int) -> Result(BitArray, ReaderError) {
   use count <- validate_count(count)
+  let offset = reader.offset
 
-  case reader.remaining {
-    <<bytes:bytes-size(count), _:bytes>> -> Ok(bytes)
+  case reader.bytes {
+    <<_:bytes-size(offset), bytes:bytes-size(count), _:bytes>> -> Ok(bytes)
     _ -> Error(eof_error(reader, count))
   }
 }
@@ -112,10 +117,11 @@ pub fn take_bytes(
   count: Int,
 ) -> Result(#(Reader, Reader), ReaderError) {
   use count <- validate_count(count)
+  let offset = reader.offset
 
-  case reader.remaining {
-    <<bytes:bytes-size(count), rest:bytes>> ->
-      Ok(#(advance_reader(reader, count, rest), new(bytes)))
+  case reader.bytes {
+    <<_:bytes-size(offset), bytes:bytes-size(count), _:bytes>> ->
+      Ok(#(advance_reader(reader, count), new(bytes)))
 
     _ -> Error(eof_error(reader, count))
   }
@@ -169,10 +175,11 @@ fn read_uint_le(
   bits_needed: Int,
 ) -> Result(#(Reader, Int), ReaderError) {
   let bytes_needed = bits_needed / 8
+  let offset = reader.offset
 
-  case reader.remaining {
-    <<i:unsigned-little-size(bits_needed), rest:bytes>> ->
-      Ok(#(advance_reader(reader, bytes_needed, rest), i))
+  case reader.bytes {
+    <<_:bytes-size(offset), i:unsigned-little-size(bits_needed), _:bytes>> ->
+      Ok(#(advance_reader(reader, bytes_needed), i))
 
     _ -> Error(eof_error(reader, bytes_needed))
   }
@@ -184,10 +191,11 @@ fn read_int_le(
   bits_needed: Int,
 ) -> Result(#(Reader, Int), ReaderError) {
   let bytes_needed = bits_needed / 8
+  let offset = reader.offset
 
-  case reader.remaining {
-    <<i:signed-little-size(bits_needed), rest:bytes>> ->
-      Ok(#(advance_reader(reader, bytes_needed, rest), i))
+  case reader.bytes {
+    <<_:bytes-size(offset), i:signed-little-size(bits_needed), _:bytes>> ->
+      Ok(#(advance_reader(reader, bytes_needed), i))
 
     _ -> Error(eof_error(reader, bytes_needed))
   }
