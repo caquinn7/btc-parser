@@ -97,6 +97,18 @@ pub fn read_bytes_reads_bytes_when_exact_count_test() {
   assert reader.get_remaining(reader) == <<>>
 }
 
+pub fn read_bytes_rejects_non_byte_aligned_input_test() {
+  let reader = reader.new(<<0xAB, 1:size(1)>>)
+
+  assert reader.read_bytes(reader, 0)
+    == Error(UnexpectedEof(bytes_needed: 0, remaining: 2))
+
+  assert reader.read_bytes(reader, 1)
+    == Error(UnexpectedEof(bytes_needed: 1, remaining: 2))
+
+  assert reader.get_offset(reader) == 0
+}
+
 // skip_bytes
 
 pub fn skip_bytes_returns_invalid_read_count_when_count_is_negative_test() {
@@ -197,18 +209,6 @@ pub fn peek_bytes_can_peek_same_bytes_multiple_times_test() {
 
   assert bytes1 == <<0xAA, 0xBB>>
   assert bytes2 == <<0xAA, 0xBB>>
-  assert reader.get_offset(reader) == 0
-}
-
-pub fn read_bytes_rejects_non_byte_aligned_input_test() {
-  let reader = reader.new(<<0xAB, 1:size(1)>>)
-
-  assert reader.read_bytes(reader, 0)
-    == Error(UnexpectedEof(bytes_needed: 0, remaining: 2))
-
-  assert reader.read_bytes(reader, 1)
-    == Error(UnexpectedEof(bytes_needed: 1, remaining: 2))
-
   assert reader.get_offset(reader) == 0
 }
 
