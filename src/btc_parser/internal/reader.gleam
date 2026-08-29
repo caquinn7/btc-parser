@@ -41,7 +41,7 @@ pub fn get_remaining(reader: Reader) -> BitArray {
   // successful match proves enough complete bytes remain. Reader construction
   // guarantees the bits suffix is byte-aligned.
   let offset = reader.offset
-  let assert <<_:bytes-size(offset), remaining:bits>> = reader.bytes
+  let assert <<_:bytes-size(offset), remaining:bytes>> = reader.bytes
   remaining
 }
 
