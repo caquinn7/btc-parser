@@ -250,9 +250,7 @@ fn mutate(seed_block: SeedBlock, rng: Rng) -> #(MutatedBlock, Rng) {
 }
 
 fn mainnet_pow_limit() -> PowLimit {
-  let least_significant_bytes = bit_array.concat(list.repeat(<<0xFF>>, 28))
-  let assert Ok(pow_limit) =
-    block.new_pow_limit(<<least_significant_bytes:bits, 0:32>>)
+  let assert Ok(pow_limit) = block.new_pow_limit(<<0:208, 0xFF, 0xFF, 0:32>>)
 
   pow_limit
 }
