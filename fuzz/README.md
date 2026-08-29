@@ -1,21 +1,21 @@
-# Fuzz Testing Purpose - `btc_parser/transaction`
+# Fuzz Testing Purpose - `btc_parser`
 
 ## Overview
 
-The purpose of fuzz testing in the `btc_parser/transaction` module is to check
-that the transaction parser and immediately related inspection APIs handle
-mutated transaction bytes without unhandled exceptions.
+The purpose of fuzz testing is to check that the transaction and block parsers,
+plus their immediately related inspection APIs, handle mutated wire bytes
+without unhandled exceptions.
 
 The harness is a standalone private Gleam project in `fuzz/`. It consumes
-`btc_parser` through the library's public API and currently contains only the
-transaction workload.
+`btc_parser` through the library's public API. It contains transaction and
+staged block workloads; the CLI currently runs transactions only.
 
 This includes malformed, adversarial, and edge-case data, not just valid Bitcoin
 transactions.
 
 > **Core Goal:**  
 > Catch unhandled exceptions while deserializing, validating, inspecting,
-> serializing, and hashing mutated transaction input. Malformed input should
+> serializing, and hashing mutated input. Malformed input should
 > return `Result` errors from the library, not crash the process.
 
 The harness is not a semantic oracle. It does not verify that every malformed
@@ -24,7 +24,7 @@ successfully deserialized mutated transaction is semantically "correct." Focused
 tests cover exact error shapes and consensus-validation behavior.
 
 The harness does enforce one structural oracle: every successfully deserialized
-transaction must serialize back to its exact original wire bytes.
+value must serialize back to its exact original wire bytes.
 
 ---
 
@@ -79,10 +79,10 @@ a Park-Miller RNG state before fuzzing starts. The accepted CLI seed range is
 `1..2_147_483_646`; this means aliases such as `0` and `1` can intentionally
 produce the same trace.
 
-The report includes the iteration count, initial RNG state, trace hash, elapsed
-time, failure count, and details for each rescued exception. A failure record
-includes the iteration number, seed transaction txid, mutation name, mutated
-transaction hex, and exception.
+The transaction CLI report includes the iteration count, initial RNG state,
+trace hash, elapsed time, failure count, and details for each rescued exception.
+A failure record includes the iteration number, seed transaction txid, mutation
+name, mutated transaction hex, and exception.
 
 The command exits with a nonzero status when its arguments are invalid or the
 report contains any rescued exceptions, so CI treats an unsuccessful fuzz run
@@ -231,3 +231,15 @@ transaction inspection APIs by:
 > iteration, and mutated hex.
 
 ---
+
+## Staged Block Suite
+
+`fuzz/src/btc_parser_fuzz/block/suite.gleam` stages the corresponding block
+workload. Its standalone corpus is `fuzz/corpus/block/seed_blocks.txt`, with
+`display_block_hash|codes|raw_hex` records and labels documented in
+`fuzz/corpus/block/seed_blocks_codes.txt`. It covers a single legacy coinbase,
+multiple legacy transactions, and mixed legacy/SegWit transactions with
+odd-width Merkle levels.
+
+The suite is not dispatched by the CLI yet, so the documented commands above
+continue to execute the transaction workload only.

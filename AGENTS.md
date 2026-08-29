@@ -57,9 +57,11 @@ changes.
   `fuzz/src/btc_parser_fuzz/fuzz_result.gleam` and
   `fuzz/src/btc_parser_fuzz/report.gleam` own suite-neutral result data and
   reporting, `fuzz/src/btc_parser_fuzz/transaction/` owns the transaction
-  suite and its failure formatter, `fuzz/src/btc_parser_fuzz/internal/` contains
-  the RNG and trace utilities, and `fuzz/corpus/transaction/` contains the seed
-  corpus.
+  suite and its failure formatter, `fuzz/src/btc_parser_fuzz/block/` stages the
+  block suite and its failure formatter for later CLI dispatch,
+  `fuzz/src/btc_parser_fuzz/internal/` contains the RNG and trace utilities, and
+  `fuzz/corpus/transaction/` and `fuzz/corpus/block/` contain the respective
+  seed corpora.
 - `benchmarks/` is an independent Gleam project that consumes `btc_parser`
   through its public API. `benchmarks/src/btc_parser_benchmarks/transaction/`
   and `benchmarks/src/btc_parser_benchmarks/block/` contain domain-specific

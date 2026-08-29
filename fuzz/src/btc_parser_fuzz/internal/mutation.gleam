@@ -8,9 +8,8 @@ import gleam/list
 /// random, and apply a targeted mutation to it.
 ///
 /// Fuzzing purpose:
-/// - Targets length-prefixed fields (input/output counts, script lengths, and
-///   witness item lengths)
-///   throughout the transaction without requiring structural knowledge of the format
+/// - Targets length-prefixed fields throughout the encoded value without requiring
+///   structural knowledge of the format
 /// - Non-minimal encoding directly targets a protocol rule the parser must enforce
 /// - Preserves enough surrounding structure that malformed inputs are likely to reach
 ///   inner parsing logic rather than being rejected at a boundary check
@@ -225,11 +224,11 @@ fn encode_compact_size(value: Int) -> BitArray {
 /// Intended behavior:
 /// - Return a prefix of the original bytes
 /// - May remove part of a field, part of a CompactSize value, or the tail of the
-///   transaction entirely
+///   encoded value entirely
 ///
 /// Fuzzing purpose:
 /// - Exercise truncated-input handling
-/// - Verify the parser fails cleanly on incomplete transactions
+/// - Verify the parser fails cleanly on incomplete values
 /// - Good for boundary checks and "unexpected EOF" style paths
 pub fn truncate(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let length = bit_array.byte_size(bytes)
@@ -243,7 +242,8 @@ pub fn truncate(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
 /// Replace 1–3 bytes at random positions with random replacement values.
 ///
 /// Fuzzing purpose:
-/// - Targets byte-level fields throughout the transaction: opcodes, varints, txids, amounts, and length prefixes
+/// - Targets byte-level fields such as opcodes, varints, hashes, amounts, and
+///   length prefixes
 /// - Likely to hit many distinct parser paths per iteration
 /// - Complementary to `FlipBits`: operates at byte granularity, producing more disruptive changes
 pub fn flip_bytes(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
@@ -328,7 +328,7 @@ fn xor_byte_at(bytes: BitArray, offset: Int, mask: Int) -> BitArray {
 /// Fuzzing purpose:
 /// - Shift alignment of everything that follows
 /// - Useful for stressing parsers that rely on precise field boundaries
-/// - Can create leftover trailing bytes, bogus lengths, or witness/script misalignment
+/// - Can create leftover trailing bytes, bogus lengths, or nested-field misalignment
 pub fn insert_bytes(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let length = bit_array.byte_size(bytes)
 
@@ -354,8 +354,8 @@ pub fn insert_bytes(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
 ///
 /// Fuzzing purpose:
 /// - Create internal truncation rather than only tail truncation
-/// - Good for breaking field completeness while keeping the rest of the tx present
-/// - Useful for malformed scripts, missing witness bytes, or chopped varints
+/// - Good for breaking field completeness while keeping the rest of the value present
+/// - Useful for malformed nested fields, missing payload bytes, or chopped varints
 pub fn delete_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let length = bit_array.byte_size(bytes)
   use <- bool.guard(length <= 1, #(bytes, rng))
@@ -377,10 +377,10 @@ pub fn delete_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
 /// insert the copy at a separate random position in the output.
 ///
 /// Fuzzing purpose:
-/// - The copied bytes are structurally plausible (drawn from a real transaction), so
+/// - The copied bytes are structurally plausible (drawn from a real seed value), so
 ///   mutations are more likely to pass early rejection and reach inner parsing logic
-/// - Useful for triggering count/length mismatches between declared and actual input/output counts
-/// - Can produce inflated witness stacks, repeated script fragments, or duplicated field regions
+/// - Useful for triggering count/length mismatches between declared and actual fields
+/// - Can produce repeated payload fragments or duplicated field regions
 pub fn duplicate_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let length = bit_array.byte_size(bytes)
   use <- bool.guard(length == 0, #(bytes, rng))
@@ -411,8 +411,8 @@ pub fn duplicate_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
 /// Fuzzing purpose:
 /// - Destroy local meaning without changing offsets
 /// - Useful when you want corruption but do not want global re-alignment effects
-/// - Good for txids, values, sequence numbers, scripts, and witness payloads
-/// - Can expose zero-value edge cases: zero amounts, zeroed txids (as in coinbase inputs), or empty scripts
+/// - Good for hashes, numeric fields, and encoded payloads
+/// - Can expose zero-value edge cases such as zeroed numeric fields or empty payloads
 pub fn zero_span(bytes: BitArray, rng: Rng) -> #(BitArray, Rng) {
   let length = bit_array.byte_size(bytes)
   use <- bool.guard(length == 0, #(bytes, rng))
