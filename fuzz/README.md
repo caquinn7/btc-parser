@@ -144,9 +144,22 @@ levels.
 Both registries begin with truncation, byte flips, bit flips, byte insertion,
 span deletion, span duplication, and zeroing. The transaction registry then
 adds SegWit marker/flag mutation followed by heuristic CompactSize mutation. The
-block registry instead adds heuristic CompactSize mutation followed by
-transaction-count CompactSize mutation at byte offset 80. These orders are fixed
-because they are part of deterministic trace replay.
+block registry instead adds heuristic CompactSize mutation and transaction-count
+CompactSize mutation at byte offset 80, then contained-transaction mutation,
+count-adjusted transaction removal, and count-adjusted transaction duplication.
+These orders are fixed because they are part of deterministic trace replay.
+
+Contained-transaction mutation selects one transaction uniformly and applies
+truncation, byte flips, bit flips, byte insertion, span deletion, span
+duplication, zeroing, or heuristic CompactSize mutation to its complete wire
+serialization. It keeps the enclosing block count unchanged, so a
+deserialization error remains a clean outcome. Removal and duplication select a
+transaction uniformly, remove it or insert an exact copy immediately after it,
+and minimally rewrite the block transaction count. They are structurally valid
+block encodings and therefore must deserialize successfully when they remain
+within the default decode policy, although the unchanged header Merkle root can
+make consensus validation fail cleanly. Blocks with no transactions omit these
+three structure-aware strategies.
 
 The harness does not measure allocations, enforce timeouts, or treat elapsed
 time as a failure condition. The library's default decode policy remains active.

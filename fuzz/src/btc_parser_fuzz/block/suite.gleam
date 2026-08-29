@@ -5,7 +5,10 @@
 //// either a successful operation or a defined error, never an unhandled
 //// exception.
 
-import btc_parser/block.{type PowLimit}
+import btc_parser/block.{
+  type PowLimit, MaxBlockSize, MaxTransactionCount, PolicyLimitExceeded,
+}
+import btc_parser/transaction
 import btc_parser_fuzz/fuzz_result.{type FuzzResult, FuzzResult}
 import btc_parser_fuzz/internal/mutation
 import btc_parser_fuzz/internal/rng.{type Rng}
@@ -74,6 +77,54 @@ pub type Mutation {
   MutateCompactSizeCandidate
   /// Mutate the block transaction-count CompactSize at byte offset 80.
   MutateTransactionCount
+  /// Mutate one complete transaction while leaving the enclosing block structure.
+  MutateContainedTransaction(Int, ContainedTransactionMutation)
+  /// Remove one complete transaction and decrement the encoded transaction count.
+  RemoveTransaction(Int)
+  /// Duplicate one complete transaction and increment the encoded transaction count.
+  DuplicateTransaction(Int)
+}
+
+/// Byte-level mutation applied to one transaction contained in a block.
+pub type ContainedTransactionMutation {
+  /// Cut the contained transaction at a random position and discard the tail.
+  ContainedTruncate
+  /// Replace a small number of contained-transaction bytes with random values.
+  ContainedFlipBytes
+  /// Toggle a small number of individual contained-transaction bits.
+  ContainedFlipBits
+  /// Insert a short random byte sequence into the contained transaction.
+  ContainedInsertBytes
+  /// Remove a short contiguous byte span from the contained transaction.
+  ContainedDeleteSpan
+  /// Copy a short contained-transaction byte span and insert the copy elsewhere.
+  ContainedDuplicateSpan
+  /// Replace a short contained-transaction byte span with zero bytes.
+  ContainedZeroSpan
+  /// Mutate a heuristic CompactSize candidate in the contained transaction.
+  ContainedMutateCompactSizeCandidate
+}
+
+/// Trusted corpus data prepared once before the fuzz loop starts.
+///
+/// This representation keeps only public-API-derived transaction boundaries,
+/// so structure-aware mutations do not need to reparse the corpus block.
+type PreparedSeedBlock {
+  PreparedSeedBlock(
+    seed_block: SeedBlock,
+    transaction_count: Int,
+    transaction_count_width: Int,
+    header_and_count_prefix: BitArray,
+    transaction_bytes: List(BitArray),
+  )
+}
+
+/// An entry in the fixed mutation registry.
+type MutationStrategy {
+  WholeBlockMutation(Mutation, fn(BitArray, Rng) -> #(BitArray, Rng))
+  ContainedTransactionStrategy
+  RemoveTransactionStrategy
+  DuplicateTransactionStrategy
 }
 
 /// Runs the block fuzz harness and returns failures plus reproducibility metadata.
@@ -84,10 +135,11 @@ pub fn run(
 ) -> FuzzResult(IterationFailure) {
   let rng_state = rng.state(rng)
   let pow_limit = mainnet_pow_limit()
+  let prepared_seed_blocks = prepare_seed_blocks(seed_blocks)
 
   let #(failures, trace) =
     run_iterations(
-      seed_blocks,
+      prepared_seed_blocks,
       iteration_count,
       1,
       [],
@@ -138,7 +190,7 @@ pub fn iteration_failure_to_string(failure: IterationFailure) -> String {
 }
 
 fn run_iterations(
-  blocks: List(SeedBlock),
+  blocks: List(PreparedSeedBlock),
   remaining: Int,
   iteration: Int,
   acc: List(IterationFailure),
@@ -149,13 +201,18 @@ fn run_iterations(
   case remaining == 0 {
     True -> #(acc, trace)
     False -> {
-      let assert Ok(#(seed_block, rng)) = rng.sample_one(rng, from: blocks)
-      let #(mutated_block, rng) = mutate(seed_block, rng)
+      let assert Ok(#(prepared_seed_block, rng)) =
+        rng.sample_one(rng, from: blocks)
+      let #(mutated_block, rng) = mutate(prepared_seed_block, rng)
       let trace = trace.update(trace, mutated_block.bytes)
 
       let iteration_result =
         exception.rescue(fn() {
-          run_deserialize(mutated_block.bytes, pow_limit)
+          run_deserialize(
+            mutated_block.bytes,
+            mutated_block.mutation,
+            pow_limit,
+          )
         })
 
       let acc = case iteration_result {
@@ -184,7 +241,11 @@ fn run_iterations(
   }
 }
 
-fn run_deserialize(mutated_block_bytes: BitArray, pow_limit: PowLimit) -> Nil {
+fn run_deserialize(
+  mutated_block_bytes: BitArray,
+  selected_mutation: Mutation,
+  pow_limit: PowLimit,
+) -> Nil {
   case block.deserialize(mutated_block_bytes) {
     Ok(parsed_block) -> {
       let _ = block.validate_context_free_consensus(parsed_block, pow_limit)
@@ -197,9 +258,8 @@ fn run_deserialize(mutated_block_bytes: BitArray, pow_limit: PowLimit) -> Nil {
       let _ = block.get_header_target(header)
       let _ = block.get_header_nonce(header)
 
-      let transactions = block.get_transactions(parsed_block)
-      assert block.get_transaction_count(parsed_block)
-        == list.length(transactions)
+      let txs = block.get_transactions(parsed_block)
+      assert block.get_transaction_count(parsed_block) == list.length(txs)
 
       let base_size = block.compute_base_size(parsed_block)
       let total_size = block.compute_total_size(parsed_block)
@@ -220,37 +280,297 @@ fn run_deserialize(mutated_block_bytes: BitArray, pow_limit: PowLimit) -> Nil {
       Nil
     }
 
-    Error(_) -> Nil
+    Error(error) -> {
+      let panic_msg =
+        "count-adjusted block mutation unexpectedly failed to deserialize: "
+        <> string.inspect(error)
+
+      case selected_mutation {
+        RemoveTransaction(_) -> panic as panic_msg
+
+        DuplicateTransaction(_) ->
+          case block.get_decode_error_kind(error) {
+            PolicyLimitExceeded(MaxBlockSize, _, _) -> Nil
+            PolicyLimitExceeded(MaxTransactionCount, _, _) -> Nil
+            _ -> panic as panic_msg
+          }
+
+        _ -> Nil
+      }
+    }
   }
 }
 
-fn mutate(seed_block: SeedBlock, rng: Rng) -> #(MutatedBlock, Rng) {
-  let mutations = [
-    #(Truncate, mutation.truncate),
-    #(FlipBytes, mutation.flip_bytes),
-    #(FlipBits, mutation.flip_bits),
-    #(InsertBytes, mutation.insert_bytes),
-    #(DeleteSpan, mutation.delete_span),
-    #(DuplicateSpan, mutation.duplicate_span),
-    #(ZeroSpan, mutation.zero_span),
-    #(
+fn prepare_seed_blocks(
+  seed_blocks: List(SeedBlock),
+) -> List(PreparedSeedBlock) {
+  list.map(seed_blocks, prepare_seed_block)
+}
+
+fn prepare_seed_block(seed_block: SeedBlock) -> PreparedSeedBlock {
+  let assert Ok(parsed_block) = block.deserialize(seed_block.bytes)
+  let transaction_count = block.get_transaction_count(parsed_block)
+  let transactions = block.get_transactions(parsed_block)
+  let transaction_bytes = list.map(transactions, transaction.serialize)
+  let transaction_count_width = compact_size_width(transaction_count)
+  let serialized_block = block.serialize(parsed_block)
+
+  assert transaction_count == list.length(transactions)
+  assert serialized_block == seed_block.bytes
+
+  let prefix_length = 80 + transaction_count_width
+  let assert Ok(header_and_count_prefix) =
+    bit_array.slice(seed_block.bytes, 0, prefix_length)
+  assert bit_array.concat([header_and_count_prefix, ..transaction_bytes])
+    == seed_block.bytes
+
+  PreparedSeedBlock(
+    seed_block:,
+    transaction_count:,
+    transaction_count_width:,
+    header_and_count_prefix:,
+    transaction_bytes:,
+  )
+}
+
+fn compact_size_width(value: Int) -> Int {
+  case value {
+    v if v < 0 -> panic as "transaction count cannot be negative"
+    v if v <= 252 -> 1
+    v if v <= 65_535 -> 3
+    v if v <= 4_294_967_295 -> 5
+    _ -> 9
+  }
+}
+
+fn mutate(
+  prepared_seed_block: PreparedSeedBlock,
+  rng: Rng,
+) -> #(MutatedBlock, Rng) {
+  let mutation_strategies = mutation_strategies(prepared_seed_block)
+  let assert Ok(#(mutation_strategy, rng)) =
+    rng.sample_one(rng, mutation_strategies)
+
+  case mutation_strategy {
+    WholeBlockMutation(mutation, mutation_fn) -> {
+      let #(block_bytes, rng) =
+        mutation_fn(prepared_seed_block.seed_block.bytes, rng)
+
+      #(
+        MutatedBlock(
+          seed_block: prepared_seed_block.seed_block,
+          mutation:,
+          bytes: block_bytes,
+        ),
+        rng,
+      )
+    }
+
+    ContainedTransactionStrategy ->
+      mutate_contained_transaction(prepared_seed_block, rng)
+
+    RemoveTransactionStrategy -> remove_transaction(prepared_seed_block, rng)
+
+    DuplicateTransactionStrategy ->
+      duplicate_transaction(prepared_seed_block, rng)
+  }
+}
+
+fn mutation_strategies(
+  prepared_seed_block: PreparedSeedBlock,
+) -> List(MutationStrategy) {
+  let whole_block_strategies = [
+    WholeBlockMutation(Truncate, mutation.truncate),
+    WholeBlockMutation(FlipBytes, mutation.flip_bytes),
+    WholeBlockMutation(FlipBits, mutation.flip_bits),
+    WholeBlockMutation(InsertBytes, mutation.insert_bytes),
+    WholeBlockMutation(DeleteSpan, mutation.delete_span),
+    WholeBlockMutation(DuplicateSpan, mutation.duplicate_span),
+    WholeBlockMutation(ZeroSpan, mutation.zero_span),
+    WholeBlockMutation(
       MutateCompactSizeCandidate,
       mutation.mutate_heuristic_compact_size_candidate,
     ),
-    #(MutateTransactionCount, fn(bytes, rng) {
+    WholeBlockMutation(MutateTransactionCount, fn(bytes, rng) {
       mutation.mutate_compact_size_at(bytes, 80, rng)
     }),
   ]
 
-  let assert Ok(#(#(mutation, mutation_fn), rng)) =
-    rng.sample_one(rng, mutations)
+  case prepared_seed_block.transaction_bytes {
+    [] -> whole_block_strategies
+    _ ->
+      list.append(whole_block_strategies, [
+        ContainedTransactionStrategy,
+        RemoveTransactionStrategy,
+        DuplicateTransactionStrategy,
+      ])
+  }
+}
 
-  let #(mutated_bytes, rng) = mutation_fn(seed_block.bytes, rng)
-  #(MutatedBlock(seed_block:, mutation:, bytes: mutated_bytes), rng)
+fn mutate_contained_transaction(
+  prepared_seed_block: PreparedSeedBlock,
+  rng: Rng,
+) -> #(MutatedBlock, Rng) {
+  let #(index, rng) = select_transaction_index(prepared_seed_block, rng)
+
+  let assert Ok(selected_tx_bytes) =
+    list.first(list.drop(prepared_seed_block.transaction_bytes, index))
+
+  let contained_mutations = [
+    #(ContainedTruncate, mutation.truncate),
+    #(ContainedFlipBytes, mutation.flip_bytes),
+    #(ContainedFlipBits, mutation.flip_bits),
+    #(ContainedInsertBytes, mutation.insert_bytes),
+    #(ContainedDeleteSpan, mutation.delete_span),
+    #(ContainedDuplicateSpan, mutation.duplicate_span),
+    #(ContainedZeroSpan, mutation.zero_span),
+    #(
+      ContainedMutateCompactSizeCandidate,
+      mutation.mutate_heuristic_compact_size_candidate,
+    ),
+  ]
+
+  let assert Ok(#(#(contained_mutation, contained_mutation_fn), rng)) =
+    rng.sample_one(rng, contained_mutations)
+
+  let #(mutated_tx_bytes, rng) = contained_mutation_fn(selected_tx_bytes, rng)
+
+  let updated_txs_bytes =
+    edit_transaction_bytes(prepared_seed_block.transaction_bytes, index, fn(_) {
+      [mutated_tx_bytes]
+    })
+
+  let block_bytes =
+    rebuild_block(
+      prepared_seed_block.header_and_count_prefix,
+      updated_txs_bytes,
+    )
+
+  #(
+    MutatedBlock(
+      seed_block: prepared_seed_block.seed_block,
+      mutation: MutateContainedTransaction(index, contained_mutation),
+      bytes: block_bytes,
+    ),
+    rng,
+  )
+}
+
+fn remove_transaction(
+  prepared_seed_block: PreparedSeedBlock,
+  rng: Rng,
+) -> #(MutatedBlock, Rng) {
+  let #(index, rng) = select_transaction_index(prepared_seed_block, rng)
+  let tx_bytes =
+    edit_transaction_bytes(prepared_seed_block.transaction_bytes, index, fn(_) {
+      []
+    })
+  let header_and_count_prefix =
+    rewrite_transaction_count(
+      prepared_seed_block,
+      prepared_seed_block.transaction_count - 1,
+    )
+  let block_bytes = rebuild_block(header_and_count_prefix, tx_bytes)
+
+  #(
+    MutatedBlock(
+      seed_block: prepared_seed_block.seed_block,
+      mutation: RemoveTransaction(index),
+      bytes: block_bytes,
+    ),
+    rng,
+  )
+}
+
+fn duplicate_transaction(
+  prepared_seed_block: PreparedSeedBlock,
+  rng: Rng,
+) -> #(MutatedBlock, Rng) {
+  let #(index, rng) = select_transaction_index(prepared_seed_block, rng)
+  let tx_bytes =
+    edit_transaction_bytes(
+      prepared_seed_block.transaction_bytes,
+      index,
+      fn(bytes) { [bytes, bytes] },
+    )
+  let header_and_count_prefix =
+    rewrite_transaction_count(
+      prepared_seed_block,
+      prepared_seed_block.transaction_count + 1,
+    )
+  let block_bytes = rebuild_block(header_and_count_prefix, tx_bytes)
+
+  #(
+    MutatedBlock(
+      seed_block: prepared_seed_block.seed_block,
+      mutation: DuplicateTransaction(index),
+      bytes: block_bytes,
+    ),
+    rng,
+  )
+}
+
+fn select_transaction_index(
+  prepared_seed_block: PreparedSeedBlock,
+  rng: Rng,
+) -> #(Int, Rng) {
+  assert prepared_seed_block.transaction_count > 0
+  rng.next_bounded(rng, prepared_seed_block.transaction_count)
+}
+
+fn rewrite_transaction_count(
+  prepared_seed_block: PreparedSeedBlock,
+  tx_count: Int,
+) -> BitArray {
+  mutation.rewrite_compact_size(
+    prepared_seed_block.header_and_count_prefix,
+    mutation.CompactSizeCandidate(
+      start: 80,
+      width: prepared_seed_block.transaction_count_width,
+      value: prepared_seed_block.transaction_count,
+    ),
+    tx_count,
+  )
+}
+
+fn rebuild_block(
+  header_and_count_prefix: BitArray,
+  txs_bytes: List(BitArray),
+) -> BitArray {
+  bit_array.concat([header_and_count_prefix, ..txs_bytes])
+}
+
+fn edit_transaction_bytes(
+  txs_bytes: List(BitArray),
+  index: Int,
+  edit: fn(BitArray) -> List(BitArray),
+) -> List(BitArray) {
+  edit_transaction_bytes_loop(txs_bytes, index, 0, edit, [])
+}
+
+fn edit_transaction_bytes_loop(
+  txs_bytes: List(BitArray),
+  index: Int,
+  current_index: Int,
+  edit: fn(BitArray) -> List(BitArray),
+  acc: List(BitArray),
+) -> List(BitArray) {
+  case txs_bytes {
+    [] -> list.reverse(acc)
+
+    [bytes, ..rest] -> {
+      let acc = case current_index == index {
+        True ->
+          list.fold(edit(bytes), acc, fn(acc, tx_bytes) { [tx_bytes, ..acc] })
+
+        False -> [bytes, ..acc]
+      }
+      edit_transaction_bytes_loop(rest, index, current_index + 1, edit, acc)
+    }
+  }
 }
 
 fn mainnet_pow_limit() -> PowLimit {
   let assert Ok(pow_limit) = block.new_pow_limit(<<0:208, 0xFF, 0xFF, 0:32>>)
-
   pow_limit
 }
