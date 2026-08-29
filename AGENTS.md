@@ -57,8 +57,8 @@ changes.
   `fuzz/src/btc_parser_fuzz/fuzz_result.gleam` and
   `fuzz/src/btc_parser_fuzz/report.gleam` own suite-neutral result data and
   reporting, `fuzz/src/btc_parser_fuzz/transaction/` owns the transaction
-  suite and its failure formatter, `fuzz/src/btc_parser_fuzz/block/` stages the
-  block suite and its failure formatter for later CLI dispatch,
+  suite and its failure formatter, `fuzz/src/btc_parser_fuzz/block/` owns the
+  block suite and its failure formatter,
   `fuzz/src/btc_parser_fuzz/internal/` contains the RNG and trace utilities, and
   `fuzz/corpus/transaction/` and `fuzz/corpus/block/` contain the respective
   seed corpora.
@@ -112,7 +112,8 @@ Use these terms consistently across the public API and internal implementation:
 - `gleam test -t javascript --runtime bun` - run the test suite on JavaScript
   using Bun.
 - See `fuzz/README.md` for fuzz commands, seed replay, scope, and target/runtime
-  guidance. Run the default target with `./fuzz/run -- <iterations> [seed]`;
+  guidance. Run a selected suite with
+  `./fuzz/run -- <suite> <iterations> [seed]`;
   Gleam target and runtime options go before `--`.
 - See `benchmarks/README.md` for performance commands, report formats,
   benchmark coverage, and target/runtime guidance. Run the complete suite with
@@ -255,10 +256,11 @@ file/timer/CLI behavior, or a runtime-specific bug.
   SHA-256 comparisons and round-trip checks.
 - For script classification, test exact byte templates plus near misses that
   should be `NonStandard` or `UnknownWitnessProgram`.
-- Run the transaction fuzz harness after changes to shared byte-level parsing,
-  CompactSize handling, reader/parser internals, or transaction decode policy
-  enforcement. Use `./fuzz/run -- <iterations> [seed]` with an explicit seed, or
-  record the generated seed from the output, so any failure can be reproduced.
+- Run both fuzz suites after changes to shared byte-level parsing, CompactSize
+  handling, reader/parser internals, or transaction or block decode policy
+  enforcement. Use `./fuzz/run -- transaction <iterations> [seed]` and
+  `./fuzz/run -- block <iterations> [seed]` with an explicit seed, or record the
+  generated seed from the output, so any failure can be reproduced.
   Record the failing seed/hex if a crash or hang is found.
 - Run the standalone benchmark harness after performance-sensitive changes to
   shared decode infrastructure, transaction behavior, or block behavior. Use

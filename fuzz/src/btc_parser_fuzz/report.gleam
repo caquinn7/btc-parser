@@ -5,11 +5,14 @@ import gleam/string
 
 pub fn to_string(
   fuzz_result: FuzzResult(failure),
+  suite_name: String,
   elapsed_ms: Int,
   failure_to_string: fn(failure) -> String,
 ) -> String {
   let header =
-    "iterations: "
+    "suite: "
+    <> suite_name
+    <> "\niterations: "
     <> int.to_string(fuzz_result.iteration_count)
     <> "\ninitial rng state: "
     <> int.to_string(fuzz_result.initial_rng_state)
