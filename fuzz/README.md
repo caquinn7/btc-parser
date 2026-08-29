@@ -146,8 +146,9 @@ span deletion, span duplication, and zeroing. The transaction registry then
 adds SegWit marker/flag mutation followed by heuristic CompactSize mutation. The
 block registry instead adds heuristic CompactSize mutation and transaction-count
 CompactSize mutation at byte offset 80, then contained-transaction mutation,
-count-adjusted transaction removal, and count-adjusted transaction duplication.
-These orders are fixed because they are part of deterministic trace replay.
+count-adjusted transaction removal, count-adjusted transaction duplication, and
+transaction swapping. These orders are fixed because they are part of
+deterministic trace replay.
 
 Contained-transaction mutation selects one transaction uniformly and applies
 truncation, byte flips, bit flips, byte insertion, span deletion, span
@@ -158,8 +159,13 @@ transaction uniformly, remove it or insert an exact copy immediately after it,
 and minimally rewrite the block transaction count. They are structurally valid
 block encodings and therefore must deserialize successfully when they remain
 within the default decode policy, although the unchanged header Merkle root can
-make consensus validation fail cleanly. Blocks with no transactions omit these
-three structure-aware strategies.
+make consensus validation fail cleanly. Swapping selects two distinct
+transaction indexes and records them in ascending order, then exchanges their
+complete wire serializations without changing the header, transaction count, or
+block size. It is structurally valid and must deserialize successfully; its
+Merkle root or coinbase ordering can still cause a clean consensus-validation
+failure. Blocks with no transactions omit the first three structure-aware
+strategies, and blocks with fewer than two transactions omit swapping.
 
 The harness does not measure allocations, enforce timeouts, or treat elapsed
 time as a failure condition. The library's default decode policy remains active.

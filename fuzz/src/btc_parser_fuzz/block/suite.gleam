@@ -83,6 +83,8 @@ pub type Mutation {
   RemoveTransaction(Int)
   /// Duplicate one complete transaction and increment the encoded transaction count.
   DuplicateTransaction(Int)
+  /// Exchange two complete transactions while preserving the encoded count.
+  SwapTransactions(Int, Int)
 }
 
 /// Byte-level mutation applied to one transaction contained in a block.
@@ -125,6 +127,7 @@ type MutationStrategy {
   ContainedTransactionStrategy
   RemoveTransactionStrategy
   DuplicateTransactionStrategy
+  SwapTransactionsStrategy
 }
 
 /// Runs the block fuzz harness and returns failures plus reproducibility metadata.
@@ -282,11 +285,13 @@ fn run_deserialize(
 
     Error(error) -> {
       let panic_msg =
-        "count-adjusted block mutation unexpectedly failed to deserialize: "
+        "structure-aware block mutation unexpectedly failed to deserialize: "
         <> string.inspect(error)
 
       case selected_mutation {
         RemoveTransaction(_) -> panic as panic_msg
+
+        SwapTransactions(_, _) -> panic as panic_msg
 
         DuplicateTransaction(_) ->
           case block.get_decode_error_kind(error) {
@@ -373,6 +378,8 @@ fn mutate(
 
     DuplicateTransactionStrategy ->
       duplicate_transaction(prepared_seed_block, rng)
+
+    SwapTransactionsStrategy -> swap_transactions(prepared_seed_block, rng)
   }
 }
 
@@ -398,11 +405,18 @@ fn mutation_strategies(
 
   case prepared_seed_block.transaction_bytes {
     [] -> whole_block_strategies
-    _ ->
+    [_] ->
       list.append(whole_block_strategies, [
         ContainedTransactionStrategy,
         RemoveTransactionStrategy,
         DuplicateTransactionStrategy,
+      ])
+    [_, ..] ->
+      list.append(whole_block_strategies, [
+        ContainedTransactionStrategy,
+        RemoveTransactionStrategy,
+        DuplicateTransactionStrategy,
+        SwapTransactionsStrategy,
       ])
   }
 }
@@ -510,12 +524,64 @@ fn duplicate_transaction(
   )
 }
 
+fn swap_transactions(
+  prepared_seed_block: PreparedSeedBlock,
+  rng: Rng,
+) -> #(MutatedBlock, Rng) {
+  let #(#(first_index, second_index), rng) =
+    select_transaction_indexes(prepared_seed_block, rng)
+  let assert Ok(first_tx_bytes) =
+    list.first(list.drop(prepared_seed_block.transaction_bytes, first_index))
+  let assert Ok(second_tx_bytes) =
+    list.first(list.drop(prepared_seed_block.transaction_bytes, second_index))
+  let tx_bytes =
+    swap_transaction_bytes(
+      prepared_seed_block.transaction_bytes,
+      first_index,
+      first_tx_bytes,
+      second_index,
+      second_tx_bytes,
+    )
+  let block_bytes =
+    rebuild_block(prepared_seed_block.header_and_count_prefix, tx_bytes)
+
+  #(
+    MutatedBlock(
+      seed_block: prepared_seed_block.seed_block,
+      mutation: SwapTransactions(first_index, second_index),
+      bytes: block_bytes,
+    ),
+    rng,
+  )
+}
+
 fn select_transaction_index(
   prepared_seed_block: PreparedSeedBlock,
   rng: Rng,
 ) -> #(Int, Rng) {
   assert prepared_seed_block.transaction_count > 0
   rng.next_bounded(rng, prepared_seed_block.transaction_count)
+}
+
+fn select_transaction_indexes(
+  prepared_seed_block: PreparedSeedBlock,
+  rng: Rng,
+) -> #(#(Int, Int), Rng) {
+  assert prepared_seed_block.transaction_count >= 2
+
+  let #(first_index, rng) =
+    rng.next_bounded(rng, prepared_seed_block.transaction_count)
+  let #(second_index, rng) =
+    rng.next_bounded(rng, prepared_seed_block.transaction_count - 1)
+  let second_index = case second_index >= first_index {
+    True -> second_index + 1
+    False -> second_index
+  }
+
+  case first_index < second_index {
+    True -> #(#(first_index, second_index), rng)
+    False -> #(#(second_index, first_index), rng)
+  }
 }
 
 fn rewrite_transaction_count(
@@ -568,6 +634,22 @@ fn edit_transaction_bytes_loop(
       edit_transaction_bytes_loop(rest, index, current_index + 1, edit, acc)
     }
   }
+}
+
+fn swap_transaction_bytes(
+  txs_bytes: List(BitArray),
+  first_index: Int,
+  first_tx_bytes: BitArray,
+  second_index: Int,
+  second_tx_bytes: BitArray,
+) -> List(BitArray) {
+  list.index_map(txs_bytes, fn(bytes, index) {
+    case index {
+      _ if index == first_index -> second_tx_bytes
+      _ if index == second_index -> first_tx_bytes
+      _ -> bytes
+    }
+  })
 }
 
 fn mainnet_pow_limit() -> PowLimit {
