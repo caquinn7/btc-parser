@@ -38,6 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        suite: [transaction, block]
         include:
           - target: erlang
           - target: javascript
@@ -63,7 +64,7 @@ jobs:
         timeout-minutes: 5
         run: |
           if [ "${{ matrix.target }}" = "javascript" ]; then
-            ./fuzz/run --target javascript --runtime ${{ matrix.js_runtime }} -- transaction 100000 ${{ needs.seed.outputs.seed }}
+            ./fuzz/run --target javascript --runtime ${{ matrix.js_runtime }} -- ${{ matrix.suite }} 100000 ${{ needs.seed.outputs.seed }}
           else
-            ./fuzz/run --target erlang -- transaction 100000 ${{ needs.seed.outputs.seed }}
+            ./fuzz/run --target erlang -- ${{ matrix.suite }} 100000 ${{ needs.seed.outputs.seed }}
           fi
