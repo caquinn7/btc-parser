@@ -9,11 +9,11 @@ pub opaque type Rng {
 
 /// Creates a deterministic generator from an integer seed.
 pub fn new(seed: Int) -> Rng {
-  let s = seed % 2_147_483_647
-  let state = case s {
+  let seed_remainder = seed % 2_147_483_647
+  let state = case seed_remainder {
     0 -> 1
-    _ if s < 0 -> s + 2_147_483_647
-    _ -> s
+    _ if seed_remainder < 0 -> seed_remainder + 2_147_483_647
+    _ -> seed_remainder
   }
   Rng(state)
 }
