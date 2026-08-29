@@ -1,6 +1,7 @@
+import btc_parser_fuzz/fuzz_result.{type FuzzResult}
 import btc_parser_fuzz/internal/rng
-import btc_parser_fuzz/transaction/report
-import btc_parser_fuzz/transaction/suite.{type FuzzResult, type SeedTx}
+import btc_parser_fuzz/report
+import btc_parser_fuzz/transaction/suite.{type IterationFailure, type SeedTx}
 import gleam/crypto
 import gleam/int
 import gleam/io
@@ -124,7 +125,7 @@ pub fn run(command: Command) -> Result(Nil, Nil) {
   let #(fuzz_result, exec_time) = run_fuzz(seed_txs, iterations, rng)
 
   fuzz_result
-  |> report.to_string(exec_time)
+  |> report.to_string(exec_time, suite.iteration_failure_to_string)
   |> io.println
 
   case fuzz_result.failures {
@@ -140,7 +141,11 @@ fn read_seed_txs() -> List(SeedTx) {
   suite.parse_seed_txs(file_content)
 }
 
-fn run_fuzz(seed_txs, iteration_count, rng) -> #(FuzzResult, Int) {
+fn run_fuzz(
+  seed_txs,
+  iteration_count,
+  rng,
+) -> #(FuzzResult(IterationFailure), Int) {
   let start = monotonic_time_ms()
   let fuzz_result = suite.run(seed_txs, iteration_count, rng)
   let elapsed = monotonic_time_ms() - start

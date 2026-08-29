@@ -11,29 +11,16 @@
 ////  than being rejected at early boundary checks.
 
 import btc_parser/transaction
+import btc_parser_fuzz/fuzz_result.{type FuzzResult, FuzzResult}
 import btc_parser_fuzz/internal/mutation
 import btc_parser_fuzz/internal/rng.{type Rng}
 import btc_parser_fuzz/internal/trace.{type Trace}
 import exception.{type Exception}
 import gleam/bit_array
 import gleam/bool
+import gleam/int
 import gleam/list
 import gleam/string
-
-/// Results for one invocation of the fuzz harness.
-pub type FuzzResult {
-  FuzzResult(
-    /// Number of mutation iterations requested for the run.
-    iteration_count: Int,
-    /// RNG state captured before the first mutation is selected.
-    initial_rng_state: Int,
-    /// Hex-encoded, order-sensitive SHA-256 hash chain for all mutated inputs.
-    /// This acts as a compact fingerprint for reproducible runs.
-    trace_hash: String,
-    /// Unhandled exceptions rescued while exercising mutated inputs.
-    failures: List(IterationFailure),
-  )
-}
 
 /// Details for one fuzz iteration that raised an unhandled exception.
 pub type IterationFailure {
@@ -113,7 +100,7 @@ pub fn run(
   seed_txs: List(SeedTx),
   iteration_count: Int,
   rng: Rng,
-) -> FuzzResult {
+) -> FuzzResult(IterationFailure) {
   let rng_state = rng.state(rng)
 
   let #(failures, trace) =
@@ -147,6 +134,20 @@ pub fn parse_seed_txs(file_content: String) -> List(SeedTx) {
       _ -> Error(Nil)
     }
   })
+}
+
+/// Formats an iteration failure for the fuzz report.
+pub fn iteration_failure_to_string(failure: IterationFailure) -> String {
+  "  #"
+  <> int.to_string(failure.iteration)
+  <> "\n    seed_tx: "
+  <> failure.mutated_tx.seed_tx.txid
+  <> "\n    mutation: "
+  <> string.inspect(failure.mutated_tx.mutation)
+  <> "\n    hex: "
+  <> failure.mutated_tx_hex
+  <> "\n    exception: "
+  <> string.inspect(failure.exception)
 }
 
 fn run_iterations(

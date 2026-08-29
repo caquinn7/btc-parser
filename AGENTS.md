@@ -54,9 +54,12 @@ changes.
   validation.
 - `fuzz/` is an independent Gleam project that consumes `btc_parser` through its
   public API. `fuzz/src/btc_parser_fuzz.gleam` is its CLI entrypoint,
-  `fuzz/src/btc_parser_fuzz/transaction/` contains the transaction suite and
-  report, `fuzz/src/btc_parser_fuzz/internal/` contains the RNG and trace
-  utilities, and `fuzz/corpus/transaction/` contains the seed corpus.
+  `fuzz/src/btc_parser_fuzz/fuzz_result.gleam` and
+  `fuzz/src/btc_parser_fuzz/report.gleam` own suite-neutral result data and
+  reporting, `fuzz/src/btc_parser_fuzz/transaction/` owns the transaction
+  suite and its failure formatter, `fuzz/src/btc_parser_fuzz/internal/` contains
+  the RNG and trace utilities, and `fuzz/corpus/transaction/` contains the seed
+  corpus.
 - `benchmarks/` is an independent Gleam project that consumes `btc_parser`
   through its public API. `benchmarks/src/btc_parser_benchmarks/transaction/`
   and `benchmarks/src/btc_parser_benchmarks/block/` contain domain-specific
