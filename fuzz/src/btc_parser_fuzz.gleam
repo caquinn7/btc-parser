@@ -4,7 +4,11 @@ import gleam/io
 import gleam/string
 
 const usage_msg = "usage:
-  ./fuzz/run [GLEAM_OPTIONS] -- <iterations> [seed]"
+  ./fuzz/run [GLEAM_OPTIONS] -- <suite> <iterations> [seed]
+
+suites:
+  transaction
+  block"
 
 pub fn main() -> Nil {
   case command.parse(argv.load().arguments) {

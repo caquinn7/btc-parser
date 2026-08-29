@@ -1,233 +1,154 @@
-# Fuzz Testing Purpose - `btc_parser/transaction`
+# Fuzz Testing - `btc_parser`
 
 ## Overview
 
-The purpose of fuzz testing in the `btc_parser/transaction` module is to check
-that the transaction parser and immediately related inspection APIs handle
-mutated transaction bytes without unhandled exceptions.
+The standalone fuzz project exercises the public transaction and block APIs with
+mutated real mainnet wire bytes. Each run selects exactly one suite. Its goal is
+to find unhandled exceptions: malformed input should return a structured
+`Result` error, never crash the process.
 
-The harness is a standalone private Gleam project in `fuzz/`. It consumes
-`btc_parser` through the library's public API and currently contains only the
-transaction workload.
-
-This includes malformed, adversarial, and edge-case data, not just valid Bitcoin
-transactions.
-
-> **Core Goal:**  
-> Catch unhandled exceptions while deserializing, validating, inspecting,
-> serializing, and hashing mutated transaction input. Malformed input should
-> return `Result` errors from the library, not crash the process.
-
-The harness is not a semantic oracle. It does not verify that every malformed
-input returns a specific decode error kind, nor does it prove that every
-successfully deserialized mutated transaction is semantically "correct." Focused unit
-tests cover exact error shapes and consensus-validation behavior.
-
-The harness does enforce one structural oracle: every successfully deserialized
-transaction must serialize back to its exact original wire bytes.
-
----
+The harness is a robustness check, not a semantic oracle. It does not require a
+specific decode or validation error for every malformed input, and it does not
+prove every successful parse is a fully valid Bitcoin transaction or block.
+Focused library tests cover those exact behaviors.
 
 ## Commands
 
-The examples below run from the repository root. The wrapper resolves the fuzz
-project relative to its own location, so it can also be invoked by path from any
-working directory. Arguments before `--` belong to Gleam; arguments after `--`
-belong to the fuzz program.
+Run commands from the repository root. Arguments before `--` belong to Gleam;
+arguments after it belong to the fuzz program.
 
-Run the harness on the default target from `fuzz/gleam.toml`, which is Erlang:
+```text
+./fuzz/run [GLEAM_OPTIONS] -- <suite> <iterations> [seed]
 
-```sh
-./fuzz/run -- <iterations>
+suites:
+  transaction
+  block
 ```
 
-Run it on Erlang explicitly:
+Selectors are lowercase and exact. The former selector-less syntax is rejected;
+there are no aliases and no `all` selector.
+
+Run each suite on the default Erlang target:
 
 ```sh
-./fuzz/run -t erlang -- <iterations>
+./fuzz/run -- transaction <iterations>
+./fuzz/run -- block <iterations>
 ```
 
-Run it on JavaScript using the default JavaScript runtime from
-`fuzz/gleam.toml`, which is Node:
+Run each suite on Erlang explicitly:
 
 ```sh
-./fuzz/run -t javascript -- <iterations>
+./fuzz/run -t erlang -- transaction <iterations>
+./fuzz/run -t erlang -- block <iterations>
 ```
 
-Run it on a specific JavaScript runtime:
+Run each suite on the default JavaScript runtime from `fuzz/gleam.toml`:
 
 ```sh
-./fuzz/run -t javascript --runtime node -- <iterations>
-./fuzz/run -t javascript --runtime deno -- <iterations>
-./fuzz/run -t javascript --runtime bun -- <iterations>
+./fuzz/run -t javascript -- transaction <iterations>
+./fuzz/run -t javascript -- block <iterations>
 ```
 
-Run it with a specific seed to reproduce a previous run:
+Run either suite on a particular JavaScript runtime:
 
 ```sh
-./fuzz/run -t erlang -- <iterations> <seed>
-./fuzz/run -t javascript --runtime node -- <iterations> <seed>
+./fuzz/run -t javascript --runtime node -- transaction <iterations>
+./fuzz/run -t javascript --runtime node -- block <iterations>
+./fuzz/run -t javascript --runtime deno -- transaction <iterations>
+./fuzz/run -t javascript --runtime deno -- block <iterations>
+./fuzz/run -t javascript --runtime bun -- transaction <iterations>
+./fuzz/run -t javascript --runtime bun -- block <iterations>
 ```
 
-When no seed is provided, the harness generates one and prints it before the
-report. Record that seed when reporting a failure so the run can be replayed.
+Supply a seed to replay a run:
 
-Seed arguments are signed 32-bit integers, matching the range produced when the
-harness interprets four random seed bytes as an integer. Seeds are normalized to
-a Park-Miller RNG state before fuzzing starts. The accepted CLI seed range is
-`-2_147_483_648..2_147_483_647`, while the effective RNG state range is
-`1..2_147_483_646`; this means aliases such as `0` and `1` can intentionally
-produce the same trace.
+```sh
+./fuzz/run -t erlang -- transaction <iterations> <seed>
+./fuzz/run -t erlang -- block <iterations> <seed>
+./fuzz/run -t javascript --runtime node -- transaction <iterations> <seed>
+./fuzz/run -t javascript --runtime node -- block <iterations> <seed>
+```
 
-The report includes the iteration count, initial RNG state, trace hash, elapsed
-time, failure count, and details for each rescued exception. A failure record
-includes the iteration number, seed transaction txid, mutation name, mutated
-transaction hex, and exception.
+When no seed is supplied, the runner generates and prints one. Seed arguments
+are signed 32-bit integers. They are normalized to the Park-Miller RNG state
+range `1..2_147_483_646`, so aliases such as `0` and `1` intentionally produce
+the same trace.
 
-The command exits with a nonzero status when its arguments are invalid or the
-report contains any rescued exceptions, so CI treats an unsuccessful fuzz run
-as a failure.
+The command exits nonzero for invalid arguments or when the selected suite
+records a rescued exception. CI runs both suites on Erlang, Node, Deno, and Bun.
 
-The trace is an order-sensitive SHA-256 hash chain over the mutated inputs. Each
-iteration computes `SHA256(previous_trace || SHA256(mutated_input))`, starting
-from 32 zero bytes, so changing the order or repetition of inputs changes the
-reported trace.
+## Reports and Reproduction
 
----
+Every report begins with `suite: transaction` or `suite: block`, followed by
+the iteration count, initial RNG state, trace hash, elapsed time, and failure
+count. The trace is an order-sensitive SHA-256 hash chain over the mutated
+inputs, so the suite, seed, corpus ordering, mutation ordering, and iteration
+count reproduce the same inputs.
 
-## Primary Objectives
+Failure records retain the selected suite's vocabulary:
 
-### 1. Robustness Against Arbitrary Input
+- Transaction: `seed_tx`, `mutation`, `hex`, and `exception`.
+- Block: `seed_block`, `mutation`, `hex`, and `exception`.
 
-The parser operates on raw, potentially untrusted transaction bytes. On each
-iteration, the fuzz harness randomly selects one real seed transaction, randomly
-selects one mutation, and applies that mutation to the selected transaction.
+Record the suite, seed, iteration, and mutated hex whenever reporting a failure.
 
-Fuzz testing checks that:
+## Iteration Selection
 
-- `transaction.deserialize` handles mutated transaction bytes without unhandled
-  exceptions
-- Successfully deserialized transactions can flow through context-free consensus
-  validation, output script classification, serialization, txid, and wtxid APIs
-  without unhandled exceptions, regardless of the validation result
-- Successfully deserialized transactions serialize back to their exact input bytes
+After normalizing the supplied or generated seed, a run uses one deterministic
+Park-Miller RNG stream. On every iteration, the selected suite first samples one
+entry uniformly from its corpus, then samples one mutation uniformly from that
+suite's fixed mutation registry. The chosen mutation consumes any additional RNG
+draws needed for offsets, lengths, replacement bytes, and similar parameters.
 
----
+The harness updates the trace with the resulting bytes before exercising the
+selected parser. Consequently, a suite, normalized seed, iteration count,
+corpus order, and mutation order together determine the complete selection and
+mutation sequence.
 
-### 2. Discovery of Unexpected Edge Cases
+## Transaction Workflow
 
-Even well-designed parsers can miss rare or unusual structures.
+The transaction suite selects a corpus transaction, applies one mutation, and
+calls `transaction.deserialize`. A deserialization error is clean. For each
+successful parse it also runs context-free consensus validation, classifies
+output scripts, serializes stripped and complete wire forms, and computes the
+txid and wtxid. Validation errors are clean outcomes. Complete serialization
+must exactly equal the mutated input.
 
-Fuzzing helps uncover inputs that trigger unexpected exceptions in areas such
-as:
-
-- Unusual script lengths
-- Unexpected witness stack shapes
-- Edge-case CompactSize encodings
-- Boundary conditions near policy limits
-
-These are often combinations that are:
-
-- Valid but uncommon
-- Invalid in subtle ways
-- Not covered by hand-written tests
-
----
-
-### 3. Failure-Mode Smoke Testing
-
-Clean failure behavior is just as important as successful deserialization.
-
-For each mutated input, the harness:
-
-- Calls `transaction.deserialize`
-- If deserialization succeeds, calls `transaction.validate_context_free_consensus`
-- Regardless of the validation result, classifies every output script
-- Serializes both stripped and full wire forms
-- Checks that the full wire serialization exactly matches the mutated input
-- Computes both txid and wtxid
-
-Any `Error(_)` returned by `deserialize` or `validate_context_free_consensus` is
-treated as a clean outcome. A validation error does not stop the remaining APIs
-from being exercised. Any unhandled exception or wire round-trip mismatch is
-reported as a fuzz failure with the mutated input hex needed for reproduction.
-
-Use focused unit tests when exact failures matter, such as requiring
-`PolicyLimitExceeded`, `UnexpectedEof`, `NonMinimalCompactSize`, offsets, or
-context stacks.
-
----
-
-### 4. Preservation of Internal Invariants
-
-The parser enforces structural guarantees such as:
-
-- Length prefixes match actual data
-- Input/output counts are consistent
-- Witness stack sizes align with declared counts
-- No out-of-bounds reads occur
-
-Fuzz testing continuously attempts to break these invariants by applying
-mutations such as truncation, byte flips, bit flips, byte insertion, span
-deletion, span duplication, zeroing, SegWit marker/flag mutation, and targeted
-CompactSize candidate mutation.
-
-Any invariant violation that escapes as an unhandled exception indicates a
-critical bug.
-
----
-
-### 5. Performance and Resource Non-Goals
-
-The current harness is not a performance or resource-usage test. It does not
-measure allocations, detect slow parsing paths, enforce timeouts, or fail based
-on elapsed time.
-
-The harness still runs through `transaction.deserialize`, so the library's default
-decode policy is active during fuzzing. The harness does not assert the exact
-errors returned when policy limits or structural limits are hit. Use focused
-unit tests for policy-limit behavior and the standalone
-[`./benchmarks/run`](../benchmarks/README.md) harness for benchmark-style
-performance analysis.
-
----
-
-## Role of the Seed Corpus
-
-The fuzzing strategy uses a **seed corpus of real Bitcoin transactions** stored
-in `fuzz/corpus/transaction/seed_txs.txt`. Each record contains
-`txid|codes|raw_hex`. Corpus-code labels are documented in
+Its corpus is `fuzz/corpus/transaction/seed_txs.txt`, using
+`txid|codes|raw_hex` records. Labels are documented in
 `fuzz/corpus/transaction/seed_txs_codes.txt`.
 
-### Why this matters
+## Block Workflow
 
-- Pure random input is mostly invalid and low-signal
-- Real transactions provide **valid structural baselines**
-- Mutations explore **realistic edge cases**
+The block suite selects a corpus block, applies one mutation, and calls
+`block.deserialize`. A deserialization error is clean. For each successful
+parse it runs context-free consensus validation with the mainnet proof-of-work
+limit; validation errors are also clean outcomes. It exercises every header
+accessor, transaction count and list accessors, base size, total size, weight,
+Merkle-root computation, block hashing, header serialization, and complete
+serialization.
 
-### Result
+It requires the recorded transaction count to match the transaction list, the
+complete serialization and total size to match the mutated input, and the
+weight to equal `base_size * 3 + total_size`. Headers must serialize to 80 bytes
+and relevant hashes and Merkle roots must be 32 bytes.
 
-Higher-quality fuzzing with better coverage of meaningful scenarios.
+Its corpus is `fuzz/corpus/block/seed_blocks.txt`, using
+`display_block_hash|codes|raw_hex` records. Labels are documented in
+`fuzz/corpus/block/seed_blocks_codes.txt`: a single legacy coinbase, multiple
+legacy transactions, and mixed legacy/SegWit transactions with odd-width Merkle
+levels.
 
----
+## Mutations and Scope
 
-## Summary
+Both registries begin with truncation, byte flips, bit flips, byte insertion,
+span deletion, span duplication, and zeroing. The transaction registry then
+adds SegWit marker/flag mutation followed by heuristic CompactSize mutation. The
+block registry instead adds heuristic CompactSize mutation followed by
+transaction-count CompactSize mutation at byte offset 80. These orders are fixed
+because they are part of deterministic trace replay.
 
-Fuzz testing exercises the `btc_parser/transaction` parser and related
-transaction inspection APIs by:
-
-- Feeding mutated transaction bytes into `transaction.deserialize`
-- Treating `deserialize` and `validate_context_free_consensus` `Error(_)` results as
-  clean outcomes
-- Continuing every successful deserialization through context-free consensus validation,
-  output script classification, serialization, and txid/wtxid computation
-- Checking exact full-wire serialization round trips
-- Recording any unhandled exception with the run's initial RNG state, iteration,
-  seed transaction txid, mutation, and mutated hex
-
-> In short:  
-> The exercised pipeline should not be crashable with input alone; any crash is
-> a bug that should be reproducible from the reported initial RNG state,
-> iteration, and mutated hex.
-
----
+The harness does not measure allocations, enforce timeouts, or treat elapsed
+time as a failure condition. The library's default decode policy remains active.
+Use focused tests for exact error shapes and the standalone
+[`./benchmarks/run`](../benchmarks/README.md) harness for performance work.

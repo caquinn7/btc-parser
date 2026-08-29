@@ -1,0 +1,3 @@
+B01|Single legacy coinbase
+B02|Multiple legacy transactions
+B03|Mixed legacy/SegWit transactions with odd-width Merkle levels

@@ -1,3 +1,5 @@
+import gleam/list
+
 /// A deterministic pseudo-random number generator based on the Park-Miller
 /// LCG. Holds the current generator state, which is advanced by each call to
 /// `next` and `next_bounded`.
@@ -36,4 +38,17 @@ pub fn next(rng: Rng) -> #(Int, Rng) {
 pub fn next_bounded(rng: Rng, max: Int) -> #(Int, Rng) {
   let #(n, rng) = next(rng)
   #(n % max, rng)
+}
+
+/// Selects one item from `items` uniformly at random and returns it alongside
+/// the new RNG state. Returns `Error(Nil)` for empty lists.
+pub fn sample_one(rng: Rng, from items: List(a)) -> Result(#(a, Rng), Nil) {
+  case list.length(items) {
+    0 -> Error(Nil)
+    length -> {
+      let #(idx, rng) = next_bounded(rng, length)
+      let assert Ok(item) = list.first(list.drop(items, idx))
+      Ok(#(item, rng))
+    }
+  }
 }
