@@ -8,6 +8,14 @@ pub opaque type Reader {
   Reader(bytes: BitArray, offset: Int)
 }
 
+/// An error that occurred while constructing a `Reader`.
+pub type ReaderError {
+  /// The reader input does not contain a whole number of bytes.
+  ///
+  /// The wrapped value is the exact total number of bits in the input.
+  NonByteAlignedInput(bit_count: Int)
+}
+
 /// Creates a new `Reader` from a byte-aligned `BitArray` with offset set to `0`.
 ///
 /// Returns `NonByteAlignedInput` when the input does not contain a whole number
@@ -46,14 +54,6 @@ pub fn bytes_remaining(reader: Reader) -> Int {
 /// from the start of the reader's input.
 pub fn get_offset(reader: Reader) -> Int {
   reader.offset
-}
-
-/// An error that occurred while constructing a `Reader`.
-pub type ReaderError {
-  /// The reader input does not contain a whole number of bytes.
-  ///
-  /// The wrapped value is the exact total number of bits in the input.
-  NonByteAlignedInput(bit_count: Int)
 }
 
 /// An error that occurred during a `Reader` operation.
@@ -167,7 +167,7 @@ fn validate_count(
 /// Returns the updated reader along with the integer value, or an error if
 /// there are fewer than 1 bytes remaining.
 pub fn read_u8(reader: Reader) -> Result(#(Reader, Int), OperationError) {
-  read_uint_le(reader, 8)
+  read_uint_le(reader, 1)
 }
 
 /// Reads a 16-bit unsigned integer in little-endian format.
@@ -175,7 +175,7 @@ pub fn read_u8(reader: Reader) -> Result(#(Reader, Int), OperationError) {
 /// Returns the updated reader along with the integer value, or an error if
 /// there are fewer than 2 bytes remaining.
 pub fn read_u16_le(reader: Reader) -> Result(#(Reader, Int), OperationError) {
-  read_uint_le(reader, 16)
+  read_uint_le(reader, 2)
 }
 
 /// Reads a 32-bit unsigned integer in little-endian format.
@@ -183,7 +183,7 @@ pub fn read_u16_le(reader: Reader) -> Result(#(Reader, Int), OperationError) {
 /// Returns the updated reader along with the integer value, or an error if
 /// there are fewer than 4 bytes remaining.
 pub fn read_u32_le(reader: Reader) -> Result(#(Reader, Int), OperationError) {
-  read_uint_le(reader, 32)
+  read_uint_le(reader, 4)
 }
 
 /// Reads a 32-bit signed integer in little-endian format.
@@ -191,37 +191,35 @@ pub fn read_u32_le(reader: Reader) -> Result(#(Reader, Int), OperationError) {
 /// Returns the updated reader along with the integer value, or an error if
 /// there are fewer than 4 bytes remaining.
 pub fn read_i32_le(reader: Reader) -> Result(#(Reader, Int), OperationError) {
-  read_int_le(reader, 32)
+  read_int_le(reader, 4)
 }
 
 /// Helper function for reading unsigned little-endian integers of various sizes.
 fn read_uint_le(
   reader: Reader,
-  bits_needed: Int,
+  size: Int,
 ) -> Result(#(Reader, Int), OperationError) {
-  let bytes_needed = bits_needed / 8
   let offset = reader.offset
 
   case reader.bytes {
-    <<_:bytes-size(offset), i:unsigned-little-size(bits_needed), _:bytes>> ->
-      Ok(#(advance_reader(reader, bytes_needed), i))
+    <<_:bytes-size(offset), u:unsigned-little-size(size)-unit(8), _:bytes>> ->
+      Ok(#(advance_reader(reader, size), u))
 
-    _ -> Error(eof_error(reader, bytes_needed))
+    _ -> Error(eof_error(reader, size))
   }
 }
 
 /// Helper function for reading signed little-endian integers of various sizes.
 fn read_int_le(
   reader: Reader,
-  bits_needed: Int,
+  size: Int,
 ) -> Result(#(Reader, Int), OperationError) {
-  let bytes_needed = bits_needed / 8
   let offset = reader.offset
 
   case reader.bytes {
-    <<_:bytes-size(offset), i:signed-little-size(bits_needed), _:bytes>> ->
-      Ok(#(advance_reader(reader, bytes_needed), i))
+    <<_:bytes-size(offset), i:signed-little-size(size)-unit(8), _:bytes>> ->
+      Ok(#(advance_reader(reader, size), i))
 
-    _ -> Error(eof_error(reader, bytes_needed))
+    _ -> Error(eof_error(reader, size))
   }
 }

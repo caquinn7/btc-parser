@@ -628,7 +628,8 @@ pub fn deserialize(bytes: BitArray) -> Result(Block(Parsed), DecodeError) {
 /// Like `deserialize`, but accepts a `DecodePolicy` to override the resource
 /// limits applied during decoding. Use `default_decode_policy` and the
 /// `decode_policy_with_*` builder functions to construct custom policies.
-/// Limits that are exceeded produce a `PolicyLimitExceeded` error. See
+/// Byte alignment is validated before resource limits. For byte-aligned inputs,
+/// limits that are exceeded produce a `PolicyLimitExceeded` error. See
 /// `DecodePolicy` and `default_decode_policy` for available options and defaults.
 ///
 /// This policy controls block-level limits only. Contained transactions use
@@ -664,9 +665,13 @@ pub fn deserialize_with_policy(
   let block_size = bit_array.byte_size(bytes)
   use <- bool.guard(
     block_size > policy.max_block_size,
-    PolicyLimitExceeded(MaxBlockSize, block_size, policy.max_block_size)
-      |> error_at_zero_offset
-      |> Error,
+    Error(
+      error_at_zero_offset(PolicyLimitExceeded(
+        MaxBlockSize,
+        block_size,
+        policy.max_block_size,
+      )),
+    ),
   )
 
   reader
