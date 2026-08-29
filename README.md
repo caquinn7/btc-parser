@@ -87,9 +87,10 @@ gleam test -t javascript --runtime bun
 
 ### Fuzz Testing
 
-The standalone [transaction fuzz harness](fuzz/README.md) exercises parser
-safety against malformed and mutated wire-format inputs. Run it with
-`./fuzz/run -- <iterations> [seed]`; target and runtime options go before `--`.
+The standalone [fuzz harness](fuzz/README.md) exercises transaction and block
+parser safety against malformed and mutated wire-format inputs. Run a selected
+suite with `./fuzz/run -- <suite> <iterations> [seed]`; target and runtime
+options go before `--`.
 
 ### Benchmarking
 

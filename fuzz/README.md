@@ -75,7 +75,7 @@ range `1..2_147_483_646`, so aliases such as `0` and `1` intentionally produce
 the same trace.
 
 The command exits nonzero for invalid arguments or when the selected suite
-records a rescued exception. CI currently runs the transaction suite only.
+records a rescued exception. CI runs both suites on Erlang, Node, Deno, and Bun.
 
 ## Reports and Reproduction
 
