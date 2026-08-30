@@ -145,10 +145,11 @@ Both registries begin with truncation, byte flips, bit flips, byte insertion,
 span deletion, span duplication, and zeroing. The transaction registry then
 adds SegWit marker/flag mutation followed by heuristic CompactSize mutation. The
 block registry instead adds heuristic CompactSize mutation and transaction-count
-CompactSize mutation at byte offset 80, then contained-transaction mutation,
-count-adjusted transaction removal, count-adjusted transaction duplication, and
-transaction swapping. These orders are fixed because they are part of
-deterministic trace replay.
+CompactSize mutation at byte offset 80, curated compact-target mutation at
+header offsets 72–75, then contained-transaction mutation, count-adjusted
+transaction removal, count-adjusted transaction duplication, and transaction
+swapping. These orders are fixed because they are part of deterministic trace
+replay.
 
 Contained-transaction mutation selects one transaction uniformly and applies
 truncation, byte flips, bit flips, byte insertion, span deletion, span
@@ -166,6 +167,15 @@ block size. It is structurally valid and must deserialize successfully; its
 Merkle root or coinbase ordering can still cause a clean consensus-validation
 failure. Blocks with no transactions omit the first three structure-aware
 strategies, and blocks with fewer than two transactions omit swapping.
+
+Compact-target mutation uniformly selects one of five four-byte `nBits` values:
+zero (`0x00000000`), sign bit set (`0x20800001`), overflow (`0x23010000`), a
+valid target above the mainnet proof-of-work limit (`0x207FFFFF`), or target one
+(`0x03000001`). It splices the selected little-endian value into header bytes
+72–75 while retaining the original count and transactions, so it must
+deserialize successfully. Context-free validation errors are expected clean
+outcomes and exercise proof-of-work handling. Adding this fixed-registry slot
+intentionally changes deterministic replay traces.
 
 The harness does not measure allocations, enforce timeouts, or treat elapsed
 time as a failure condition. The library's default decode policy remains active.

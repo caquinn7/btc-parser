@@ -77,6 +77,8 @@ pub type Mutation {
   MutateCompactSizeCandidate
   /// Mutate the block transaction-count CompactSize at byte offset 80.
   MutateTransactionCount
+  /// Replace the four-byte compact target at header offsets 72–75.
+  MutateCompactTarget(CompactTargetMutation)
   /// Mutate one complete transaction while leaving the enclosing block structure.
   MutateContainedTransaction(Int, ContainedTransactionMutation)
   /// Remove one complete transaction and decrement the encoded transaction count.
@@ -85,6 +87,20 @@ pub type Mutation {
   DuplicateTransaction(Int)
   /// Exchange two complete transactions while preserving the encoded count.
   SwapTransactions(Int, Int)
+}
+
+/// Curated consensus edge encodings for a block header's compact target.
+pub type CompactTargetMutation {
+  /// The zero compact-target encoding `0x00000000`.
+  ZeroCompactTarget
+  /// A compact target with its sign bit set: `0x20800001`.
+  NegativeCompactTarget
+  /// A compact target whose expanded value exceeds 256 bits: `0x23010000`.
+  OverflowingCompactTarget
+  /// A valid compact target above the mainnet proof-of-work limit: `0x207FFFFF`.
+  AboveLimitCompactTarget
+  /// A valid compact target of one: `0x03000001`.
+  UnsatisfiedCompactTarget
 }
 
 /// Byte-level mutation applied to one transaction contained in a block.
@@ -128,6 +144,7 @@ type MutationStrategy {
   RemoveTransactionStrategy
   DuplicateTransactionStrategy
   SwapTransactionsStrategy
+  CompactTargetStrategy
 }
 
 /// Runs the block fuzz harness and returns failures plus reproducibility metadata.
@@ -284,20 +301,26 @@ fn run_deserialize(
     }
 
     Error(error) -> {
-      let panic_msg =
-        "structure-aware block mutation unexpectedly failed to deserialize: "
+      let count_adjusted_panic_msg =
+        "count-adjusted block mutation unexpectedly failed to deserialize: "
+        <> string.inspect(error)
+
+      let structure_preserving_panic_msg =
+        "structure-preserving block mutation unexpectedly failed to deserialize: "
         <> string.inspect(error)
 
       case selected_mutation {
-        RemoveTransaction(_) -> panic as panic_msg
+        RemoveTransaction(_) -> panic as count_adjusted_panic_msg
 
-        SwapTransactions(_, _) -> panic as panic_msg
+        SwapTransactions(_, _) -> panic as structure_preserving_panic_msg
+
+        MutateCompactTarget(_) -> panic as structure_preserving_panic_msg
 
         DuplicateTransaction(_) ->
           case block.get_decode_error_kind(error) {
             PolicyLimitExceeded(MaxBlockSize, _, _) -> Nil
             PolicyLimitExceeded(MaxTransactionCount, _, _) -> Nil
-            _ -> panic as panic_msg
+            _ -> panic as count_adjusted_panic_msg
           }
 
         _ -> Nil
@@ -380,6 +403,8 @@ fn mutate(
       duplicate_transaction(prepared_seed_block, rng)
 
     SwapTransactionsStrategy -> swap_transactions(prepared_seed_block, rng)
+
+    CompactTargetStrategy -> mutate_compact_target(prepared_seed_block, rng)
   }
 }
 
@@ -401,6 +426,7 @@ fn mutation_strategies(
     WholeBlockMutation(MutateTransactionCount, fn(bytes, rng) {
       mutation.mutate_compact_size_at(bytes, 80, rng)
     }),
+    CompactTargetStrategy,
   ]
 
   case prepared_seed_block.transaction_bytes {
@@ -555,6 +581,43 @@ fn swap_transactions(
   )
 }
 
+fn mutate_compact_target(
+  prepared_seed_block: PreparedSeedBlock,
+  rng: Rng,
+) -> #(MutatedBlock, Rng) {
+  let compact_target_mutations = [
+    #(ZeroCompactTarget, 0x00000000),
+    #(NegativeCompactTarget, 0x20800001),
+    #(OverflowingCompactTarget, 0x23010000),
+    #(AboveLimitCompactTarget, 0x207FFFFF),
+    #(UnsatisfiedCompactTarget, 0x03000001),
+  ]
+
+  let assert Ok(#(#(compact_target_mutation, compact_target), rng)) =
+    rng.sample_one(rng, compact_target_mutations)
+
+  let header_and_count_prefix =
+    replace_compact_target(
+      prepared_seed_block.header_and_count_prefix,
+      compact_target,
+    )
+
+  let block_bytes =
+    rebuild_block(
+      header_and_count_prefix,
+      prepared_seed_block.transaction_bytes,
+    )
+
+  #(
+    MutatedBlock(
+      seed_block: prepared_seed_block.seed_block,
+      mutation: MutateCompactTarget(compact_target_mutation),
+      bytes: block_bytes,
+    ),
+    rng,
+  )
+}
+
 fn select_transaction_index(
   prepared_seed_block: PreparedSeedBlock,
   rng: Rng,
@@ -597,6 +660,23 @@ fn rewrite_transaction_count(
     ),
     tx_count,
   )
+}
+
+fn replace_compact_target(
+  header_and_count_prefix: BitArray,
+  compact_target: Int,
+) -> BitArray {
+  let target_offset = 72
+  let target_width = 4
+  let prefix_length = target_offset
+  let suffix_offset = target_offset + target_width
+  let suffix_length =
+    bit_array.byte_size(header_and_count_prefix) - suffix_offset
+  let assert Ok(prefix) =
+    bit_array.slice(header_and_count_prefix, 0, prefix_length)
+  let assert Ok(suffix) =
+    bit_array.slice(header_and_count_prefix, suffix_offset, suffix_length)
+  bit_array.concat([prefix, <<compact_target:32-little>>, suffix])
 }
 
 fn rebuild_block(
