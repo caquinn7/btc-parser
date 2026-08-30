@@ -25,8 +25,8 @@ suites:
   block
 ```
 
-Selectors are lowercase and exact. The former selector-less syntax is rejected;
-there are no aliases and no `all` selector.
+A suite selector is required. Selectors are lowercase and exact; there are no
+aliases and no `all` selector.
 
 Run each suite on the default Erlang target:
 
@@ -101,9 +101,10 @@ suite's fixed mutation registry. The chosen mutation consumes any additional RNG
 draws needed for offsets, lengths, replacement bytes, and similar parameters.
 
 The harness updates the trace with the resulting bytes before exercising the
-selected parser. Consequently, a suite, normalized seed, iteration count,
-corpus order, and mutation order together determine the complete selection and
-mutation sequence.
+selected parser. A suite, normalized seed, iteration count, corpus order, and
+the membership and order of its mutation registry together determine the
+complete selection and mutation sequence. Changing the registry's membership or
+order therefore changes the trace produced for a given seed.
 
 ## Transaction Workflow
 
@@ -174,8 +175,7 @@ valid target above the mainnet proof-of-work limit (`0x207FFFFF`), or target one
 (`0x03000001`). It splices the selected little-endian value into header bytes
 72–75 while retaining the original count and transactions, so it must
 deserialize successfully. Context-free validation errors are expected clean
-outcomes and exercise proof-of-work handling. Adding this fixed-registry slot
-intentionally changes deterministic replay traces.
+outcomes and exercise proof-of-work handling.
 
 The harness does not measure allocations, enforce timeouts, or treat elapsed
 time as a failure condition. The library's default decode policy remains active.
