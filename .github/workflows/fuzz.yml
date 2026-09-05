@@ -1,10 +1,8 @@
-# Pull requests run 100,000 transaction iterations and 10,000 block iterations
-# on Erlang, Node, Deno, and Bun. Transaction fuzzing is substantially faster;
-# block fuzzing uses fewer PR iterations to keep feedback time practical.
-# The nightly deep run increases transaction coverage to 1,000,000 iterations
-# and block coverage to 100,000 iterations on Erlang and Node, with a 60-minute
-# timeout for the slower Node block job. All jobs in one workflow run share the
-# same generated seed so equivalent targets replay the same mutations.
+# Pull requests run formatting checks only; mutation fuzzing is scheduled because
+# block runs are too slow for timely PR feedback. The nightly deep run executes
+# 1,000,000 transaction iterations and 100,000 block iterations on Erlang, Node,
+# Deno, and Bun, with a 60-minute timeout. All jobs in one workflow run share
+# the same generated seed so equivalent targets replay the same mutations.
 name: fuzz
 
 on:
@@ -30,6 +28,7 @@ jobs:
         run: gleam format --check
 
   seed:
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
 
     outputs:
@@ -39,74 +38,6 @@ jobs:
       - name: Generate seed
         id: generate
         run: echo "seed=$(od -An -N4 -td4 < /dev/urandom | tr -d ' \n')" >> "$GITHUB_OUTPUT"
-
-  fuzz:
-    name: fuzz (${{ matrix.suite }}, ${{ matrix.platform }})
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    needs: [format, seed]
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - suite: transaction
-            platform: erlang
-            target: erlang
-          - suite: block
-            platform: erlang
-            target: erlang
-          - suite: transaction
-            platform: javascript, node
-            target: javascript
-            js_runtime: node
-          - suite: block
-            platform: javascript, node
-            target: javascript
-            js_runtime: node
-          - suite: transaction
-            platform: javascript, deno
-            target: javascript
-            js_runtime: deno
-          - suite: block
-            platform: javascript, deno
-            target: javascript
-            js_runtime: deno
-          - suite: transaction
-            platform: javascript, bun
-            target: javascript
-            js_runtime: bun
-          - suite: block
-            platform: javascript, bun
-            target: javascript
-            js_runtime: bun
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup runtimes
-        uses: ./.github/actions/setup
-        with:
-          js_runtime: ${{ matrix.js_runtime }}
-
-      - name: Download fuzz dependencies
-        working-directory: fuzz
-        run: gleam deps download
-
-      - name: Run fuzz test
-        timeout-minutes: 5
-        run: |
-          if [ "${{ matrix.suite }}" = "transaction" ]; then
-            iterations=100000
-          else
-            iterations=10000
-          fi
-
-          if [ "${{ matrix.target }}" = "javascript" ]; then
-            ./fuzz/run --target javascript --runtime ${{ matrix.js_runtime }} -- ${{ matrix.suite }} "$iterations" ${{ needs.seed.outputs.seed }}
-          else
-            ./fuzz/run --target erlang -- ${{ matrix.suite }} "$iterations" ${{ needs.seed.outputs.seed }}
-          fi
 
   deep-fuzz:
     name: deep fuzz (${{ matrix.suite }}, ${{ matrix.platform }})
@@ -135,6 +66,26 @@ jobs:
             platform: javascript, node
             target: javascript
             js_runtime: node
+            iterations: 100000
+          - suite: transaction
+            platform: javascript, deno
+            target: javascript
+            js_runtime: deno
+            iterations: 1000000
+          - suite: block
+            platform: javascript, deno
+            target: javascript
+            js_runtime: deno
+            iterations: 100000
+          - suite: transaction
+            platform: javascript, bun
+            target: javascript
+            js_runtime: bun
+            iterations: 1000000
+          - suite: block
+            platform: javascript, bun
+            target: javascript
+            js_runtime: bun
             iterations: 100000
 
     steps:
