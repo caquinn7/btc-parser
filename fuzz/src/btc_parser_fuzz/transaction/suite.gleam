@@ -121,18 +121,15 @@ pub fn run(
 ///
 /// Each accepted line has the pipe-delimited form `txid|codes|hex`, where
 /// `txid` is kept as a display-format identifier and `hex` is decoded into raw
-/// transaction wire bytes. Lines that do not match that shape are ignored.
+/// transaction wire bytes. PANICS when lines do not match the expected format.
 pub fn parse_seed_txs(file_content: String) -> List(SeedTx) {
   file_content
   |> string.split("\n")
-  |> list.filter_map(fn(line) {
-    case string.split(line, "|") {
-      [txid, _codes, hex_str] -> {
-        let assert Ok(bytes) = bit_array.base16_decode(hex_str)
-        Ok(SeedTx(txid:, bytes:))
-      }
-      _ -> Error(Nil)
-    }
+  |> list.filter(fn(line) { !string.is_empty(line) })
+  |> list.map(fn(line) {
+    let assert [txid, _codes, hex_str] = string.split(line, "|")
+    let assert Ok(bytes) = bit_array.base16_decode(hex_str)
+    SeedTx(txid:, bytes:)
   })
 }
 

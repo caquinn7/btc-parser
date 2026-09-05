@@ -183,20 +183,18 @@ pub fn run(
 /// Each accepted line has the pipe-delimited form
 /// `block_height|block_hash|codes|hex`, where `block_height` is parsed as a
 /// decimal `Int`, `block_hash` is kept as a display-format identifier, and
-/// `hex` is decoded into raw block wire bytes. Lines that do not match that
-/// shape are ignored.
+/// `hex` is decoded into raw block wire bytes. PANICS when lines do not
+/// match the expected format.
 pub fn parse_seed_blocks(file_content: String) -> List(SeedBlock) {
   file_content
   |> string.split("\n")
-  |> list.filter_map(fn(line) {
-    case string.split(line, "|") {
-      [block_height_str, block_hash, _codes, hex_str] -> {
-        let assert Ok(block_height) = int.parse(block_height_str)
-        let assert Ok(bytes) = bit_array.base16_decode(hex_str)
-        Ok(SeedBlock(block_hash:, block_height:, bytes:))
-      }
-      _ -> Error(Nil)
-    }
+  |> list.filter(fn(line) { !string.is_empty(line) })
+  |> list.map(fn(line) {
+    let assert [block_height_str, block_hash, _codes, hex_str] =
+      string.split(line, "|")
+    let assert Ok(block_height) = int.parse(block_height_str)
+    let assert Ok(bytes) = bit_array.base16_decode(hex_str)
+    SeedBlock(block_hash:, block_height:, bytes:)
   })
 }
 
