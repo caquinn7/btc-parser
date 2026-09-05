@@ -1,12 +1,11 @@
-# Pull requests run formatting checks only; mutation fuzzing is scheduled because
-# block runs are too slow for timely PR feedback. The nightly deep run executes
-# 1,000,000 transaction iterations and 100,000 block iterations on Erlang, Node,
-# Deno, and Bun, with a 60-minute timeout. All jobs in one workflow run share
-# the same generated seed so equivalent targets replay the same mutations.
+# Mutation fuzzing runs nightly because block runs are too slow for timely pull
+# request feedback. The deep run executes 1,000,000 transaction iterations and
+# 100,000 block iterations on Erlang, Node, Deno, and Bun, with a 60-minute
+# timeout. All jobs share the same generated seed so equivalent targets replay
+# the same mutations.
 name: fuzz
 
 on:
-  pull_request:
   schedule:
     - cron: "0 6 * * *"
 
@@ -28,7 +27,6 @@ jobs:
         run: gleam format --check
 
   seed:
-    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
 
     outputs:
@@ -41,7 +39,6 @@ jobs:
 
   deep-fuzz:
     name: deep fuzz (${{ matrix.suite }}, ${{ matrix.platform }})
-    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     needs: [format, seed]
 

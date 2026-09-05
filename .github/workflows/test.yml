@@ -16,7 +16,15 @@ jobs:
       - name: Setup runtimes
         uses: ./.github/actions/setup
 
-      - name: Check formatting
+      - name: Check root formatting
+        run: gleam format --check
+
+      - name: Check fuzz formatting
+        working-directory: fuzz
+        run: gleam format --check
+
+      - name: Check benchmark formatting
+        working-directory: benchmarks
         run: gleam format --check
 
   test:
