@@ -190,10 +190,9 @@ pub fn parse_seed_blocks(file_content: String) -> List(SeedBlock) {
   |> string.split("\n")
   |> list.filter(fn(line) { !string.is_empty(line) })
   |> list.map(fn(line) {
-    let assert [block_height_str, block_hash, _codes, hex_str] =
-      string.split(line, "|")
-    let assert Ok(block_height) = int.parse(block_height_str)
-    let assert Ok(bytes) = bit_array.base16_decode(hex_str)
+    let assert [block_height, block_hash, _codes, hex] = string.split(line, "|")
+    let assert Ok(block_height) = int.parse(block_height)
+    let assert Ok(bytes) = bit_array.base16_decode(hex)
     SeedBlock(block_hash:, block_height:, bytes:)
   })
 }

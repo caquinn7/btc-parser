@@ -127,8 +127,8 @@ pub fn parse_seed_txs(file_content: String) -> List(SeedTx) {
   |> string.split("\n")
   |> list.filter(fn(line) { !string.is_empty(line) })
   |> list.map(fn(line) {
-    let assert [txid, _codes, hex_str] = string.split(line, "|")
-    let assert Ok(bytes) = bit_array.base16_decode(hex_str)
+    let assert [txid, _codes, hex] = string.split(line, "|")
+    let assert Ok(bytes) = bit_array.base16_decode(hex)
     SeedTx(txid:, bytes:)
   })
 }
