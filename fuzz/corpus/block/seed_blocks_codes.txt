@@ -1,3 +1,25 @@
-B01|Single legacy coinbase
-B02|Multiple legacy transactions
-B03|Mixed legacy/SegWit transactions with odd-width Merkle levels
+N01|Exactly one transaction
+N02|Exactly two transactions
+N03|Exactly 252 transactions (largest one-byte CompactSize count)
+N04|Exactly 253 transactions (smallest three-byte CompactSize count)
+N05|At least 1,000 transactions
+T01|Legacy-only transactions
+T02|Mixed legacy and SegWit transactions
+T03|SegWit-only transactions
+M01|Single-leaf Merkle tree
+M02|Perfect power-of-two Merkle tree with more than one leaf
+M03|Merkle construction pads by duplicating the final hash at exactly one level
+M04|Merkle construction pads by duplicating final hashes at multiple levels
+S01|Base size at least 900,000 bytes
+S02|Weight at least 3,600,000 weight units
+S03|Total serialized size at least 3,600,000 bytes
+W01|Witness serialized size at least the base size
+W02|Largest witness item is 253 through 65,535 bytes
+W03|Largest witness item is at least 65,536 bytes
+X01|Contains a transaction at least 100,000 total serialized bytes
+X02|Contains a transaction with at least 253 inputs
+X03|Contains a transaction with at least 253 outputs
+X04|Contains a scriptSig or scriptPubKey at least 253 bytes long
+C01|Coinbase scriptSig is exactly 2 bytes long
+C02|Coinbase scriptSig is exactly 100 bytes long
+L01|Near-limit legacy sigops where duplicating the highest-sigop transaction exceeds 20,000

@@ -10,12 +10,12 @@ to find unhandled exceptions: malformed input should return a structured
 The harness is a robustness check, not a semantic oracle. It does not require a
 specific decode or validation error for every malformed input, and it does not
 prove every successful parse is a fully valid Bitcoin transaction or block.
-Focused library tests cover those exact behaviors.
+Focused [library tests](../test) cover those exact behaviors.
 
 ## Commands
 
-Run commands from the repository root. Arguments before `--` belong to Gleam;
-arguments after it belong to the fuzz program.
+Run [`./fuzz/run`](run) from the repository root. Arguments before `--` belong
+to Gleam; arguments after it belong to the fuzz program.
 
 ```text
 ./fuzz/run [GLEAM_OPTIONS] -- <suite> <iterations> [seed]
@@ -42,7 +42,8 @@ Run each suite on Erlang explicitly:
 ./fuzz/run -t erlang -- block <iterations>
 ```
 
-Run each suite on the default JavaScript runtime from `fuzz/gleam.toml`:
+Run each suite on the default JavaScript runtime from
+[`fuzz/gleam.toml`](gleam.toml):
 
 ```sh
 ./fuzz/run -t javascript -- transaction <iterations>
@@ -75,7 +76,9 @@ range `1..2_147_483_646`, so aliases such as `0` and `1` intentionally produce
 the same trace.
 
 The command exits nonzero for invalid arguments or when the selected suite
-records a rescued exception. CI runs both suites on Erlang, Node, Deno, and Bun.
+records a rescued exception. The
+[fuzz workflow](../.github/workflows/fuzz.yml) runs both suites on Erlang, Node,
+Deno, and Bun.
 
 ## Reports and Reproduction
 
@@ -115,9 +118,10 @@ output scripts, serializes stripped and complete wire forms, and computes the
 txid and wtxid. Validation errors are clean outcomes. Complete serialization
 must exactly equal the mutated input.
 
-Its corpus is `fuzz/corpus/transaction/seed_txs.txt`, using
+Its corpus is
+[`fuzz/corpus/transaction/seed_txs.txt`](corpus/transaction/seed_txs.txt), using
 `txid|codes|raw_hex` records. Labels are documented in
-`fuzz/corpus/transaction/seed_txs_codes.txt`.
+[`fuzz/corpus/transaction/seed_txs_codes.txt`](corpus/transaction/seed_txs_codes.txt).
 
 ## Block Workflow
 
@@ -134,11 +138,14 @@ complete serialization and total size to match the mutated input, and the
 weight to equal `base_size * 3 + total_size`. Headers must serialize to 80 bytes
 and relevant hashes and Merkle roots must be 32 bytes.
 
-Its corpus is `fuzz/corpus/block/seed_blocks.txt`, using
-`display_block_hash|codes|raw_hex` records. Labels are documented in
-`fuzz/corpus/block/seed_blocks_codes.txt`: a single legacy coinbase, multiple
-legacy transactions, and mixed legacy/SegWit transactions with odd-width Merkle
-levels.
+Its corpus is
+[`fuzz/corpus/block/seed_blocks.txt`](corpus/block/seed_blocks.txt), using
+`block_height|display_block_hash|codes|raw_hex` records. Block heights are
+decimal mainnet heights. See
+[`fuzz/corpus/block/seed_blocks_codes.txt`](corpus/block/seed_blocks_codes.txt)
+for the coverage taxonomy represented by the `codes` field and the
+[block corpus checklist](src/btc_parser_fuzz/block/btc_block_corpus_checklist.md)
+for seed metrics and selection rationale.
 
 ## Mutations and Scope
 

@@ -52,6 +52,8 @@ pub type SeedBlock {
     /// Display-format block hash recorded in the seed corpus, not the
     /// little-endian block-hash byte order used on the wire.
     block_hash: String,
+    /// Mainnet block height recorded in the seed corpus.
+    block_height: Int,
     /// Raw wire bytes decoded from the corpus entry.
     bytes: BitArray,
   )
@@ -178,17 +180,20 @@ pub fn run(
 
 /// Parses seed corpus file contents into blocks for the fuzz harness.
 ///
-/// Each accepted line has the pipe-delimited form `block_hash|codes|hex`, where
-/// `block_hash` is kept as a display-format identifier and `hex` is decoded into
-/// raw block wire bytes. Lines that do not match that shape are ignored.
+/// Each accepted line has the pipe-delimited form
+/// `block_height|block_hash|codes|hex`, where `block_height` is parsed as a
+/// decimal `Int`, `block_hash` is kept as a display-format identifier, and
+/// `hex` is decoded into raw block wire bytes. Lines that do not match that
+/// shape are ignored.
 pub fn parse_seed_blocks(file_content: String) -> List(SeedBlock) {
   file_content
   |> string.split("\n")
   |> list.filter_map(fn(line) {
     case string.split(line, "|") {
-      [block_hash, _codes, hex_str] -> {
+      [block_height_str, block_hash, _codes, hex_str] -> {
+        let assert Ok(block_height) = int.parse(block_height_str)
         let assert Ok(bytes) = bit_array.base16_decode(hex_str)
-        Ok(SeedBlock(block_hash:, bytes:))
+        Ok(SeedBlock(block_hash:, block_height:, bytes:))
       }
       _ -> Error(Nil)
     }
@@ -200,7 +205,10 @@ pub fn iteration_failure_to_string(failure: IterationFailure) -> String {
   "  #"
   <> int.to_string(failure.iteration)
   <> "\n    seed_block: "
+  <> int.to_string(failure.mutated_block.seed_block.block_height)
+  <> " ("
   <> failure.mutated_block.seed_block.block_hash
+  <> ")"
   <> "\n    mutation: "
   <> string.inspect(failure.mutated_block.mutation)
   <> "\n    hex: "
