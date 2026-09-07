@@ -27,6 +27,10 @@ jobs:
         working-directory: benchmarks
         run: gleam format --check
 
+      - name: Check examples formatting
+        working-directory: examples
+        run: gleam format --check
+
   test:
     runs-on: ubuntu-latest
 
