@@ -111,12 +111,22 @@ order therefore changes the trace produced for a given seed.
 
 ## Transaction Workflow
 
-The transaction suite selects a corpus transaction, applies one mutation, and
-calls `transaction.deserialize`. A deserialization error is clean. For each
-successful parse it also runs context-free consensus validation, classifies
-output scripts, serializes stripped and complete wire forms, and computes the
-txid and wtxid. Validation errors are clean outcomes. Complete serialization
-must exactly equal the mutated input.
+Every transaction run first verifies every original corpus seed once in corpus
+order. Verification requires successful deserialization and context-free
+consensus validation, classification of every output, stripped serialization,
+complete serialization equal to the original bytes, a computed display txid
+equal to the recorded txid, and 32-byte txid and wtxid results. A verification
+failure exits immediately with the seed txid and failure reason; fuzzing does
+not begin and no aggregated fuzz report is produced. This phase neither
+consumes RNG values nor contributes bytes to the trace.
+
+After verification, the transaction suite selects a corpus transaction,
+applies one mutation, and calls `transaction.deserialize`. A deserialization
+error is clean. For each successful parse it also runs context-free consensus
+validation, classifies output scripts, serializes stripped and complete wire
+forms, and computes the txid and wtxid. Validation errors are clean outcomes.
+Complete serialization must exactly equal the mutated input. `iterations`
+continues to mean randomized mutation iterations only.
 
 Its corpus is
 [`fuzz/corpus/transaction/seed_txs.txt`](corpus/transaction/seed_txs.txt), using
