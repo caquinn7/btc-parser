@@ -29,7 +29,7 @@ type Serialization {
 
 type InputMetrics {
   InputMetrics(
-    max_script_sig_size: Int,
+    max_script_sig_length: Int,
     script_sig_252_count: Int,
     script_sig_253_count: Int,
     near_policy_script_sig_count: Int,
@@ -38,7 +38,7 @@ type InputMetrics {
 
 type OutputMetrics {
   OutputMetrics(
-    max_script_pubkey_size: Int,
+    max_script_pubkey_length: Int,
     script_pubkey_252_count: Int,
     script_pubkey_253_count: Int,
     near_policy_script_pubkey_count: Int,
@@ -69,7 +69,7 @@ type WitnessMetrics {
     item_253_count: Int,
     item_65_535_count: Int,
     item_65_536_count: Int,
-    max_item_size: Int,
+    max_item_length: Int,
   )
 }
 
@@ -181,14 +181,14 @@ fn measure(record: CorpusRecord) -> Metrics {
 fn has_coinbase_shape(tx: transaction.Transaction(state)) -> Bool {
   case transaction.get_inputs(tx) {
     [input] -> {
-      let script_sig_size =
+      let script_sig_length =
         input
         |> transaction.get_input_script_sig
         |> transaction.get_script_size
 
       transaction.input_has_null_outpoint(input)
-      && script_sig_size >= 2
-      && script_sig_size <= 100
+      && script_sig_length >= 2
+      && script_sig_length <= 100
     }
     _ -> False
   }
@@ -196,19 +196,22 @@ fn has_coinbase_shape(tx: transaction.Transaction(state)) -> Bool {
 
 fn measure_inputs(inputs: List(transaction.Input)) -> InputMetrics {
   list.fold(inputs, new_input_metrics(), fn(metrics, input) {
-    let script_sig_size =
+    let script_sig_length =
       input
       |> transaction.get_input_script_sig
       |> transaction.get_script_size
 
     InputMetrics(
-      max_script_sig_size: int.max(metrics.max_script_sig_size, script_sig_size),
+      max_script_sig_length: int.max(
+        metrics.max_script_sig_length,
+        script_sig_length,
+      ),
       script_sig_252_count: metrics.script_sig_252_count
-        + bool_to_int(script_sig_size == 252),
+        + bool_to_int(script_sig_length == 252),
       script_sig_253_count: metrics.script_sig_253_count
-        + bool_to_int(script_sig_size == 253),
+        + bool_to_int(script_sig_length == 253),
       near_policy_script_sig_count: metrics.near_policy_script_sig_count
-        + bool_to_int(script_sig_size >= 9000 && script_sig_size <= 10_000),
+        + bool_to_int(script_sig_length >= 9000 && script_sig_length <= 10_000),
     )
   })
 }
@@ -226,7 +229,7 @@ fn measure_output(
   output: transaction.Output,
 ) -> OutputMetrics {
   let script = transaction.get_output_script_pubkey(output)
-  let script_size = transaction.get_script_size(script)
+  let script_length = transaction.get_script_size(script)
   let script_type = transaction.classify_output_script(script)
   let op_return_nonstandard = case
     transaction.get_raw_script_bytes(script),
@@ -239,16 +242,16 @@ fn measure_output(
   let metrics =
     OutputMetrics(
       ..metrics,
-      max_script_pubkey_size: int.max(
-        metrics.max_script_pubkey_size,
-        script_size,
+      max_script_pubkey_length: int.max(
+        metrics.max_script_pubkey_length,
+        script_length,
       ),
       script_pubkey_252_count: metrics.script_pubkey_252_count
-        + bool_to_int(script_size == 252),
+        + bool_to_int(script_length == 252),
       script_pubkey_253_count: metrics.script_pubkey_253_count
-        + bool_to_int(script_size == 253),
+        + bool_to_int(script_length == 253),
       near_policy_script_pubkey_count: metrics.near_policy_script_pubkey_count
-        + bool_to_int(script_size >= 9000 && script_size <= 10_000),
+        + bool_to_int(script_length >= 9000 && script_length <= 10_000),
       op_return_nonstandard_output_count: metrics.op_return_nonstandard_output_count
         + bool_to_int(op_return_nonstandard),
     )
@@ -318,12 +321,12 @@ fn measure_stack(
   let item_count = list.length(items)
   let payload_size =
     list.fold(items, 0, fn(size, item) {
-      let item_size =
+      let item_length =
         item
         |> transaction.get_witness_item_bytes
         |> bit_array.byte_size
 
-      size + item_size
+      size + item_length
     })
   let metrics =
     WitnessMetrics(
@@ -348,7 +351,7 @@ fn measure_witness_item(
   metrics: WitnessMetrics,
   item: transaction.WitnessItem,
 ) -> WitnessMetrics {
-  let item_size =
+  let item_length =
     item
     |> transaction.get_witness_item_bytes
     |> bit_array.byte_size
@@ -356,14 +359,14 @@ fn measure_witness_item(
   WitnessMetrics(
     ..metrics,
     zero_length_item_count: metrics.zero_length_item_count
-      + bool_to_int(item_size == 0),
-    item_252_count: metrics.item_252_count + bool_to_int(item_size == 252),
-    item_253_count: metrics.item_253_count + bool_to_int(item_size == 253),
+      + bool_to_int(item_length == 0),
+    item_252_count: metrics.item_252_count + bool_to_int(item_length == 252),
+    item_253_count: metrics.item_253_count + bool_to_int(item_length == 253),
     item_65_535_count: metrics.item_65_535_count
-      + bool_to_int(item_size == 65_535),
+      + bool_to_int(item_length == 65_535),
     item_65_536_count: metrics.item_65_536_count
-      + bool_to_int(item_size == 65_536),
-    max_item_size: int.max(metrics.max_item_size, item_size),
+      + bool_to_int(item_length == 65_536),
+    max_item_length: int.max(metrics.max_item_length, item_length),
   )
 }
 
@@ -386,7 +389,7 @@ fn derive_codes(metrics: Metrics) -> List(String) {
     #(metrics.output_count >= 200, "O02"),
     #(witness.empty_stack_count > 0 && witness.nonempty_stack_count > 0, "W01"),
     #(witness.zero_length_item_count > 0, "W02"),
-    #(witness.max_item_size >= 65_536, "W03"),
+    #(witness.max_item_length >= 65_536, "W03"),
     #(witness.max_stack_item_count >= 253, "W04"),
     #(input.near_policy_script_sig_count > 0, "L01"),
     #(output.near_policy_script_pubkey_count > 0, "L02"),
@@ -442,11 +445,11 @@ fn report_header() -> String {
     "total_size",
     "witness_size",
     "weight",
-    "max_script_sig_size",
+    "max_script_sig_length",
     "script_sig_252_count",
     "script_sig_253_count",
     "near_policy_script_sig_count",
-    "max_script_pubkey_size",
+    "max_script_pubkey_length",
     "script_pubkey_252_count",
     "script_pubkey_253_count",
     "near_policy_script_pubkey_count",
@@ -461,7 +464,7 @@ fn report_header() -> String {
     "witness_item_253_count",
     "witness_item_65535_count",
     "witness_item_65536_count",
-    "max_witness_item_size",
+    "max_witness_item_length",
     "p2pk_output_count",
     "p2pkh_output_count",
     "p2sh_output_count",
@@ -502,11 +505,11 @@ fn render_row(metrics: Metrics) -> String {
     int.to_string(metrics.total_size),
     int.to_string(metrics.witness_size),
     int.to_string(metrics.weight),
-    int.to_string(input.max_script_sig_size),
+    int.to_string(input.max_script_sig_length),
     int.to_string(input.script_sig_252_count),
     int.to_string(input.script_sig_253_count),
     int.to_string(input.near_policy_script_sig_count),
-    int.to_string(output.max_script_pubkey_size),
+    int.to_string(output.max_script_pubkey_length),
     int.to_string(output.script_pubkey_252_count),
     int.to_string(output.script_pubkey_253_count),
     int.to_string(output.near_policy_script_pubkey_count),
@@ -521,7 +524,7 @@ fn render_row(metrics: Metrics) -> String {
     int.to_string(witness.item_253_count),
     int.to_string(witness.item_65_535_count),
     int.to_string(witness.item_65_536_count),
-    int.to_string(witness.max_item_size),
+    int.to_string(witness.max_item_length),
     int.to_string(output.p2pk_output_count),
     int.to_string(output.p2pkh_output_count),
     int.to_string(output.p2sh_output_count),
