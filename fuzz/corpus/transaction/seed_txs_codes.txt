@@ -1,24 +1,25 @@
-B01|Coinbase with large scriptSig
-B02|Coinbase scriptSig at max size
-C01|Legacy simple
-C02|Legacy multi-input
-C03|Legacy multi-output
-C04|SegWit simple
-C05|Multi-input with multiple witnessed inputs
-C06|Single-witness-item input present
-F01|OP_RETURN output present
-F02|Multiple OP_RETURN outputs
-F03|Witness v0 output present
-F04|Witness v1 (Taproot) output present
-F05|Mixed output script types
-F06|Large scriptPubKey output
-M01|Non-standard output present
-M02|Quantity of :null_data occurrences across outputs
-S01|High input count
-S02|High output count
-S03|Large transaction size
-S04|Very small transaction
-S05|Many inputs and many outputs
-S06|Witness-heavy
-W01|At least one input with multiple witness items
-W03|Large witness item
+T01|Uses legacy serialization
+T02|Uses SegWit serialization
+T03|Coinbase shape: exactly one input with a null outpoint and a scriptSig 2 through 100 bytes long
+I01|Exactly one input
+I02|At least 200 inputs
+O01|Exactly one output
+O02|At least 200 outputs
+W01|Contains both an empty witness stack and a nonempty witness stack
+W02|Contains a zero-length witness item
+W03|Contains a witness item at least 65,536 bytes long
+W04|Contains a witness stack with at least 253 items
+L01|Contains a scriptSig 9,000 through 10,000 bytes long
+L02|Contains a scriptPubKey 9,000 through 10,000 bytes long
+F01|Contains an output classified as P2PK
+F02|Contains an output classified as P2PKH
+F03|Contains an output classified as P2SH
+F04|Contains an output classified as P2WPKH
+F05|Contains an output classified as P2WSH
+F06|Contains an output classified as P2TR
+F07|Contains an output classified as BareMultisig
+F08|Contains an output classified as NullData
+F09|Contains an output classified as UnknownWitnessProgram
+F10|Contains a non-OP_RETURN output classified as NonStandard
+F11|Contains an OP_RETURN-prefixed output classified as NonStandard
+S01|Total serialized size is 360,000 through 400,000 bytes

@@ -123,6 +123,32 @@ Its corpus is
 `txid|codes|raw_hex` records. Labels are documented in
 [`fuzz/corpus/transaction/seed_txs_codes.txt`](corpus/transaction/seed_txs_codes.txt).
 
+### Transaction Corpus Metrics
+
+Generate a deterministic tab-separated inventory of every transaction seed:
+
+```sh
+./fuzz/run -m btc_parser_fuzz/transaction/corpus_metrics
+```
+
+The recorded and derived codes exhaustively describe the selected 25 coverage
+predicates. The 50-column report also measures additional properties—such as
+CompactSize-width boundaries, exact script and witness sizes, and witness
+ratios—that are diagnostics rather than coverage requirements. It includes
+serialization and coinbase shape, input and output counts and CompactSize
+widths, transaction sizes and weight, script and witness boundary counts, and
+counts for every public output-script classifier variant. It also recomputes
+the display txid and wtxid. The command requires every seed to deserialize and
+round-trip through complete serialization before reporting it.
+
+The extractor uses only the public `btc_parser/transaction` API. Run it on
+JavaScript with the same Gleam flags used by the fuzz suite:
+
+```sh
+./fuzz/run -t javascript --runtime node \
+  -m btc_parser_fuzz/transaction/corpus_metrics
+```
+
 ## Block Workflow
 
 The block suite selects a corpus block, applies one mutation, and calls
