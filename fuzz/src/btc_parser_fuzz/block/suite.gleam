@@ -5,11 +5,10 @@
 //// either a successful operation or a defined error, never an unhandled
 //// exception.
 
-import btc_parser/block.{
-  type PowLimit, MaxBlockSize, MaxTransactionCount, PolicyLimitExceeded,
-}
+import btc_parser/block
 import btc_parser/transaction
 import btc_parser_fuzz/fuzz_result.{type FuzzResult, FuzzResult}
+import btc_parser_fuzz/internal/hash
 import btc_parser_fuzz/internal/mutation
 import btc_parser_fuzz/internal/rng.{type Rng}
 import btc_parser_fuzz/internal/trace.{type Trace}
@@ -17,6 +16,7 @@ import exception.{type Exception}
 import gleam/bit_array
 import gleam/int
 import gleam/list
+import gleam/result
 import gleam/string
 
 /// Details for one fuzz iteration that raised an unhandled exception.
@@ -149,15 +149,43 @@ type MutationStrategy {
   CompactTargetStrategy
 }
 
+/// Results from the post-parse APIs exercised by both corpus verification and
+/// randomized mutation iterations.
+type PostParseOperations {
+  PostParseOperations(
+    validation: Result(
+      block.Block(block.ContextFreeValidated),
+      List(block.ConsensusViolation),
+    ),
+    transaction_count: Int,
+    transactions: List(transaction.Transaction(transaction.Parsed)),
+    base_size: Int,
+    total_size: Int,
+    weight: Int,
+    previous_block_hash: BitArray,
+    recorded_merkle_root: BitArray,
+    serialized_header: BitArray,
+    serialized_block: BitArray,
+    block_hash: BitArray,
+    computed_merkle_root: BitArray,
+    merkle_tree_mutated: Bool,
+  )
+}
+
 /// Runs the block fuzz harness and returns failures plus reproducibility metadata.
+///
+/// Before mutation iterations, every original seed is verified in corpus order.
+/// This preflight does not consume RNG values or update the trace. A failed
+/// verification panics immediately with the seed height, block hash, and failure
+/// reason rather than returning a normal fuzz result.
 pub fn run(
   seed_blocks: List(SeedBlock),
   iteration_count: Int,
   rng: Rng,
 ) -> FuzzResult(IterationFailure) {
-  let rng_state = rng.state(rng)
   let pow_limit = mainnet_pow_limit()
-  let prepared_seed_blocks = prepare_seed_blocks(seed_blocks)
+  let prepared_seed_blocks = prepare_seed_blocks(seed_blocks, pow_limit)
+  let rng_state = rng.state(rng)
 
   let #(failures, trace) =
     run_iterations(
@@ -221,7 +249,7 @@ fn run_iterations(
   acc: List(IterationFailure),
   trace: Trace,
   rng: Rng,
-  pow_limit: PowLimit,
+  pow_limit: block.PowLimit,
 ) -> #(List(IterationFailure), Trace) {
   case remaining == 0 {
     True -> #(acc, trace)
@@ -269,38 +297,24 @@ fn run_iterations(
 fn run_deserialize(
   mutated_block_bytes: BitArray,
   selected_mutation: Mutation,
-  pow_limit: PowLimit,
+  pow_limit: block.PowLimit,
 ) -> Nil {
   case block.deserialize(mutated_block_bytes) {
     Ok(parsed_block) -> {
-      let _ = block.validate_context_free_consensus(parsed_block, pow_limit)
+      let operations = run_post_parse_operations(parsed_block, pow_limit)
 
-      let header = block.get_header(parsed_block)
-      let _ = block.get_header_version(header)
-      let previous_block_hash = block.get_header_previous_block_hash(header)
-      let recorded_merkle_root = block.get_header_merkle_root(header)
-      let _ = block.get_header_timestamp(header)
-      let _ = block.get_header_target(header)
-      let _ = block.get_header_nonce(header)
+      assert operations.transaction_count
+        == list.length(operations.transactions)
+      assert operations.total_size == bit_array.byte_size(mutated_block_bytes)
+      assert operations.weight
+        == operations.base_size * 3 + operations.total_size
+      assert operations.serialized_block == mutated_block_bytes
 
-      let txs = block.get_transactions(parsed_block)
-      assert block.get_transaction_count(parsed_block) == list.length(txs)
-
-      let base_size = block.compute_base_size(parsed_block)
-      let total_size = block.compute_total_size(parsed_block)
-      assert total_size == bit_array.byte_size(mutated_block_bytes)
-      assert block.compute_weight(parsed_block) == base_size * 3 + total_size
-      assert block.serialize(parsed_block) == mutated_block_bytes
-
-      let serialized_header = block.serialize_header(header)
-      let block_hash = block.compute_block_hash(parsed_block)
-      let #(computed_merkle_root, _) = block.compute_merkle_root(parsed_block)
-
-      assert bit_array.byte_size(serialized_header) == 80
-      assert bit_array.byte_size(previous_block_hash) == 32
-      assert bit_array.byte_size(block_hash) == 32
-      assert bit_array.byte_size(recorded_merkle_root) == 32
-      assert bit_array.byte_size(computed_merkle_root) == 32
+      assert bit_array.byte_size(operations.serialized_header) == 80
+      assert bit_array.byte_size(operations.previous_block_hash) == 32
+      assert bit_array.byte_size(operations.block_hash) == 32
+      assert bit_array.byte_size(operations.recorded_merkle_root) == 32
+      assert bit_array.byte_size(operations.computed_merkle_root) == 32
 
       Nil
     }
@@ -323,8 +337,8 @@ fn run_deserialize(
 
         DuplicateTransaction(_) ->
           case block.get_decode_error_kind(error) {
-            PolicyLimitExceeded(MaxBlockSize, _, _) -> Nil
-            PolicyLimitExceeded(MaxTransactionCount, _, _) -> Nil
+            block.PolicyLimitExceeded(block.MaxBlockSize, _, _) -> Nil
+            block.PolicyLimitExceeded(block.MaxTransactionCount, _, _) -> Nil
             _ -> panic as count_adjusted_panic_msg
           }
 
@@ -334,36 +348,211 @@ fn run_deserialize(
   }
 }
 
-fn prepare_seed_blocks(
-  seed_blocks: List(SeedBlock),
-) -> List(PreparedSeedBlock) {
-  list.map(seed_blocks, prepare_seed_block)
-}
+fn run_post_parse_operations(
+  parsed_block: block.Block(block.Parsed),
+  pow_limit: block.PowLimit,
+) -> PostParseOperations {
+  let validation =
+    block.validate_context_free_consensus(parsed_block, pow_limit)
 
-fn prepare_seed_block(seed_block: SeedBlock) -> PreparedSeedBlock {
-  let assert Ok(parsed_block) = block.deserialize(seed_block.bytes)
+  let header = block.get_header(parsed_block)
+  let _ = block.get_header_version(header)
+  let previous_block_hash = block.get_header_previous_block_hash(header)
+  let recorded_merkle_root = block.get_header_merkle_root(header)
+  let _ = block.get_header_timestamp(header)
+  let _ = block.get_header_target(header)
+  let _ = block.get_header_nonce(header)
+
   let transaction_count = block.get_transaction_count(parsed_block)
   let transactions = block.get_transactions(parsed_block)
-  let transaction_bytes = list.map(transactions, transaction.serialize)
-  let transaction_count_width = compact_size_width(transaction_count)
+  let base_size = block.compute_base_size(parsed_block)
+  let total_size = block.compute_total_size(parsed_block)
+  let weight = block.compute_weight(parsed_block)
+  let serialized_header = block.serialize_header(header)
   let serialized_block = block.serialize(parsed_block)
+  let block_hash = block.compute_block_hash(parsed_block)
+  let #(computed_merkle_root, merkle_tree_mutated) =
+    block.compute_merkle_root(parsed_block)
 
-  assert transaction_count == list.length(transactions)
-  assert serialized_block == seed_block.bytes
-
-  let prefix_length = 80 + transaction_count_width
-  let assert Ok(header_and_count_prefix) =
-    bit_array.slice(seed_block.bytes, 0, prefix_length)
-  assert bit_array.concat([header_and_count_prefix, ..transaction_bytes])
-    == seed_block.bytes
-
-  PreparedSeedBlock(
-    seed_block:,
+  PostParseOperations(
+    validation:,
     transaction_count:,
+    transactions:,
+    base_size:,
+    total_size:,
+    weight:,
+    previous_block_hash:,
+    recorded_merkle_root:,
+    serialized_header:,
+    serialized_block:,
+    block_hash:,
+    computed_merkle_root:,
+    merkle_tree_mutated:,
+  )
+}
+
+fn prepare_seed_blocks(
+  seed_blocks: List(SeedBlock),
+  pow_limit: block.PowLimit,
+) -> List(PreparedSeedBlock) {
+  case seed_blocks {
+    [] -> []
+
+    [seed_block, ..remaining] -> {
+      case
+        exception.rescue(fn() { prepare_seed_block(seed_block, pow_limit) })
+      {
+        Ok(Ok(prepared_seed_block)) -> [
+          prepared_seed_block,
+          ..prepare_seed_blocks(remaining, pow_limit)
+        ]
+
+        Ok(Error(reason)) ->
+          panic as corpus_verification_failure(seed_block, reason)
+
+        Error(exception) ->
+          panic as corpus_verification_failure(
+              seed_block,
+              "unexpected exception: " <> string.inspect(exception),
+            )
+      }
+    }
+  }
+}
+
+fn prepare_seed_block(
+  seed_block: SeedBlock,
+  pow_limit: block.PowLimit,
+) -> Result(PreparedSeedBlock, String) {
+  case block.deserialize(seed_block.bytes) {
+    Ok(parsed_block) -> {
+      let operations = run_post_parse_operations(parsed_block, pow_limit)
+      prepare_verified_seed_block(seed_block, operations)
+    }
+    Error(error) -> Error("deserialization failed: " <> string.inspect(error))
+  }
+}
+
+fn prepare_verified_seed_block(
+  seed_block: SeedBlock,
+  operations: PostParseOperations,
+) -> Result(PreparedSeedBlock, String) {
+  use _ <- result.try(verify_successful_validation(operations.validation))
+  use _ <- result.try(ensure(
+    operations.transaction_count == list.length(operations.transactions),
+    "transaction count did not match the returned transaction list",
+  ))
+  use _ <- result.try(ensure(
+    operations.serialized_block == seed_block.bytes,
+    "complete serialization did not match the original bytes",
+  ))
+  use _ <- result.try(ensure(
+    operations.total_size == bit_array.byte_size(seed_block.bytes),
+    "total size did not match the original byte length",
+  ))
+  use _ <- result.try(ensure(
+    operations.weight == operations.base_size * 3 + operations.total_size,
+    "weight did not equal base size * 3 + total size",
+  ))
+  use _ <- result.try(ensure(
+    bit_array.byte_size(operations.serialized_header) == 80,
+    "serialized header did not contain 80 bytes",
+  ))
+  use _ <- result.try(ensure(
+    bit_array.byte_size(operations.previous_block_hash) == 32,
+    "previous block hash did not contain 32 bytes",
+  ))
+  use _ <- result.try(ensure(
+    bit_array.byte_size(operations.recorded_merkle_root) == 32,
+    "header Merkle root did not contain 32 bytes",
+  ))
+  use _ <- result.try(ensure(
+    bit_array.byte_size(operations.block_hash) == 32,
+    "computed block hash did not contain 32 bytes",
+  ))
+  use _ <- result.try(ensure(
+    bit_array.byte_size(operations.computed_merkle_root) == 32,
+    "computed Merkle root did not contain 32 bytes",
+  ))
+  use _ <- result.try(ensure(
+    operations.computed_merkle_root == operations.recorded_merkle_root,
+    "computed Merkle root did not match the header Merkle root",
+  ))
+  use _ <- result.try(ensure(
+    operations.merkle_tree_mutated == False,
+    "computed Merkle tree was mutated",
+  ))
+  use _ <- result.try(ensure(
+    hash.to_display_hex(operations.block_hash) == seed_block.block_hash,
+    "computed display block hash did not match the recorded block hash",
+  ))
+
+  let transaction_bytes =
+    list.map(operations.transactions, transaction.serialize)
+  let transaction_count_width = compact_size_width(operations.transaction_count)
+  use serialized_transaction_count <- result.try(
+    get_serialized_transaction_count(seed_block.bytes, transaction_count_width),
+  )
+  let header_and_count_prefix =
+    bit_array.append(operations.serialized_header, serialized_transaction_count)
+  use _ <- result.try(ensure(
+    bit_array.concat([header_and_count_prefix, ..transaction_bytes])
+      == seed_block.bytes,
+    "serialized header, transaction count, and transactions did not reconstruct the original bytes",
+  ))
+
+  Ok(PreparedSeedBlock(
+    seed_block:,
+    transaction_count: operations.transaction_count,
     transaction_count_width:,
     header_and_count_prefix:,
     transaction_bytes:,
-  )
+  ))
+}
+
+fn verify_successful_validation(
+  validation: Result(
+    block.Block(block.ContextFreeValidated),
+    List(block.ConsensusViolation),
+  ),
+) -> Result(Nil, String) {
+  case validation {
+    Ok(_) -> Ok(Nil)
+    Error(violations) ->
+      Error(
+        "context-free consensus validation failed: "
+        <> string.inspect(violations),
+      )
+  }
+}
+
+fn get_serialized_transaction_count(
+  bytes: BitArray,
+  transaction_count_width: Int,
+) -> Result(BitArray, String) {
+  case bit_array.slice(bytes, 80, transaction_count_width) {
+    Ok(serialized_transaction_count) -> Ok(serialized_transaction_count)
+    Error(_) -> Error("could not read the serialized transaction count")
+  }
+}
+
+fn ensure(condition: Bool, failure: String) -> Result(Nil, String) {
+  case condition {
+    True -> Ok(Nil)
+    False -> Error(failure)
+  }
+}
+
+fn corpus_verification_failure(
+  seed_block: SeedBlock,
+  reason: String,
+) -> String {
+  "corpus verification failed for block at height "
+  <> int.to_string(seed_block.block_height)
+  <> " ("
+  <> seed_block.block_hash
+  <> "): "
+  <> reason
 }
 
 fn compact_size_width(value: Int) -> Int {
@@ -737,7 +926,7 @@ fn swap_transaction_bytes(
   })
 }
 
-fn mainnet_pow_limit() -> PowLimit {
+fn mainnet_pow_limit() -> block.PowLimit {
   let assert Ok(pow_limit) = block.new_pow_limit(<<0:208, 0xFF, 0xFF, 0:32>>)
   pow_limit
 }

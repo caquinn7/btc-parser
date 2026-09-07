@@ -8,6 +8,7 @@
 //// Metrics and taxonomy codes are derived only through the public transaction API.
 
 import btc_parser/transaction
+import btc_parser_fuzz/internal/hash
 import gleam/bit_array
 import gleam/bool
 import gleam/int
@@ -149,14 +150,14 @@ fn measure(record: CorpusRecord) -> Metrics {
     Ok(_) -> True
     Error(_) -> False
   }
-  let computed_txid = display_hash(transaction.compute_txid(tx))
+  let computed_txid = hash.to_display_hex(transaction.compute_txid(tx))
   assert computed_txid == record.txid
 
   let metrics =
     Metrics(
       txid: record.txid,
       computed_txid:,
-      computed_wtxid: display_hash(transaction.compute_wtxid(tx)),
+      computed_wtxid: hash.to_display_hex(transaction.compute_wtxid(tx)),
       txid_matches: computed_txid == record.txid,
       recorded_codes: record.recorded_codes,
       derived_codes: [],
@@ -550,28 +551,6 @@ fn compact_size_width(value: Int) -> Int {
     v if v <= 65_535 -> 3
     v if v <= 4_294_967_295 -> 5
     _ -> 9
-  }
-}
-
-fn display_hash(bytes: BitArray) -> String {
-  bytes
-  |> reverse_bytes
-  |> bit_array.base16_encode
-  |> string.lowercase
-}
-
-fn reverse_bytes(bytes: BitArray) -> BitArray {
-  case bytes {
-    <<>> -> <<>>
-    _ -> do_reverse_bytes(bytes, <<>>)
-  }
-}
-
-fn do_reverse_bytes(bytes: BitArray, acc: BitArray) -> BitArray {
-  case bytes {
-    <<>> -> acc
-    <<byte, rest:bits>> -> do_reverse_bytes(rest, <<byte, acc:bits>>)
-    _ -> panic as "hash must be byte-aligned"
   }
 }
 

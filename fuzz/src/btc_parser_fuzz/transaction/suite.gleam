@@ -12,6 +12,7 @@
 
 import btc_parser/transaction
 import btc_parser_fuzz/fuzz_result.{type FuzzResult, FuzzResult}
+import btc_parser_fuzz/internal/hash
 import btc_parser_fuzz/internal/mutation
 import btc_parser_fuzz/internal/rng.{type Rng}
 import btc_parser_fuzz/internal/trace.{type Trace}
@@ -20,6 +21,7 @@ import gleam/bit_array
 import gleam/bool
 import gleam/int
 import gleam/list
+import gleam/result
 import gleam/string
 
 /// Details for one fuzz iteration that raised an unhandled exception.
@@ -82,10 +84,30 @@ pub type Mutation {
   MutateCompactSizeCandidate
 }
 
+/// Results from the post-parse APIs exercised by both corpus verification and
+/// randomized mutation iterations.
+type PostParseOperations {
+  PostParseOperations(
+    validation: Result(
+      transaction.Transaction(transaction.ContextFreeValidated),
+      List(transaction.ConsensusViolation),
+    ),
+    stripped_serialization: BitArray,
+    complete_serialization: BitArray,
+    txid: BitArray,
+    wtxid: BitArray,
+  )
+}
+
 /// Runs the fuzz harness and returns failures plus reproducibility metadata.
 ///
 /// The harness mutates `seed_txs` for `iteration_count` iterations using the
 /// provided deterministic RNG.
+///
+/// Before mutation iterations, every original seed is verified in corpus order.
+/// This preflight does not consume RNG values or update the trace. A failed
+/// verification panics immediately with the seed txid and failure reason rather
+/// than returning a normal fuzz result.
 ///
 /// Each iteration draws one transaction from `seed_txs` uniformly at random,
 /// applies a structural mutation, and exercises deserialization plus the related
@@ -101,6 +123,8 @@ pub fn run(
   iteration_count: Int,
   rng: Rng,
 ) -> FuzzResult(IterationFailure) {
+  verify_seed_txs(seed_txs)
+
   let rng_state = rng.state(rng)
 
   let #(failures, trace) =
@@ -115,6 +139,90 @@ pub fn run(
     trace_hash:,
     failures:,
   )
+}
+
+/// Verify the original corpus once, in source order, before fuzzing begins.
+///
+/// The verification path deliberately does not receive or update the RNG or
+/// trace, preserving randomized reproduction semantics.
+fn verify_seed_txs(seed_txs: List(SeedTx)) -> Nil {
+  case seed_txs {
+    [] -> Nil
+    [seed_tx, ..remaining] -> {
+      case exception.rescue(fn() { verify_seed_tx(seed_tx) }) {
+        Ok(Ok(_)) -> verify_seed_txs(remaining)
+        Ok(Error(reason)) ->
+          panic as corpus_verification_failure(seed_tx, reason)
+        Error(exception) ->
+          panic as corpus_verification_failure(
+              seed_tx,
+              "unexpected exception: " <> string.inspect(exception),
+            )
+      }
+    }
+  }
+}
+
+fn verify_seed_tx(seed_tx: SeedTx) -> Result(Nil, String) {
+  use tx <- result.try(
+    seed_tx.bytes
+    |> transaction.deserialize
+    |> result.map_error(fn(err) {
+      "deserialization failed: " <> string.inspect(err)
+    }),
+  )
+
+  let operations = run_post_parse_operations(tx)
+
+  use _ <- result.try(
+    operations.validation
+    |> result.map_error(fn(violations) {
+      "context-free consensus validation failed: " <> string.inspect(violations)
+    }),
+  )
+
+  verify_seed_operations(seed_tx, operations)
+}
+
+fn verify_seed_operations(
+  seed_tx: SeedTx,
+  operations: PostParseOperations,
+) -> Result(Nil, String) {
+  case operations.complete_serialization == seed_tx.bytes {
+    False -> Error("complete serialization did not match the original bytes")
+
+    True -> {
+      let txid_size = bit_array.byte_size(operations.txid)
+      let wtxid_size = bit_array.byte_size(operations.wtxid)
+
+      case txid_size == 32 && wtxid_size == 32 {
+        False ->
+          Error(
+            "txid and wtxid must each contain 32 bytes; got "
+            <> int.to_string(txid_size)
+            <> " and "
+            <> int.to_string(wtxid_size),
+          )
+
+        True -> {
+          let computed_txid = hash.to_display_hex(operations.txid)
+          case computed_txid == seed_tx.txid {
+            True -> Ok(Nil)
+            False ->
+              Error(
+                "computed display txid "
+                <> computed_txid
+                <> " did not match the recorded txid",
+              )
+          }
+        }
+      }
+    }
+  }
+}
+
+fn corpus_verification_failure(seed_tx: SeedTx, reason: String) -> String {
+  "corpus verification failed for txid " <> seed_tx.txid <> ": " <> reason
 }
 
 /// Parses seed corpus file contents into transactions for the fuzz harness.
@@ -190,27 +298,41 @@ fn run_iterations(
 fn run_deserialize(mutated_tx_bytes: BitArray) -> Nil {
   case transaction.deserialize(mutated_tx_bytes) {
     Ok(tx) -> {
-      let _ = transaction.validate_context_free_consensus(tx)
-
-      tx
-      |> transaction.get_outputs
-      |> list.each(fn(output) {
-        output
-        |> transaction.get_output_script_pubkey
-        |> transaction.classify_output_script
-      })
-
-      let _ = transaction.serialize_stripped(tx)
-      assert transaction.serialize(tx) == mutated_tx_bytes
-
-      let _ = transaction.compute_txid(tx)
-      let _ = transaction.compute_wtxid(tx)
+      let operations = run_post_parse_operations(tx)
+      assert operations.complete_serialization == mutated_tx_bytes
 
       Nil
     }
 
     Error(_) -> Nil
   }
+}
+
+fn run_post_parse_operations(
+  tx: transaction.Transaction(transaction.Parsed),
+) -> PostParseOperations {
+  let validation = transaction.validate_context_free_consensus(tx)
+
+  tx
+  |> transaction.get_outputs
+  |> list.each(fn(output) {
+    output
+    |> transaction.get_output_script_pubkey
+    |> transaction.classify_output_script
+  })
+
+  let stripped_serialization = transaction.serialize_stripped(tx)
+  let complete_serialization = transaction.serialize(tx)
+  let txid = transaction.compute_txid(tx)
+  let wtxid = transaction.compute_wtxid(tx)
+
+  PostParseOperations(
+    validation:,
+    stripped_serialization:,
+    complete_serialization:,
+    txid:,
+    wtxid:,
+  )
 }
 
 // Mutation

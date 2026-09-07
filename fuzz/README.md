@@ -111,12 +111,22 @@ order therefore changes the trace produced for a given seed.
 
 ## Transaction Workflow
 
-The transaction suite selects a corpus transaction, applies one mutation, and
-calls `transaction.deserialize`. A deserialization error is clean. For each
-successful parse it also runs context-free consensus validation, classifies
-output scripts, serializes stripped and complete wire forms, and computes the
-txid and wtxid. Validation errors are clean outcomes. Complete serialization
-must exactly equal the mutated input.
+Every transaction run first verifies every original corpus seed once in corpus
+order. Verification requires successful deserialization and context-free
+consensus validation, classification of every output, stripped serialization,
+complete serialization equal to the original bytes, a computed display txid
+equal to the recorded txid, and 32-byte txid and wtxid results. A verification
+failure exits immediately with the seed txid and failure reason; fuzzing does
+not begin and no aggregated fuzz report is produced. This phase neither
+consumes RNG values nor contributes bytes to the trace.
+
+After verification, the transaction suite selects a corpus transaction,
+applies one mutation, and calls `transaction.deserialize`. A deserialization
+error is clean. For each successful parse it also runs context-free consensus
+validation, classifies output scripts, serializes stripped and complete wire
+forms, and computes the txid and wtxid. Validation errors are clean outcomes.
+Complete serialization must exactly equal the mutated input. `iterations`
+continues to mean randomized mutation iterations only.
 
 Its corpus is
 [`fuzz/corpus/transaction/seed_txs.txt`](corpus/transaction/seed_txs.txt), using
@@ -151,13 +161,25 @@ JavaScript with the same Gleam flags used by the fuzz suite:
 
 ## Block Workflow
 
-The block suite selects a corpus block, applies one mutation, and calls
-`block.deserialize`. A deserialization error is clean. For each successful
-parse it runs context-free consensus validation with the mainnet proof-of-work
-limit; validation errors are also clean outcomes. It exercises every header
-accessor, transaction count and list accessors, base size, total size, weight,
-Merkle-root computation, block hashing, header serialization, and complete
-serialization.
+Every block run first verifies every original corpus seed once in corpus order.
+Verification requires successful deserialization and context-free consensus
+validation with the mainnet proof-of-work limit, matching transaction count and
+list length, correct size and weight calculations, 80-byte header and 32-byte
+hash/root values, an unmutated matching Merkle root, a matching display block
+hash, and exact reconstruction from the serialized header, CompactSize count,
+and serialized transactions. A verification failure exits immediately with the
+block height, hash, and failure reason; fuzzing does not begin and no aggregated
+fuzz report is produced. This phase neither consumes RNG values nor contributes
+bytes to the trace. It does not verify recorded block heights or taxonomy codes.
+
+After verification, the block suite selects a corpus block, applies one
+mutation, and calls `block.deserialize`. A deserialization error is clean. For
+each successful parse it runs context-free consensus validation with the
+mainnet proof-of-work limit; validation errors are also clean outcomes. It
+exercises every header accessor, transaction count and list accessors, base
+size, total size, weight, Merkle-root computation, block hashing, header
+serialization, and complete serialization. `iterations` continues to mean
+randomized mutation iterations only.
 
 It requires the recorded transaction count to match the transaction list, the
 complete serialization and total size to match the mutated input, and the
