@@ -76,7 +76,7 @@ fn validate_suite_arg(arg: String) -> Result(Suite, ArgsError) {
 }
 
 fn validate_iterations_arg(arg: String) -> Result(Int, ArgsError) {
-  let err = InvalidValue("iterations must be a positive integer")
+  let err = InvalidValue("iterations must be a non-negative integer")
 
   use iterations <- result.try(
     arg
@@ -84,7 +84,7 @@ fn validate_iterations_arg(arg: String) -> Result(Int, ArgsError) {
     |> result.replace_error(err),
   )
 
-  case iterations <= 0 {
+  case iterations < 0 {
     True -> Error(err)
     False -> Ok(iterations)
   }
