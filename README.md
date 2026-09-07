@@ -99,3 +99,11 @@ deserialization and inspection workflows across representative inputs, scaling
 dimensions, and fail-fast paths. Run the complete suite with
 `./benchmarks/run`, or pass benchmark arguments after `--`, for example
 `./benchmarks/run -- --section transaction.deserialize.fixtures`.
+
+### Examples
+
+The standalone [examples project](examples/README.md) uses mempool.space raw
+mainnet data to demonstrate transaction JSON output, block metrics,
+context-free block validation, and structured transaction decode errors. Run an
+example from the repository root with, for example,
+`./examples/run -- block-metrics 0`.
