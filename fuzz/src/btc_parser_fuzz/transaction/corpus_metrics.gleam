@@ -176,7 +176,10 @@ fn measure(record: CorpusRecord) -> Metrics {
       witness_metrics:,
     )
 
-  Metrics(..metrics, derived_codes: derive_codes(metrics))
+  let derived_codes = derive_codes(metrics)
+  assert record.recorded_codes == string.join(derived_codes, with: ",")
+
+  Metrics(..metrics, derived_codes:)
 }
 
 fn has_coinbase_shape(tx: transaction.Transaction(state)) -> Bool {
