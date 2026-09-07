@@ -150,6 +150,7 @@ fn measure(record: CorpusRecord) -> Metrics {
     Error(_) -> False
   }
   let computed_txid = display_hash(transaction.compute_txid(tx))
+  assert computed_txid == record.txid
 
   let metrics =
     Metrics(
