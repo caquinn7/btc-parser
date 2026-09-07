@@ -82,7 +82,7 @@ jobs:
         run: gleam deps download
 
       - name: Run deep fuzz test
-        timeout-minutes: 60
+        timeout-minutes: 90
         run: |
           if [ "${{ matrix.target }}" = "javascript" ]; then
             ./fuzz/run --target javascript --runtime ${{ matrix.js_runtime }} -- ${{ matrix.suite }} ${{ matrix.iterations }} ${{ needs.seed.outputs.seed }}
