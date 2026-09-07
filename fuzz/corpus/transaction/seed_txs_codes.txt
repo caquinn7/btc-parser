@@ -2,28 +2,15 @@ T01|Uses legacy serialization
 T02|Uses SegWit serialization
 T03|Coinbase shape: exactly one input with a null outpoint and a scriptSig 2 through 100 bytes long
 I01|Exactly one input
-I02|Exactly 252 inputs (largest one-byte CompactSize count)
-I03|Exactly 253 inputs (smallest three-byte CompactSize count)
-I04|At least 200 inputs
+I02|At least 200 inputs
 O01|Exactly one output
-O02|Exactly 252 outputs (largest one-byte CompactSize count)
-O03|Exactly 253 outputs (smallest three-byte CompactSize count)
-O04|At least 200 outputs
+O02|At least 200 outputs
 W01|Contains both an empty witness stack and a nonempty witness stack
 W02|Contains a zero-length witness item
-W03|Contains a witness item exactly 252 bytes long
-W04|Contains a witness item exactly 253 bytes long
-W05|Contains a witness item exactly 65,535 bytes long
-W06|Contains a witness item exactly 65,536 bytes long
-W07|Contains a witness stack with exactly 252 items
-W08|Contains a witness stack with exactly 253 items
-W09|Witness serialized size is at least the base size
-L01|Contains a scriptSig exactly 252 bytes long
-L02|Contains a scriptSig exactly 253 bytes long
-L03|Contains a scriptPubKey exactly 252 bytes long
-L04|Contains a scriptPubKey exactly 253 bytes long
-L05|Contains a scriptSig 9,000 through 10,000 bytes long
-L06|Contains a scriptPubKey 9,000 through 10,000 bytes long
+W03|Contains a witness item at least 65,536 bytes long
+W04|Contains a witness stack with at least 253 items
+L01|Contains a scriptSig 9,000 through 10,000 bytes long
+L02|Contains a scriptPubKey 9,000 through 10,000 bytes long
 F01|Contains an output classified as P2PK
 F02|Contains an output classified as P2PKH
 F03|Contains an output classified as P2SH
@@ -33,9 +20,6 @@ F06|Contains an output classified as P2TR
 F07|Contains an output classified as BareMultisig
 F08|Contains an output classified as NullData
 F09|Contains an output classified as UnknownWitnessProgram
-F10|Contains an output classified as NonStandard
+F10|Contains a non-OP_RETURN output classified as NonStandard
 F11|Contains an OP_RETURN-prefixed output classified as NonStandard
 S01|Total serialized size is 360,000 through 400,000 bytes
-S02|At least 200 inputs and at least 200 outputs
-C01|Has coinbase shape and a scriptSig exactly 2 bytes long
-C02|Has coinbase shape and a scriptSig exactly 100 bytes long

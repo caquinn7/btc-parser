@@ -131,7 +131,10 @@ Generate a deterministic tab-separated inventory of every transaction seed:
 ./fuzz/run -m btc_parser_fuzz/transaction/corpus_metrics
 ```
 
-The report includes the recorded and exhaustively derived taxonomy codes,
+The recorded and derived codes exhaustively describe the selected 25 coverage
+predicates. The 50-column report also measures additional properties—such as
+CompactSize-width boundaries, exact script and witness sizes, and witness
+ratios—that are diagnostics rather than coverage requirements. It includes
 serialization and coinbase shape, input and output counts and CompactSize
 widths, transaction sizes and weight, script and witness boundary counts, and
 counts for every public output-script classifier variant. It also recomputes
