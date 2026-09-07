@@ -14,8 +14,6 @@ import gleam/io
 import gleam/json.{type Json}
 import gleam/result
 
-const default_decode_hex = "010203"
-
 const mainnet_pow_limit_bytes = <<
   0xFF,
   0xFF,
@@ -66,7 +64,6 @@ fn run(arguments: List(String)) -> Result(Json, String) {
     ["transaction-json", txid] -> transaction_json_example(txid)
     ["block-metrics", height] -> block_metrics_example(height)
     ["validate-block", height] -> validate_block_example(height)
-    ["safe-decode"] -> safe_decode_example(default_decode_hex)
     ["safe-decode", transaction_hex] -> safe_decode_example(transaction_hex)
     _ -> Error(usage())
   }
@@ -249,5 +246,5 @@ fn usage() -> String {
   <> "  transaction-json <txid>\n"
   <> "  block-metrics <height>\n"
   <> "  validate-block <height>\n"
-  <> "  safe-decode [transaction-hex]"
+  <> "  safe-decode <transaction-hex>"
 }

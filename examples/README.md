@@ -14,7 +14,7 @@ to stderr and exit unsuccessfully.
 
 ./examples/run -- block-metrics 0
 ./examples/run -- validate-block 0
-./examples/run -- safe-decode
+./examples/run -- safe-decode 010203
 ```
 
 ## Commands
@@ -42,11 +42,10 @@ and whether serialization reproduces the downloaded bytes.
 headers, required difficulty, timestamps, UTXOs, fees, subsidy, scripts,
 signatures, or address ownership.
 
-### `safe-decode [transaction-hex]`
+### `safe-decode <transaction-hex>`
 
-Attempts to deserialize user-supplied transaction hex. Without an argument it
-uses the deliberately truncated `010203` input. Decode failures expose the
-parser's byte offset, structural path, and kind-specific details as JSON.
+Attempts to deserialize user-supplied transaction hex. Decode failures expose
+the parser's byte offset, structural path, and kind-specific details as JSON.
 
 ## Notes
 
