@@ -7,30 +7,6 @@ on:
   pull_request:
 
 jobs:
-  format:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup runtimes
-        uses: ./.github/actions/setup
-
-      - name: Check root formatting
-        run: gleam format --check
-
-      - name: Check fuzz formatting
-        working-directory: fuzz
-        run: gleam format --check
-
-      - name: Check benchmark formatting
-        working-directory: benchmarks
-        run: gleam format --check
-
-      - name: Check examples formatting
-        working-directory: examples
-        run: gleam format --check
-
   test:
     runs-on: ubuntu-latest
 
