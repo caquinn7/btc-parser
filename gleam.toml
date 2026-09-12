@@ -16,6 +16,21 @@ type = "github"
 user = "caquinn7"
 repo = "btc-parser"
 
+[[documentation.pages]]
+title = "Transaction guide"
+path = "transaction.html"
+source = "./docs/transaction/transaction.md"
+
+[[documentation.pages]]
+title = "Output script classification"
+path = "output-script-classification.html"
+source = "./docs/transaction/output_script_classification.md"
+
+[[documentation.pages]]
+title = "Block guide"
+path = "block.html"
+source = "./docs/block/block.md"
+
 [erlang]
 extra_applications = ["crypto"]
 

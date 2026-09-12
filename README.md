@@ -14,15 +14,13 @@ portable across Erlang and JavaScript targets.
 
 The following Bitcoin wire-format data structures are currently implemented:
 
-- [`btc_parser/transaction`](docs/transaction/transaction.md) deserializes and
+- [`btc_parser/transaction`](https://github.com/caquinn7/btc-parser/blob/main/docs/transaction/transaction.md) deserializes and
   serializes legacy and SegWit transactions, exposes their fields and output
   script classifications, computes their sizes, weights, txids, and wtxids, and
   runs context-free consensus checks.
-- [`btc_parser/block`](docs/block/block.md) deserializes and serializes complete
+- [`btc_parser/block`](https://github.com/caquinn7/btc-parser/blob/main/docs/block/block.md) deserializes and serializes complete
   blocks, exposes their headers and transactions, computes their sizes, weights,
   Merkle roots, and block hashes, and runs context-free consensus checks.
-
-The block module is still in progress and will expand as its API matures.
 
 Additional domains may be added as the library expands.
 
@@ -87,14 +85,14 @@ gleam test -t javascript --runtime bun
 
 ### Fuzz Testing
 
-The standalone [fuzz harness](fuzz/README.md) exercises transaction and block
+The standalone [fuzz harness](https://github.com/caquinn7/btc-parser/blob/main/fuzz/README.md) exercises transaction and block
 parser safety against malformed and mutated wire-format inputs. Run a selected
 suite with `./fuzz/run -- <suite> <iterations> [seed]`; target and runtime
 options go before `--`.
 
 ### Benchmarking
 
-The standalone [performance harness](benchmarks/README.md) measures public
+The standalone [performance harness](https://github.com/caquinn7/btc-parser/blob/main/benchmarks/README.md) measures public
 deserialization and inspection workflows across representative inputs, scaling
 dimensions, and fail-fast paths. Run the complete suite with
 `./benchmarks/run`, or pass benchmark arguments after `--`, for example
@@ -102,7 +100,7 @@ dimensions, and fail-fast paths. Run the complete suite with
 
 ### Examples
 
-The standalone [examples project](examples/README.md) uses mempool.space raw
+The standalone [examples project](https://github.com/caquinn7/btc-parser/blob/main/examples/README.md) uses mempool.space raw
 mainnet data to demonstrate transaction JSON output, block metrics,
 context-free block validation, and structured transaction decode errors. Run an
 example from the repository root with, for example,
