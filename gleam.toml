@@ -4,15 +4,17 @@ version = "1.0.0"
 description = "Deserialize, inspect, and structurally validate Bitcoin wire-format data in Gleam."
 licences = ["MIT"]
 
+gleam = ">= 1.16.0"
+target = "erlang"
+internal_modules = [
+  "btc_parser/internal",
+  "btc_parser/internal/*",
+]
+
 [repository]
 type = "github"
 user = "caquinn7"
 repo = "btc-parser"
-
-gleam = ">= 1.16.0"
-
-target = "erlang"
-internal_modules = ["btc_parser/internal/*"]
 
 [javascript]
 runtime = "node"

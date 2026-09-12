@@ -5,7 +5,10 @@ description = "Live-data command-line examples for btc_parser."
 gleam = ">= 1.16.0"
 
 target = "erlang"
-internal_modules = ["btc_parser_examples/internal/*"]
+internal_modules = [
+  "btc_parser_examples/internal",
+  "btc_parser_examples/internal/*",
+]
 
 [dependencies]
 btc_parser = { path = ".." }
