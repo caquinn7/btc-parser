@@ -2,6 +2,7 @@ import btc_parser/internal/compact_size.{NonMinimalCompactSize}
 import btc_parser/internal/fixed_int/uint64
 import btc_parser/internal/reader
 import exception
+import support/offset_bit_array
 
 // ===============================
 // Read
@@ -121,6 +122,25 @@ pub fn read_accepts_minimal_ff_threshold_value_test() {
 
   assert value == expected
   assert reader.get_offset(reader) == 9
+}
+
+pub fn read_converts_minimal_ff_threshold_value_with_one_bit_offset_test() {
+  let bytes =
+    offset_bit_array.with_one_bit_offset(<<
+      0xFF,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x00,
+    >>)
+  let assert Ok(initial_reader) = reader.new(bytes)
+  let assert Ok(#(_, value)) = compact_size.read(initial_reader)
+
+  assert uint64.to_int(value) == Ok(4_294_967_296)
 }
 
 pub fn read_reads_ff_prefixed_value_test() {

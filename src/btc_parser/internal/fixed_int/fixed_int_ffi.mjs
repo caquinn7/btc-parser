@@ -22,7 +22,7 @@ export function uint64LeToInt(bytes_le) {
     return Result$Error(undefined);
   }
 
-  const x = toBigInt(u8);
+  const x = toBigInt(bytes_le);
 
   if (x <= BigInt(Number.MAX_SAFE_INTEGER)) {
     return Result$Ok(Number(x));
@@ -41,7 +41,7 @@ export function uint64LeToString(bytes_le) {
     throw new Error('Invalid BitArray buffer');
   }
 
-  const x = toBigInt(u8);
+  const x = toBigInt(bytes_le);
   return x.toString(10);
 }
 
@@ -55,7 +55,7 @@ export function int64LeToInt(bytes_le) {
     return Result$Error(undefined);
   }
 
-  const x = toBigIntSigned(u8);
+  const x = toBigIntSigned(bytes_le);
 
   if (x >= BigInt(Number.MIN_SAFE_INTEGER) && x <= BigInt(Number.MAX_SAFE_INTEGER)) {
     return Result$Ok(Number(x));
@@ -74,20 +74,34 @@ export function int64LeToString(bytes_le) {
     throw new Error('Invalid BitArray buffer');
   }
 
-  const x = toBigIntSigned(u8);
+  const x = toBigIntSigned(bytes_le);
   return x.toString(10);
 }
 
-function toBigInt(u8) {
+function toBigInt(bytes_le) {
   let x = 0n;
-  for (let i = 0; i < 8; i++) {
-    x |= BigInt(u8[i]) << (8n * BigInt(i));
+
+  if (bytes_le.bitOffset === 0) {
+    // Aligned BitArrays expose their logical bytes directly, so avoid an
+    // allocation or per-byte accessor call on this common path.
+    const u8 = bytes_le.rawBuffer;
+    for (let i = 0; i < 8; i++) {
+      x |= BigInt(u8[i]) << (8n * BigInt(i));
+    }
+  } else {
+    // An offset view starts partway through its first backing byte. `rawBuffer`
+    // includes that padding, whereas `byteAt` reconstructs each logical byte
+    // from the adjacent backing bytes.
+    for (let i = 0; i < 8; i++) {
+      x |= BigInt(bytes_le.byteAt(i)) << (8n * BigInt(i));
+    }
   }
+
   return x;
 }
 
-function toBigIntSigned(u8) {
-  let x = toBigInt(u8);
+function toBigIntSigned(bytes_le) {
+  let x = toBigInt(bytes_le);
   // Check if the sign bit (bit 63) is set
   if (x >= 0x8000000000000000n) {
     // Two's complement: subtract 2^64

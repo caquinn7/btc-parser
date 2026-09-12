@@ -5,6 +5,7 @@ import btc_parser/transaction.{
 }
 import gleam/bit_array
 import support/bitcoin_wire.{compact_size}
+import support/offset_bit_array
 import support/target
 import support/transaction_assertions.{check_transaction_decode_error}
 import support/transaction_wire.{
@@ -657,6 +658,27 @@ pub fn deserialize_preserves_single_output_test() {
     |> transaction.get_raw_script_bytes
 
   assert actual_script_pubkey_bytes == script_pubkey_bytes
+}
+
+pub fn deserialize_preserves_one_satoshi_output_from_one_bit_offset_test() {
+  let output = build_output_bytes(<<1:little-size(64)>>, <<>>)
+  let tx_bytes = <<
+    transaction_version_1_bytes:bits,
+    build_minimal_input_section_bytes():bits,
+    compact_size(1):bits,
+    output:bits,
+    0:little-size(32),
+  >>
+  let offset_tx_bytes = offset_bit_array.with_one_bit_offset(tx_bytes)
+
+  let assert Ok(aligned_tx) = transaction.deserialize(tx_bytes)
+  let assert Ok(offset_tx) = transaction.deserialize(offset_tx_bytes)
+  let assert [aligned_output] = transaction.get_outputs(aligned_tx)
+  let assert [offset_output] = transaction.get_outputs(offset_tx)
+
+  assert transaction.get_output_value(aligned_output) == 1
+  assert transaction.get_output_value(offset_output) == 1
+  assert transaction.serialize(offset_tx) == tx_bytes
 }
 
 pub fn deserialize_preserves_multiple_outputs_test() {
