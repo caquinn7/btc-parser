@@ -13,7 +13,7 @@ transactions while preserving Bitcoin's wire representation.
 - **Transaction inspection**: Access versions, lock times, inputs, outputs,
   outpoints, script bytes, output values, and SegWit witness stacks.
 - **Script classification**: Structurally identify P2PKH, P2SH, P2WPKH, P2WSH,
-  P2TR, and other output script templates.
+  P2TR, P2A, and other output script templates.
 - **Context-free consensus validation**: Check transaction-local rules such as
   input/output presence, Bitcoin Core's transaction base-size check (at most
   1,000,000 stripped bytes, excluding witness data), output value ranges,

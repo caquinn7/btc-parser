@@ -38,9 +38,10 @@ fn output_script_counts(value: metrics.OutputScriptCounts) -> Json {
     #("p2wpkh", json.int(value.p2wpkh)),
     #("p2wsh", json.int(value.p2wsh)),
     #("p2tr", json.int(value.p2tr)),
+    #("p2a", json.int(value.p2a)),
     #("bare_multisig", json.int(value.bare_multisig)),
     #("null_data", json.int(value.null_data)),
-    #("unknown_witness_program", json.int(value.unknown_witness_program)),
+    #("other_witness_program", json.int(value.other_witness_program)),
     #("non_standard", json.int(value.non_standard)),
   ])
 }

@@ -13,9 +13,10 @@ pub type OutputScriptCounts {
     p2wpkh: Int,
     p2wsh: Int,
     p2tr: Int,
+    p2a: Int,
     bare_multisig: Int,
     null_data: Int,
-    unknown_witness_program: Int,
+    other_witness_program: Int,
     non_standard: Int,
   )
 }
@@ -224,7 +225,7 @@ fn witness_metrics(tx: transaction.Transaction(state)) -> WitnessMetrics {
 }
 
 fn empty_output_script_counts() -> OutputScriptCounts {
-  OutputScriptCounts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+  OutputScriptCounts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 }
 
 fn increment_script_count(
@@ -239,14 +240,15 @@ fn increment_script_count(
       OutputScriptCounts(..counts, p2wpkh: counts.p2wpkh + 1)
     transaction.P2WSH -> OutputScriptCounts(..counts, p2wsh: counts.p2wsh + 1)
     transaction.P2TR -> OutputScriptCounts(..counts, p2tr: counts.p2tr + 1)
+    transaction.P2A -> OutputScriptCounts(..counts, p2a: counts.p2a + 1)
     transaction.BareMultisig ->
       OutputScriptCounts(..counts, bare_multisig: counts.bare_multisig + 1)
     transaction.NullData ->
       OutputScriptCounts(..counts, null_data: counts.null_data + 1)
-    transaction.UnknownWitnessProgram(_) ->
+    transaction.OtherWitnessProgram(_) ->
       OutputScriptCounts(
         ..counts,
-        unknown_witness_program: counts.unknown_witness_program + 1,
+        other_witness_program: counts.other_witness_program + 1,
       )
     transaction.NonStandard ->
       OutputScriptCounts(..counts, non_standard: counts.non_standard + 1)
@@ -321,10 +323,11 @@ fn add_output_script_counts(
     p2wpkh: left.p2wpkh + right.p2wpkh,
     p2wsh: left.p2wsh + right.p2wsh,
     p2tr: left.p2tr + right.p2tr,
+    p2a: left.p2a + right.p2a,
     bare_multisig: left.bare_multisig + right.bare_multisig,
     null_data: left.null_data + right.null_data,
-    unknown_witness_program: left.unknown_witness_program
-      + right.unknown_witness_program,
+    other_witness_program: left.other_witness_program
+      + right.other_witness_program,
     non_standard: left.non_standard + right.non_standard,
   )
 }
