@@ -49,9 +49,10 @@ type OutputMetrics {
     p2wpkh_output_count: Int,
     p2wsh_output_count: Int,
     p2tr_output_count: Int,
+    p2a_output_count: Int,
     bare_multisig_output_count: Int,
     null_data_output_count: Int,
-    unknown_witness_program_output_count: Int,
+    other_witness_program_output_count: Int,
     nonstandard_output_count: Int,
     op_return_nonstandard_output_count: Int,
   )
@@ -283,6 +284,8 @@ fn measure_output(
       )
     transaction.P2TR ->
       OutputMetrics(..metrics, p2tr_output_count: metrics.p2tr_output_count + 1)
+    transaction.P2A ->
+      OutputMetrics(..metrics, p2a_output_count: metrics.p2a_output_count + 1)
     transaction.BareMultisig ->
       OutputMetrics(
         ..metrics,
@@ -293,10 +296,10 @@ fn measure_output(
         ..metrics,
         null_data_output_count: metrics.null_data_output_count + 1,
       )
-    transaction.UnknownWitnessProgram(_) ->
+    transaction.OtherWitnessProgram(_) ->
       OutputMetrics(
         ..metrics,
-        unknown_witness_program_output_count: metrics.unknown_witness_program_output_count
+        other_witness_program_output_count: metrics.other_witness_program_output_count
           + 1,
       )
     transaction.NonStandard ->
@@ -308,7 +311,7 @@ fn measure_output(
 }
 
 fn new_output_metrics() -> OutputMetrics {
-  OutputMetrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+  OutputMetrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 }
 
 fn measure_witnesses(tx: transaction.Transaction(state)) -> WitnessMetrics {
@@ -406,13 +409,14 @@ fn derive_codes(metrics: Metrics) -> List(String) {
     #(output.p2tr_output_count > 0, "F06"),
     #(output.bare_multisig_output_count > 0, "F07"),
     #(output.null_data_output_count > 0, "F08"),
-    #(output.unknown_witness_program_output_count > 0, "F09"),
+    #(output.other_witness_program_output_count > 0, "F09"),
     #(
       output.nonstandard_output_count
         > output.op_return_nonstandard_output_count,
       "F10",
     ),
     #(output.op_return_nonstandard_output_count > 0, "F11"),
+    #(output.p2a_output_count > 0, "F12"),
     #(metrics.total_size >= 360_000 && metrics.total_size <= 400_000, "S01"),
   ]
   |> list.filter_map(fn(entry) {
@@ -476,9 +480,10 @@ fn report_header() -> String {
     "p2wpkh_output_count",
     "p2wsh_output_count",
     "p2tr_output_count",
+    "p2a_output_count",
     "bare_multisig_output_count",
     "null_data_output_count",
-    "unknown_witness_program_output_count",
+    "other_witness_program_output_count",
     "nonstandard_output_count",
     "op_return_nonstandard_output_count",
   ]
@@ -536,9 +541,10 @@ fn render_row(metrics: Metrics) -> String {
     int.to_string(output.p2wpkh_output_count),
     int.to_string(output.p2wsh_output_count),
     int.to_string(output.p2tr_output_count),
+    int.to_string(output.p2a_output_count),
     int.to_string(output.bare_multisig_output_count),
     int.to_string(output.null_data_output_count),
-    int.to_string(output.unknown_witness_program_output_count),
+    int.to_string(output.other_witness_program_output_count),
     int.to_string(output.nonstandard_output_count),
     int.to_string(output.op_return_nonstandard_output_count),
   ]

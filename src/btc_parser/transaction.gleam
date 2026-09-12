@@ -727,22 +727,38 @@ pub type OutputScriptType {
   /// `OP_CHECKSIG`. The classifier does not validate the public key encoding.
   P2PK
 
-  /// Pay-to-public-key-hash. The most common legacy output type.
+  /// Pay-to-public-key-hash.
+  /// 
+  /// The most common legacy output type.
   P2PKH
 
-  /// Pay-to-script-hash. The hash of the redeem script is embedded in the
-  /// `scriptPubKey`; the actual spending conditions are revealed in the input's
-  /// `scriptSig`.
+  /// Pay-to-script-hash.
+  /// 
+  /// The hash of the redeem script is embedded in the `scriptPubKey`.
+  /// The actual spending conditions are revealed in the input's `scriptSig`.
   P2SH
 
-  /// Pay-to-witness-public-key-hash. SegWit v0 output for single-key spends.
+  /// Pay-to-witness-public-key-hash.
+  /// 
+  /// SegWit v0 output for single-key spends.
   P2WPKH
 
-  /// Pay-to-witness-script-hash. SegWit v0 output for script-based spends.
+  /// Pay-to-witness-script-hash.
+  /// 
+  /// SegWit v0 output for script-based spends.
   P2WSH
 
-  /// Pay-to-taproot. SegWit v1 output supporting key-path and script-path spends.
+  /// Pay-to-taproot.
+  /// 
+  /// SegWit v1 output supporting key-path and script-path spends.
   P2TR
+
+  /// Bitcoin Core's pay-to-anchor relay-policy template.
+  ///
+  /// Structurally matches exactly `OP_1 OP_DATA_2 4E 73`
+  /// (`51 02 4E 73`). Recognition is limited to Bitcoin Core's named relay
+  /// policy template; it does not introduce consensus validation.
+  P2A
 
   /// Bare m-of-n multisig template using `OP_CHECKMULTISIG` directly in the
   /// `scriptPubKey`.
@@ -766,15 +782,16 @@ pub type OutputScriptType {
   /// `NonStandard` instead.
   NullData
 
-  /// A well-formed witness program whose witness version is not assigned a named
-  /// output type by this library.
+  /// A well-formed witness program that is not one of this library's named
+  /// output types.
   ///
-  /// `version` is the decoded witness version (1–16). Version 1 with a
-  /// 32-byte witness program is classified as `P2TR` and therefore never
-  /// appears here.
+  /// `version` is the decoded witness version (1–16). Version 1 with a 32-byte
+  /// witness program is `P2TR`, and the exact `51 02 4E 73` template is `P2A`,
+  /// so neither appears here. A later valid witness-program assignment remains
+  /// `OtherWitnessProgram` until a major release adds a dedicated constructor.
   ///
   /// Forward-compatible. Do not treat this the same as `NonStandard`.
-  UnknownWitnessProgram(version: Int)
+  OtherWitnessProgram(version: Int)
 
   /// Does not match any recognized standard output template.
   NonStandard
@@ -798,13 +815,14 @@ pub type OutputScriptType {
 /// ├─ 00 14 [×20]                           → P2WPKH
 /// ├─ 00 20 [×32]                           → P2WSH
 /// ├─ 51 20 [×32]                           → P2TR
+/// ├─ 51 02 4E 73                           → P2A
 /// ├─ 21 [×33] AC                           → P2PK (33-byte payload)
 /// ├─ 41 [×65] AC                           → P2PK (65-byte payload)
 /// ├─ 6A …                                  (OP_RETURN prefix)
 /// │   ├─ total ≤ 83 bytes AND push-only    → NullData
 /// │   └─ otherwise                         → NonStandard
 /// └─ (none matched)
-///     ├─ [51–60] [02–28] [×push_length]    → UnknownWitnessProgram(version)
+///     ├─ [51–60] [02–28] [×push_length]    → OtherWitnessProgram(version)
 ///     └─ structural m-of-n (1≤m≤n≤3)
 ///         ├─ AND key-payload count = n     → BareMultisig
 ///         └─ otherwise                     → NonStandard
@@ -840,6 +858,9 @@ pub fn classify_output_script(
     // P2TR: OP_1 OP_DATA_32 <32-byte witness program>
     <<0x51, 0x20, _:bytes-size(32)>> -> P2TR
 
+    // P2A: OP_1 OP_DATA_2 "Ns" (Bitcoin Core's pay-to-anchor template)
+    <<0x51, 0x02, 0x4E, 0x73>> -> P2A
+
     // P2PK: OP_DATA_33 <compressed pubkey> OP_CHECKSIG
     <<0x21, _:bytes-size(33), 0xAC>> -> P2PK
 
@@ -861,15 +882,15 @@ pub fn classify_output_script(
 /// Checks for future witness versions and bare multisig.
 fn do_classify_non_template(script_bytes: BitArray) -> OutputScriptType {
   case script_bytes {
-    // UnknownWitnessProgram: OP_1–OP_16 followed by a 2–40 byte witness program.
+    // OtherWitnessProgram: OP_1–OP_16 followed by a 2–40 byte witness program.
     // OP_0 (P2WPKH/P2WSH) is already handled above.
-    // OP_1 with a 32-byte program is already handled above as P2TR.
+    // OP_1 with a 32-byte program or the exact P2A program is handled above.
     <<version, push_length, _:bytes-size(push_length)>>
       if version >= 0x51
       && version <= 0x60
       && push_length >= 2
       && push_length <= 40
-    -> UnknownWitnessProgram(version: decode_small_int_opcode(version))
+    -> OtherWitnessProgram(version: decode_small_int_opcode(version))
 
     _ ->
       case do_is_standard_multisig(script_bytes) {

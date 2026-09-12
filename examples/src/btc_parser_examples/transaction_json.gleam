@@ -110,10 +110,11 @@ fn classification(value: transaction.OutputScriptType) -> String {
     transaction.P2WPKH -> "p2wpkh"
     transaction.P2WSH -> "p2wsh"
     transaction.P2TR -> "p2tr"
+    transaction.P2A -> "p2a"
     transaction.BareMultisig -> "bare_multisig"
     transaction.NullData -> "null_data"
-    transaction.UnknownWitnessProgram(version) ->
-      "unknown_witness_program_v" <> int.to_string(version)
+    transaction.OtherWitnessProgram(version) ->
+      "other_witness_program_v" <> int.to_string(version)
     transaction.NonStandard -> "non_standard"
   }
 }

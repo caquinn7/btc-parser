@@ -18,7 +18,7 @@ Classification is a two-pass process:
 1. **Fixed-template matching** — byte-exact pattern matching against every named
    script type whose structure has a fixed, known length.
 2. **Non-template fallback** — scripts that did not match a fixed template are
-   tested for unknown witness versions and then for bare multisig.
+   tested for other valid witness programs and then for bare multisig.
 
 Any script that fails all tests is returned as `NonStandard`.
 
@@ -113,9 +113,27 @@ Total: **34 bytes**.
 Total: **34 bytes**. Supports both key-path and script-path spends
 (Taproot/Tapscript). Classification does not validate the output key.
 
-> Note: OP_1 with a 32-byte program is always `P2TR`. OP_1 with any other valid
-> witness-program length (2–40 bytes) falls through to
-> `UnknownWitnessProgram`; malformed lengths are `NonStandard`.
+> Note: OP_1 with a 32-byte program is always `P2TR`, and the exact `51 02 4E
+> 73` script is `P2A`. Other valid OP_1 witness-program shapes (2–40 bytes)
+> fall through to `OtherWitnessProgram`; malformed lengths are `NonStandard`.
+
+---
+
+### P2A — Pay-to-Anchor
+
+```text
+51  02  4E  73
+```
+
+| Byte(s) | Meaning                                          |
+| ------- | ------------------------------------------------ |
+| `51`    | Witness version 1 (`OP_1`)                       |
+| `02`    | Push two bytes                                   |
+| `4E 73` | The exact `Ns` program used by Bitcoin Core P2A |
+
+Total: **4 bytes**. `P2A` is structural recognition of Bitcoin Core's named
+relay-policy template. It does not add consensus validation or interpret a
+spend.
 
 ---
 
@@ -166,7 +184,7 @@ cap is a *relay policy* constraint, not a consensus rule.
 Scripts that did not match any fixed template are passed to this function, which
 checks two further cases.
 
-### UnknownWitnessProgram — future SegWit versions
+### OtherWitnessProgram — other valid SegWit programs
 
 ```text
 <version byte>  <push_length byte>  <push_length bytes>
@@ -186,9 +204,11 @@ Cases already handled before reaching this fallback:
 - `OP_0` with a 20- or 32-byte program — matched as `P2WPKH` or `P2WSH` in
   pass 1
 - `OP_1` with a 32-byte program — matched as `P2TR` in pass 1
+- The exact `OP_1 OP_DATA_2 4E 73` script — matched as `P2A` in pass 1
 
-`UnknownWitnessProgram` should be treated as forward-compatible, not as an error
-or as `NonStandard`.
+`OtherWitnessProgram` should be treated as forward-compatible, not as an error
+or as `NonStandard`. A dedicated constructor for a later assignment requires a
+major release.
 
 ---
 
@@ -277,6 +297,7 @@ classify_output_script(script)
 ├─ 00 14 [×20]                           → P2WPKH
 ├─ 00 20 [×32]                           → P2WSH
 ├─ 51 20 [×32]                           → P2TR
+├─ 51 02 4E 73                           → P2A
 ├─ 21 [×33] AC                           → P2PK (33-byte payload)
 ├─ 41 [×65] AC                           → P2PK (65-byte payload)
 ├─ 6A …                                  (OP_RETURN prefix)
@@ -284,7 +305,7 @@ classify_output_script(script)
 │   └─ otherwise                         → NonStandard
 └─ (none matched) → do_classify_non_template
     │
-    ├─ [51–60] [02–28] [×push_length]    → UnknownWitnessProgram(version)
+    ├─ [51–60] [02–28] [×push_length]    → OtherWitnessProgram(version)
     └─ (none matched) → do_is_standard_multisig
         ├─ structural m-of-n (1≤m≤n≤3)
         │   AND key-payload count = n    → BareMultisig

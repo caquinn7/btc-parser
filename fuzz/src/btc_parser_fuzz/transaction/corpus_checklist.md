@@ -66,9 +66,10 @@ mutation is unlikely to synthesize deliberately.
 | [x] | `F06` | `P2TR` output | 18 transactions. |
 | [ ] | `F07` | `BareMultisig` output | Add an exact bare-multisig template. |
 | [x] | `F08` | `NullData` output | 13 transactions. |
-| [ ] | `F09` | `UnknownWitnessProgram` output | Add an unknown witness program. |
+| [ ] | `F09` | `OtherWitnessProgram` output | Add another valid witness program. |
 | [ ] | `F10` | Non-OP_RETURN `NonStandard` output | No current coverage. |
 | [x] | `F11` | OP_RETURN-prefixed `NonStandard` output | Six transactions have oversized or otherwise unrecognized OP_RETURN scripts. |
+| [ ] | `F12` | `P2A` output | Add the exact `51 02 4E 73` template; direct unit tests provide deterministic coverage meanwhile. |
 
 `F10` deliberately excludes `F11`: all currently classified `NonStandard`
 outputs are OP_RETURN-prefixed, so they cover only `F11`.
@@ -86,14 +87,14 @@ set of real-world transaction encodings.
 
 ## Measured but Not Required
 
-The 50-column metrics report includes numeric measurements for
+The 51-column metrics report includes numeric measurements for
 CompactSize-width boundaries, exact 252/253 script and witness lengths, exact
 65,535/65,536 witness-item lengths, exact witness-stack counts,
 witness-to-base-size comparisons, combined high input/output counts, and exact
 coinbase scriptSig boundaries. These are useful diagnostics when evaluating a
 candidate seed, but they do not create taxonomy codes or TODO items.
 
-In other words, the 25 codes exhaustively describe the selected coverage
+In other words, the 26 codes exhaustively describe the selected coverage
 predicates; the additional measurements describe the corpus without expanding
 the coverage requirements.
 

@@ -1,7 +1,7 @@
 import btc_parser/transaction.{
   type Input, type OutPoint, type OutputScript, type OutputScriptType,
-  type ScriptBytes, BareMultisig, NonStandard, NullData, P2PK, P2PKH, P2SH, P2TR,
-  P2WPKH, P2WSH, UnknownWitnessProgram,
+  type ScriptBytes, BareMultisig, NonStandard, NullData, OtherWitnessProgram,
+  P2A, P2PK, P2PKH, P2SH, P2TR, P2WPKH, P2WSH,
 }
 import support/bitcoin_wire.{compact_size}
 import support/transaction_wire.{
@@ -105,6 +105,21 @@ pub fn classify_output_script_p2tr_test() {
   check_output_script_classification(script_bytes, P2TR)
 }
 
+pub fn classify_output_script_p2a_test() {
+  let script_bytes = <<0x51, 0x02, 0x4E, 0x73>>
+  check_output_script_classification(script_bytes, P2A)
+}
+
+pub fn classify_output_script_truncated_p2a_is_non_standard_test() {
+  let script_bytes = <<0x51, 0x02, 0x4E>>
+  check_output_script_classification(script_bytes, NonStandard)
+}
+
+pub fn classify_output_script_length_mismatched_p2a_is_non_standard_test() {
+  let script_bytes = <<0x51, 0x03, 0x4E, 0x73>>
+  check_output_script_classification(script_bytes, NonStandard)
+}
+
 pub fn classify_output_script_p2pk_compressed_test() {
   let pubkey = repeat_byte(0x02, 33)
   let script_bytes = <<0x21, pubkey:bits, 0xAC>>
@@ -159,31 +174,31 @@ pub fn classify_output_script_bare_multisig_3of3_test() {
   check_output_script_classification(script_bytes, BareMultisig)
 }
 
-pub fn classify_output_script_unknown_witness_v1_non_taproot_test() {
+pub fn classify_output_script_other_witness_program_v1_non_taproot_test() {
   // OP_1 with a 20-byte program — valid witness v1 but not Taproot (which requires 32 bytes)
   let program = repeat_byte(0xFF, 20)
   let script_bytes = <<0x51, 0x14, program:bits>>
   check_output_script_classification(
     script_bytes,
-    UnknownWitnessProgram(version: 1),
+    OtherWitnessProgram(version: 1),
   )
 }
 
-pub fn classify_output_script_unknown_witness_v2_test() {
+pub fn classify_output_script_other_witness_program_v2_test() {
   let program = repeat_byte(0xFF, 32)
   let script_bytes = <<0x52, 0x20, program:bits>>
   check_output_script_classification(
     script_bytes,
-    UnknownWitnessProgram(version: 2),
+    OtherWitnessProgram(version: 2),
   )
 }
 
-pub fn classify_output_script_unknown_witness_v16_test() {
+pub fn classify_output_script_other_witness_program_v16_test() {
   let program = repeat_byte(0xFF, 20)
   let script_bytes = <<0x60, 0x14, program:bits>>
   check_output_script_classification(
     script_bytes,
-    UnknownWitnessProgram(version: 16),
+    OtherWitnessProgram(version: 16),
   )
 }
 
@@ -236,21 +251,23 @@ pub fn classify_output_script_multisig_too_many_keys_test() {
   check_output_script_classification(script_bytes, NonStandard)
 }
 
-pub fn classify_output_script_unknown_witness_v1_min_program_test() {
+pub fn classify_output_script_other_witness_program_v1_different_two_byte_program_test() {
+  // The shortest valid version-1 program remains the generic fallback unless
+  // its two bytes are the exact P2A `4E 73` program.
   let program = repeat_byte(0xFF, 2)
   let script_bytes = <<0x51, 0x02, program:bits>>
   check_output_script_classification(
     script_bytes,
-    UnknownWitnessProgram(version: 1),
+    OtherWitnessProgram(version: 1),
   )
 }
 
-pub fn classify_output_script_unknown_witness_v1_max_program_test() {
+pub fn classify_output_script_other_witness_program_v1_max_program_test() {
   let program = repeat_byte(0xFF, 40)
   let script_bytes = <<0x51, 0x28, program:bits>>
   check_output_script_classification(
     script_bytes,
-    UnknownWitnessProgram(version: 1),
+    OtherWitnessProgram(version: 1),
   )
 }
 

@@ -19,7 +19,8 @@ F05|Contains an output classified as P2WSH
 F06|Contains an output classified as P2TR
 F07|Contains an output classified as BareMultisig
 F08|Contains an output classified as NullData
-F09|Contains an output classified as UnknownWitnessProgram
+F09|Contains an output classified as OtherWitnessProgram
 F10|Contains a non-OP_RETURN output classified as NonStandard
 F11|Contains an OP_RETURN-prefixed output classified as NonStandard
+F12|Contains an output classified as P2A
 S01|Total serialized size is 360,000 through 400,000 bytes
