@@ -143,8 +143,14 @@ pub fn classify_output_script_nulldata_empty_test() {
 }
 
 pub fn classify_output_script_nulldata_non_push_is_non_standard_test() {
-  // OP_RETURN OP_ADD — non-push opcode after OP_RETURN is not a standard null-data script
+  // OP_RETURN OP_ADD — non-push opcode after OP_RETURN is not NullData.
   let script_bytes = <<0x6A, 0x93>>
+  check_output_script_classification(script_bytes, NonStandard)
+}
+
+pub fn classify_output_script_nulldata_truncated_pushdata_is_non_standard_test() {
+  // OP_RETURN OP_PUSHDATA1 2 <one byte> — the push payload is truncated.
+  let script_bytes = <<0x6A, 0x4C, 0x02, 0xAA>>
   check_output_script_classification(script_bytes, NonStandard)
 }
 
@@ -212,20 +218,11 @@ pub fn classify_output_script_empty_test() {
   check_output_script_classification(script_bytes, NonStandard)
 }
 
-pub fn classify_output_script_nulldata_at_max_size_test() {
-  // The 80-byte payload keeps the full script at the 83-byte policy limit.
-  let data = repeat_byte(0xAB, 80)
-  let script_bytes = <<0x6A, 0x4C, 80, data:bits>>
-
-  check_output_script_classification(script_bytes, NullData)
-}
-
-pub fn classify_output_script_nulldata_over_max_size_test() {
-  // One more payload byte pushes the full script over the 83-byte policy limit.
+pub fn classify_output_script_nulldata_ignores_legacy_relay_size_limit_test() {
   let data = repeat_byte(0xAB, 81)
   let script_bytes = <<0x6A, 0x4C, 81, data:bits>>
 
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, NullData)
 }
 
 pub fn classify_output_script_multisig_invalid_m_gt_n_test() {

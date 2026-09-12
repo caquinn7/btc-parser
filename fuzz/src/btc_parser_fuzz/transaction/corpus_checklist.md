@@ -8,8 +8,8 @@ through the public transaction API without affecting seed selection or
 mutation. Codes describe the original seed transaction, not malformed states
 that mutations can synthesize.
 
-The 77-record corpus has 304 exhaustive assignments across the 25-code
-canonical legend: 15 codes are represented and 10 are deliberate collection
+The 77-record corpus has 304 exhaustive assignments across the 26-code
+canonical legend: 14 codes are represented and 12 are deliberate collection
 targets. Every satisfied predicate is applied to every seed in canonical order.
 The source of truth is [`seed_txs.txt`](../../../corpus/transaction/seed_txs.txt);
 the legend is [`seed_txs_codes.txt`](../../../corpus/transaction/seed_txs_codes.txt).
@@ -65,14 +65,14 @@ mutation is unlikely to synthesize deliberately.
 | [x] | `F05` | `P2WSH` output | 15 transactions. |
 | [x] | `F06` | `P2TR` output | 18 transactions. |
 | [ ] | `F07` | `BareMultisig` output | Add an exact bare-multisig template. |
-| [x] | `F08` | `NullData` output | 13 transactions. |
+| [x] | `F08` | `NullData` output | 19 transactions. |
 | [ ] | `F09` | `OtherWitnessProgram` output | Add another valid witness program. |
 | [ ] | `F10` | Non-OP_RETURN `NonStandard` output | No current coverage. |
-| [x] | `F11` | OP_RETURN-prefixed `NonStandard` output | Six transactions have oversized or otherwise unrecognized OP_RETURN scripts. |
+| [ ] | `F11` | OP_RETURN-prefixed `NonStandard` output | Add a script with a non-push opcode or malformed push operation after OP_RETURN. |
 | [ ] | `F12` | `P2A` output | Add the exact `51 02 4E 73` template; direct unit tests provide deterministic coverage meanwhile. |
 
-`F10` deliberately excludes `F11`: all currently classified `NonStandard`
-outputs are OP_RETURN-prefixed, so they cover only `F11`.
+`F10` and `F11` remain distinct: `F10` covers non-OP_RETURN `NonStandard`
+outputs, while `F11` covers OP_RETURN-prefixed `NonStandard` outputs.
 
 ## Baseline Descriptors
 
