@@ -2,6 +2,7 @@ import btc_parser/internal/fixed_int/shared_inputs
 import btc_parser/internal/fixed_int/uint64.{
   ExceedsUint64, InvalidBitCount, NegativeValue, UnsafeInteger,
 }
+import support/offset_bit_array
 import support/target
 
 /// 2^64 - 1
@@ -67,6 +68,13 @@ pub fn to_int_one_test() {
   assert uint64.to_int(x) == Ok(1)
 }
 
+pub fn to_int_one_with_one_bit_offset_test() {
+  let bytes = offset_bit_array.with_one_bit_offset(shared_inputs.one_bytes)
+  let assert Ok(x) = uint64.from_bytes_le(bytes)
+
+  assert uint64.to_int(x) == Ok(1)
+}
+
 pub fn to_int_power_of_two_test() {
   // 2^32 = 4294967296
   let assert Ok(x) = uint64.from_bytes_le(shared_inputs.two_to_32_bytes)
@@ -88,6 +96,14 @@ pub fn to_string_one_test() {
 pub fn to_string_power_of_two_test() {
   // 2^32 = 4294967296
   let assert Ok(x) = uint64.from_bytes_le(shared_inputs.two_to_32_bytes)
+  assert uint64.to_string(x) == "4294967296"
+}
+
+pub fn to_string_power_of_two_with_one_bit_offset_test() {
+  let bytes =
+    offset_bit_array.with_one_bit_offset(shared_inputs.two_to_32_bytes)
+  let assert Ok(x) = uint64.from_bytes_le(bytes)
+
   assert uint64.to_string(x) == "4294967296"
 }
 
