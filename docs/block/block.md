@@ -84,5 +84,5 @@ scope.
 
 ## Documentation
 
-- [Project overview](../../README.md)
-- [Transaction domain](../transaction/transaction.md)
+- [Project overview](https://github.com/caquinn7/btc-parser)
+- [Transaction domain](https://github.com/caquinn7/btc-parser/blob/main/docs/transaction/transaction.md)
