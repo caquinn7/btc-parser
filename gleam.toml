@@ -16,6 +16,9 @@ type = "github"
 user = "caquinn7"
 repo = "btc-parser"
 
+[erlang]
+extra_applications = ["crypto"]
+
 [javascript]
 runtime = "node"
 source_maps = true
