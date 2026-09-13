@@ -770,16 +770,15 @@ pub type OutputScriptType {
 
   /// A structurally recognized null-data output.
   ///
-  /// This variant represents the standard null-data template, not every script
+  /// This variant represents the null-data script template, not every script
   /// that begins with `OP_RETURN`.
   ///
   /// Matches scripts that begin with `OP_RETURN`, are followed only by the push
-  /// opcodes recognized by this classifier, and have a total size of at most 83
-  /// bytes. The size limit comes from relay policy; it is not a consensus rule.
+  /// opcodes recognized by this classifier, and contain only complete push
+  /// operations. Script size does not affect classification.
   ///
-  /// An `OP_RETURN` script that is push-only but exceeds 83 bytes, or that
-  /// contains non-push opcodes after `OP_RETURN`, will classify as
-  /// `NonStandard` instead.
+  /// An `OP_RETURN` script with a non-push opcode or malformed push operation
+  /// after `OP_RETURN` classifies as `NonStandard` instead.
   NullData
 
   /// A well-formed witness program that is not one of this library's named
@@ -802,10 +801,12 @@ pub type OutputScriptType {
 /// Matches `script_pubkey` bytes against known Bitcoin script templates and
 /// returns the corresponding `OutputScriptType`.
 ///
-/// This function performs structural classification only. It does not extract,
-/// decode, or interpret embedded hashes, public keys, witness programs, multisig
-/// parameters, signatures, or data payloads. For caller-specific script
-/// analysis, use `get_raw_script_bytes` on the original script.
+/// Classification is per-script and structural. It does not determine whether
+/// the containing transaction satisfies a node's configurable relay policy.
+/// It also does not extract, decode, or interpret embedded hashes, public keys,
+/// witness programs, multisig parameters, signatures, or data payloads. For
+/// caller-specific script analysis, use `get_raw_script_bytes` on the original
+/// script.
 ///
 /// ## Classification
 ///
@@ -819,7 +820,7 @@ pub type OutputScriptType {
 /// ├─ 21 [×33] AC                           → P2PK (33-byte payload)
 /// ├─ 41 [×65] AC                           → P2PK (65-byte payload)
 /// ├─ 6A …                                  (OP_RETURN prefix)
-/// │   ├─ total ≤ 83 bytes AND push-only    → NullData
+/// │   ├─ complete push-only operations     → NullData
 /// │   └─ otherwise                         → NonStandard
 /// └─ (none matched)
 ///     ├─ [51–60] [02–28] [×push_length]    → OtherWitnessProgram(version)
@@ -867,9 +868,9 @@ pub fn classify_output_script(
     // P2PK: OP_DATA_65 <uncompressed pubkey> OP_CHECKSIG
     <<0x41, _:bytes-size(65), 0xAC>> -> P2PK
 
-    // NullData: OP_RETURN + recognized push-only data, total ≤ 83 bytes.
+    // NullData: OP_RETURN + complete, recognized push-only data.
     <<0x6A, rest:bits>> ->
-      case bit_array.byte_size(script_bytes) <= 83 && do_is_push_only(rest) {
+      case do_is_push_only(rest) {
         True -> NullData
         False -> NonStandard
       }

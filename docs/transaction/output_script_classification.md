@@ -9,6 +9,9 @@ interpret embedded hashes, public keys, witness programs, multisig parameters,
 signatures, or `OP_RETURN` payloads. Callers that need those details should use
 `get_raw_script_bytes` and interpret the script bytes in their own layer.
 
+Classification is per-script. It does not evaluate transaction-wide,
+configurable relay policy.
+
 ---
 
 ## Overview
@@ -166,16 +169,11 @@ encoding.
 
 ### NullData — OP_RETURN data carrier
 
-A script beginning with `OP_RETURN` (`6A`) is a candidate for `NullData`, but two
-additional conditions must both hold:
-
-1. **Total script size ≤ 83 bytes** — Bitcoin Core's relay policy limit,
-   including `OP_RETURN`, push opcodes, and payload bytes.
-2. **All bytes after `OP_RETURN` are push-only** — validated by `do_is_push_only`
-   (see [Push-only validation](#push-only-validation-do_is_push_only) below).
-
-If either condition fails the script is `NonStandard`, not `NullData`. The 83-byte
-cap is a *relay policy* constraint, not a consensus rule.
+A script beginning with `OP_RETURN` (`6A`) is `NullData` when every following
+operation is a complete push, as checked by
+[`do_is_push_only`](#push-only-validation-do_is_push_only). Script size does not
+affect classification. A non-push opcode or malformed/truncated push operation
+after `OP_RETURN` makes the script `NonStandard`.
 
 ---
 
@@ -301,7 +299,7 @@ classify_output_script(script)
 ├─ 21 [×33] AC                           → P2PK (33-byte payload)
 ├─ 41 [×65] AC                           → P2PK (65-byte payload)
 ├─ 6A …                                  (OP_RETURN prefix)
-│   ├─ total ≤ 83 bytes AND push-only    → NullData
+│   ├─ complete push-only operations      → NullData
 │   └─ otherwise                         → NonStandard
 └─ (none matched) → do_classify_non_template
     │

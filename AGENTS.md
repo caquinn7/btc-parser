@@ -196,8 +196,8 @@ file/timer/CLI behavior, or a runtime-specific bug.
   through documented validation APIs.
 - Output script classification is structural and should stay aligned with
   `classify_output_script` docs and tests; do not turn it into script execution,
-  key validation, or consensus validation. NullData classification remains relay
-  policy, not consensus validation.
+  key validation, consensus validation, or transaction-wide configurable relay
+  policy.
 - `OtherWitnessProgram` should remain forward-compatible and distinct from
   `NonStandard`. Do not add named `OutputScriptType` constructors outside a
   major release; later Core assignments remain `OtherWitnessProgram` until then.
