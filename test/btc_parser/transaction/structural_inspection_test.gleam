@@ -161,6 +161,38 @@ pub fn classify_output_script_nulldata_truncated_pushdata_is_unrecognized_test()
   check_output_script_classification(script_bytes, Unrecognized)
 }
 
+pub fn classify_output_script_nulldata_nonminimal_pushdata2_and_pushdata4_test() {
+  let pushdata2_script = <<0x6A, 0x4D, 0x01, 0x00, 0xAA>>
+  let pushdata4_script = <<0x6A, 0x4E, 0x01, 0x00, 0x00, 0x00, 0xAA>>
+
+  check_output_script_classification(pushdata2_script, NullData)
+  check_output_script_classification(pushdata4_script, NullData)
+}
+
+pub fn classify_output_script_nulldata_truncated_pushdata1_is_unrecognized_test() {
+  let incomplete_length = <<0x6A, 0x4C>>
+  let truncated_payload = <<0x6A, 0x4C, 0x01>>
+
+  check_output_script_classification(incomplete_length, Unrecognized)
+  check_output_script_classification(truncated_payload, Unrecognized)
+}
+
+pub fn classify_output_script_nulldata_truncated_pushdata2_is_unrecognized_test() {
+  let incomplete_length = <<0x6A, 0x4D, 0x01>>
+  let truncated_payload = <<0x6A, 0x4D, 0x01, 0x00>>
+
+  check_output_script_classification(incomplete_length, Unrecognized)
+  check_output_script_classification(truncated_payload, Unrecognized)
+}
+
+pub fn classify_output_script_nulldata_truncated_pushdata4_is_unrecognized_test() {
+  let incomplete_length = <<0x6A, 0x4E, 0x01, 0x00, 0x00>>
+  let truncated_payload = <<0x6A, 0x4E, 0x01, 0x00, 0x00, 0x00>>
+
+  check_output_script_classification(incomplete_length, Unrecognized)
+  check_output_script_classification(truncated_payload, Unrecognized)
+}
+
 pub fn classify_output_script_bare_multisig_1of1_test() {
   let pubkey = repeat_byte(0xAA, 33)
   let script_bytes = <<0x51, 0x21, pubkey:bits, 0x51, 0xAE>>
@@ -427,6 +459,34 @@ pub fn classify_output_script_other_witness_program_v1_max_program_test() {
     script_bytes,
     OtherWitnessProgram(version: 1),
   )
+}
+
+pub fn classify_output_script_witness_v1_one_byte_program_is_unrecognized_test() {
+  let program = repeat_byte(0xFF, 1)
+  let script_bytes = <<0x51, 0x01, program:bits>>
+  check_output_script_classification(script_bytes, Unrecognized)
+}
+
+pub fn classify_output_script_witness_v1_41_byte_program_is_unrecognized_test() {
+  let program = repeat_byte(0xFF, 41)
+  let script_bytes = <<0x51, 0x29, program:bits>>
+  check_output_script_classification(script_bytes, Unrecognized)
+}
+
+pub fn classify_output_script_witness_v0_invalid_program_lengths_are_unrecognized_test() {
+  let program_2 = <<0x00, 0x02, repeat_byte(0xFF, 2):bits>>
+  let program_19 = <<0x00, 0x13, repeat_byte(0xFF, 19):bits>>
+  let program_21 = <<0x00, 0x15, repeat_byte(0xFF, 21):bits>>
+  let program_31 = <<0x00, 0x1F, repeat_byte(0xFF, 31):bits>>
+  let program_33 = <<0x00, 0x21, repeat_byte(0xFF, 33):bits>>
+  let program_40 = <<0x00, 0x28, repeat_byte(0xFF, 40):bits>>
+
+  check_output_script_classification(program_2, Unrecognized)
+  check_output_script_classification(program_19, Unrecognized)
+  check_output_script_classification(program_21, Unrecognized)
+  check_output_script_classification(program_31, Unrecognized)
+  check_output_script_classification(program_33, Unrecognized)
+  check_output_script_classification(program_40, Unrecognized)
 }
 
 /// Build and deserialize a minimal transaction containing only the given
