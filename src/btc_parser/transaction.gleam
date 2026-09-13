@@ -711,9 +711,10 @@ pub fn get_script_size(script: ScriptBytes(k)) -> Int {
 // Output script classification
 // ==============================================================================
 
-/// The recognised script type of a transaction output's locking script.
+/// The recognised structural script type of a transaction output's locking
+/// script.
 ///
-/// Identifies which standard Bitcoin script template a `script_pubkey` matches,
+/// Identifies which recognised Bitcoin script template a `script_pubkey` matches,
 /// enabling type-safe dispatch when inspecting outputs.
 ///
 /// This type is intentionally classification-only. Its variants do not carry
@@ -763,9 +764,12 @@ pub type OutputScriptType {
   /// Bare m-of-n multisig template using `OP_CHECKMULTISIG` directly in the
   /// `scriptPubKey`.
   ///
-  /// Structurally matches 1–3 key payloads and 1–3 required signatures. The
-  /// classifier validates the template layout and counts, not public key
-  /// encoding.
+  /// Structurally matches 1–20 key payloads and 1–20 required signatures with
+  /// minimally encoded counts. Key payloads may use direct, `OP_PUSHDATA1`,
+  /// `OP_PUSHDATA2`, or `OP_PUSHDATA4` pushes, provided their decoded sizes are
+  /// 33 or 65 bytes. The classifier checks only the payload shape; it does not
+  /// validate SEC prefixes or curve points. Relay-policy limits such as the
+  /// 1–3-key standardness rule are outside this classification.
   BareMultisig
 
   /// A structurally recognized null-data output.
@@ -792,13 +796,15 @@ pub type OutputScriptType {
   /// Forward-compatible. Do not treat this the same as `NonStandard`.
   OtherWitnessProgram(version: Int)
 
-  /// Does not match any recognized standard output template.
+  /// Does not match any recognised structural output template.
+  ///
+  /// This is the unmatched structural fallback, not a relay-policy decision.
   NonStandard
 }
 
 /// Classify the script type of a transaction output's locking script.
 ///
-/// Matches `script_pubkey` bytes against known Bitcoin script templates and
+/// Matches `script_pubkey` bytes against recognised Bitcoin script templates and
 /// returns the corresponding `OutputScriptType`.
 ///
 /// Classification is per-script and structural. It does not determine whether
@@ -824,7 +830,7 @@ pub type OutputScriptType {
 /// │   └─ otherwise                         → NonStandard
 /// └─ (none matched)
 ///     ├─ [51–60] [02–28] [×push_length]    → OtherWitnessProgram(version)
-///     └─ structural m-of-n (1≤m≤n≤3)
+///     └─ structural m-of-n (1 ≤ m ≤ n ≤ 20, minimal counts)
 ///         ├─ AND key-payload count = n     → BareMultisig
 ///         └─ otherwise                     → NonStandard
 /// ```
@@ -894,7 +900,7 @@ fn do_classify_non_template(script_bytes: BitArray) -> OutputScriptType {
     -> OtherWitnessProgram(version: decode_small_int_opcode(version))
 
     _ ->
-      case do_is_standard_multisig(script_bytes) {
+      case do_is_bare_multisig(script_bytes) {
         True -> BareMultisig
         False -> NonStandard
       }
@@ -958,77 +964,102 @@ fn do_is_push_only(bytes: BitArray) -> Bool {
   }
 }
 
-/// Return `True` if `bytes` is a standard bare multisig script:
-/// `OP_m { OP_DATA_33 <pubkey> | OP_DATA_65 <pubkey> }... OP_n OP_CHECKMULTISIG`
-/// where 1 ≤ m ≤ n ≤ 3.
-fn do_is_standard_multisig(bytes: BitArray) -> Bool {
-  // OP_m + (OP_DATA_33 + 33 bytes) + OP_n + OP_CHECKMULTISIG = 37 bytes
-  let multisig_min_bytes = 37
-  let total = bit_array.byte_size(bytes)
-
-  use <- bool.guard(total < multisig_min_bytes, False)
-
-  let check = {
-    use #(_, pubkey_count) <- result.try(read_multisig_header(bytes, total))
-    use pubkey_section <- result.try(bit_array.slice(bytes, 1, total - 3))
-    Ok(do_count_multisig_pubkeys(pubkey_section, 0) == pubkey_count)
-  }
-
-  result.unwrap(check, False)
-}
-
-/// Extract and validate the m, n opcodes and OP_CHECKMULTISIG trailer.
-/// Returns Ok(#(min_sigs, pubkey_count)) where both are decoded integer values (1–3).
-fn read_multisig_header(
-  bytes: BitArray,
-  total: Int,
-) -> Result(#(Int, Int), Nil) {
-  // the first byte
-  let m_byte = bit_array.slice(bytes, 0, 1)
-  // the second-to-last byte
-  let n_byte = bit_array.slice(bytes, total - 2, 1)
-  // the last byte
-  let trailer_byte = bit_array.slice(bytes, total - 1, 1)
-
-  case m_byte, n_byte, trailer_byte {
-    Ok(<<m_opcode>>), Ok(<<n_opcode>>), Ok(<<trailer>>) -> {
-      let op_checkmultisig = 0xAE
-      use <- bool.guard(trailer != op_checkmultisig, Error(Nil))
-
-      let min_sigs = decode_small_int_opcode(m_opcode)
-      let pubkey_count = decode_small_int_opcode(n_opcode)
-
-      case
-        1 <= min_sigs
-        && min_sigs <= 3
-        && 1 <= pubkey_count
-        && pubkey_count <= 3
-        && min_sigs <= pubkey_count
-      {
-        True -> Ok(#(min_sigs, pubkey_count))
-        False -> Error(Nil)
+/// Return `True` if `bytes` is a structurally recognised bare multisig script:
+/// `m { key-push }... n OP_CHECKMULTISIG` where 1 ≤ m ≤ n ≤ 20.
+///
+/// Counts use the same minimal script-number grammar as Bitcoin Core's
+/// `MatchMultisig`: `OP_1`–`OP_16`, or a direct one-byte push for 17–20. Key
+/// payloads are consumed without extracting them and may use any complete
+/// direct or `OP_PUSHDATA*` push whose decoded size is 33 or 65 bytes.
+fn do_is_bare_multisig(bytes: BitArray) -> Bool {
+  case read_multisig_count(bytes) {
+    Error(_) -> False
+    Ok(#(min_sigs, after_min_sigs)) ->
+      case consume_multisig_key_pushes(after_min_sigs, 0) {
+        Error(_) -> False
+        Ok(#(key_count, after_keys)) ->
+          case read_multisig_count(after_keys) {
+            Error(_) -> False
+            Ok(#(pubkey_count, remainder)) ->
+              min_sigs <= pubkey_count
+              && pubkey_count <= 20
+              && key_count == pubkey_count
+              && remainder == <<0xAE>>
+          }
       }
-    }
-
-    _, _, _ -> Error(Nil)
   }
 }
 
-/// Count valid pubkey pushes in a bare multisig pubkey section.
-/// Returns -1 if the data contains anything other than valid pubkey pushes.
-fn do_count_multisig_pubkeys(bytes: BitArray, count: Int) -> Int {
+/// Read a minimally encoded multisig count and return the unconsumed bytes.
+///
+/// `OP_1`–`OP_16` are the minimal encodings for 1–16. Values 17–20 use a
+/// minimal direct one-byte script-number push (`01 11` through `01 14`).
+fn read_multisig_count(bytes: BitArray) -> Result(#(Int, BitArray), Nil) {
   case bytes {
-    <<>> -> count
+    <<opcode, rest:bits>> if 0x51 <= opcode && opcode <= 0x60 ->
+      Ok(#(decode_small_int_opcode(opcode), rest))
 
-    // Compressed pubkey: OP_DATA_33 <33 bytes>
-    <<0x21, _:bytes-size(33), rest:bits>> ->
-      do_count_multisig_pubkeys(rest, count + 1)
+    <<0x01, value, rest:bits>> if 0x11 <= value && value <= 0x14 ->
+      Ok(#(value, rest))
 
-    // Uncompressed pubkey: OP_DATA_65 <65 bytes>
-    <<0x41, _:bytes-size(65), rest:bits>> ->
-      do_count_multisig_pubkeys(rest, count + 1)
+    _ -> Error(Nil)
+  }
+}
 
-    _ -> -1
+/// Consume consecutive multisig key pushes without extracting their payloads.
+///
+/// The first non-key operation is left in `bytes` for the caller to parse as
+/// the n count. A recognised key push with a truncated payload is an error.
+fn consume_multisig_key_pushes(
+  bytes: BitArray,
+  count: Int,
+) -> Result(#(Int, BitArray), Nil) {
+  case bytes {
+    // Direct push of a 33-byte key payload.
+    <<0x21, rest:bits>> -> consume_multisig_key_payload(rest, count, 33)
+
+    // Direct push of a 65-byte key payload.
+    <<0x41, rest:bits>> -> consume_multisig_key_payload(rest, count, 65)
+
+    // OP_PUSHDATA1 with a 33- or 65-byte key payload.
+    <<0x4C, 33, rest:bits>> -> consume_multisig_key_payload(rest, count, 33)
+
+    <<0x4C, 65, rest:bits>> -> consume_multisig_key_payload(rest, count, 65)
+
+    // OP_PUSHDATA2 with a 33- or 65-byte key payload.
+    <<0x4D, 33:little-size(16), rest:bits>> ->
+      consume_multisig_key_payload(rest, count, 33)
+
+    <<0x4D, 65:little-size(16), rest:bits>> ->
+      consume_multisig_key_payload(rest, count, 65)
+
+    // OP_PUSHDATA4 with a 33- or 65-byte key payload.
+    <<0x4E, 33:little-size(32), rest:bits>> ->
+      consume_multisig_key_payload(rest, count, 33)
+
+    <<0x4E, 65:little-size(32), rest:bits>> ->
+      consume_multisig_key_payload(rest, count, 65)
+
+    // The first non-key operation is the n count. Leave it unconsumed.
+    _ -> Ok(#(count, bytes))
+  }
+}
+
+/// Consume the fixed-size payload of an already decoded key push.
+fn consume_multisig_key_payload(
+  bytes: BitArray,
+  count: Int,
+  length: Int,
+) -> Result(#(Int, BitArray), Nil) {
+  case count >= 20 {
+    True -> Error(Nil)
+    False ->
+      case bytes {
+        <<_:bytes-size(length), remainder:bits>> ->
+          consume_multisig_key_pushes(remainder, count + 1)
+
+        _ -> Error(Nil)
+      }
   }
 }
 

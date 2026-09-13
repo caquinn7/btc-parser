@@ -1,7 +1,8 @@
 # Output Script Classification
 
-This document explains how `classify_output_script` identifies the standard Bitcoin
-output script template (`OutputScriptType`) for a given `scriptPubKey`.
+This document explains how `classify_output_script` identifies a recognised
+structural Bitcoin output script template (`OutputScriptType`) for a given
+`scriptPubKey`.
 
 Classification is intentionally structural and non-extractive. The classifier
 reports which template the bytes match, but it does not extract, decode, or
@@ -23,7 +24,8 @@ Classification is a two-pass process:
 2. **Non-template fallback** — scripts that did not match a fixed template are
    tested for other valid witness programs and then for bare multisig.
 
-Any script that fails all tests is returned as `NonStandard`.
+Any script that fails all structural tests is returned as `NonStandard`. This
+fallback does not make a relay-policy decision.
 
 ---
 
@@ -210,57 +212,56 @@ major release.
 
 ---
 
-### BareMultisig — standard bare multisig
+### BareMultisig — structural bare multisig
 
-A script matches `BareMultisig` when `do_is_standard_multisig` returns `True`.
-This check is broken into three sub-steps:
-
-#### Step 1 — Minimum size guard
-
-The shortest possible standard multisig script is a 1-of-1 with one 33-byte key
-payload:
+A script matches `BareMultisig` when `do_is_bare_multisig` recognises the
+complete structure:
 
 ```text
-OP_1  OP_DATA_33  <33 bytes>  OP_1  OP_CHECKMULTISIG
- 1  +  1 + 33               +  1  +  1  =  37 bytes
+m  { key-push }...  n  OP_CHECKMULTISIG
 ```
 
-Scripts shorter than 37 bytes are rejected immediately.
+The matcher follows Bitcoin Core's `MatchMultisig` count and operation grammar,
+but intentionally omits Core's SEC public-key validation. It consumes the
+script sequentially and does not extract or allocate key payloads.
 
-#### Step 2 — Header validation (`read_multisig_header`)
+#### Counts
 
-The function inspects three positions in the byte array:
+Both `m` (required signatures) and `n` (key count) must be minimally encoded
+script numbers in the range 1–20:
 
-| Position   | Expected content                     |
-| ---------- | ------------------------------------ |
-| Byte 0     | `OP_m` — minimum required signatures |
-| Byte `n-2` | `OP_n` — total key payloads          |
-| Byte `n-1` | `OP_CHECKMULTISIG` (`AE`)            |
+- `OP_1` through `OP_16` encode 1 through 16.
+- Values 17 through 20 use a direct one-byte script-number push:
+  `01 11`, `01 12`, `01 13`, or `01 14`.
 
-Small-integer opcodes follow the encoding `OP_1 = 0x51`, `OP_2 = 0x52`, …
-`OP_16 = 0x60`. Subtracting the offset `0x50` from the opcode byte yields the
-integer value. The function validates:
+Other push encodings for these values are nonminimal and are rejected. Values
+outside 1–20, including count 21, are rejected. The matcher also requires
+`m ≤ n`.
 
-- The trailer byte is `0xAE` (`OP_CHECKMULTISIG`)
-- `1 ≤ m ≤ 3` and `1 ≤ n ≤ 3` (Bitcoin Core's standardness constraint)
-- `m ≤ n` (you cannot require more signatures than there are keys)
+#### Key pushes
 
-#### Step 3 — Key-payload shape check (`do_count_multisig_pubkeys`)
+The matcher consumes exactly `n` complete key-push operations. It accepts all
+of these operation forms when the decoded payload size is 33 or 65 bytes:
 
-The key-payload section is the interior slice of the script — everything after
-the first byte (`OP_m`) and before the last two bytes
-(`OP_n OP_CHECKMULTISIG`).
+| Operation       | Layout                                  |
+| --------------- | --------------------------------------- |
+| Direct push     | `21 <33 bytes>` or `41 <65 bytes>`      |
+| `OP_PUSHDATA1`  | `4C 21 <33 bytes>` or `4C 41 <65 bytes>` |
+| `OP_PUSHDATA2`  | `4D 2100 <33 bytes>` or `4D 4100 <65 bytes>` |
+| `OP_PUSHDATA4`  | `4E 21000000 <33 bytes>` or `4E 41000000 <65 bytes>` |
 
-This recursive function scans the section one push at a time:
+Payload contents are deliberately uninterpreted. In particular, the classifier
+does not check SEC prefixes, elliptic-curve points, or any other public-key
+validity condition; arbitrary bytes of length 33 or 65 qualify.
 
-- `21 <33 bytes>` — 33-byte key payload, count += 1
-- `41 <65 bytes>` — 65-byte key payload, count += 1
-- Anything else — return `-1` (invalid)
+After the key pushes, `n` must be followed immediately by one final
+`OP_CHECKMULTISIG` (`AE`) with no trailing bytes. Malformed or truncated pushes,
+incorrect key payload sizes, a key-count mismatch, and trailing operations are
+therefore `NonStandard`.
 
-At the end the counted value is compared against `n` from the header. If they
-agree, the script is `BareMultisig`; otherwise it is `NonStandard`. The
-classifier does not validate the public key encoding within either payload
-shape.
+Relay-policy evaluation is separate from `classify_output_script`; a qualifying
+structural 4–20-key script is `BareMultisig` regardless of a node's relay
+policy.
 
 ---
 
@@ -304,8 +305,8 @@ classify_output_script(script)
 └─ (none matched) → do_classify_non_template
     │
     ├─ [51–60] [02–28] [×push_length]    → OtherWitnessProgram(version)
-    └─ (none matched) → do_is_standard_multisig
-        ├─ structural m-of-n (1≤m≤n≤3)
+    └─ (none matched) → do_is_bare_multisig
+        ├─ structural m-of-n (1≤m≤n≤20, minimal counts)
         │   AND key-payload count = n    → BareMultisig
         └─ otherwise                     → NonStandard
 ```
