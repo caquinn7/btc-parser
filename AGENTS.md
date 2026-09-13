@@ -232,7 +232,8 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - Add focused unit tests near the behavior changed. Mirror source module paths
   under `test/`, adding the `_test` suffix for test modules; for example,
   transaction behavior is covered by `deserialize_test.gleam`,
-  `deserialize_with_policy_test.gleam`, `structural_inspection_test.gleam`,
+  `deserialize_with_policy_test.gleam`, `classify_output_script_test.gleam`,
+  `structural_inspection_test.gleam`,
   `validate_context_free_consensus_test.gleam`, and
   `serialization_and_identifiers_test.gleam` under
   `test/btc_parser/transaction/`; real transaction wire examples are stored in
