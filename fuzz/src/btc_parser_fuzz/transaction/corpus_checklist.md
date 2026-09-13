@@ -67,12 +67,12 @@ mutation is unlikely to synthesize deliberately.
 | [ ] | `F07` | `BareMultisig` output | Add an exact bare-multisig template. |
 | [x] | `F08` | `NullData` output | 19 transactions. |
 | [ ] | `F09` | `OtherWitnessProgram` output | Add another valid witness program. |
-| [ ] | `F10` | Non-OP_RETURN `NonStandard` output | No current coverage. |
-| [ ] | `F11` | OP_RETURN-prefixed `NonStandard` output | Add a script with a non-push opcode or malformed push operation after OP_RETURN. |
+| [ ] | `F10` | Non-OP_RETURN `Unrecognized` output | No current coverage. |
+| [ ] | `F11` | OP_RETURN-prefixed `Unrecognized` output | Add a script with a non-push opcode or malformed push operation after OP_RETURN. |
 | [ ] | `F12` | `P2A` output | Add the exact `51 02 4E 73` template; direct unit tests provide deterministic coverage meanwhile. |
 
-`F10` and `F11` remain distinct: `F10` covers non-OP_RETURN `NonStandard`
-outputs, while `F11` covers OP_RETURN-prefixed `NonStandard` outputs.
+`F10` and `F11` remain distinct: `F10` covers non-OP_RETURN `Unrecognized`
+outputs, while `F11` covers OP_RETURN-prefixed `Unrecognized` outputs.
 
 ## Baseline Descriptors
 

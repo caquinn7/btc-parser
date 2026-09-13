@@ -1,7 +1,7 @@
 import btc_parser/transaction.{
   type Input, type OutPoint, type OutputScript, type OutputScriptType,
-  type ScriptBytes, BareMultisig, NonStandard, NullData, OtherWitnessProgram,
-  P2A, P2PK, P2PKH, P2SH, P2TR, P2WPKH, P2WSH,
+  type ScriptBytes, BareMultisig, NullData, OtherWitnessProgram, P2A, P2PK,
+  P2PKH, P2SH, P2TR, P2WPKH, P2WSH, Unrecognized,
 }
 import gleam/bit_array
 import gleam/list
@@ -112,14 +112,14 @@ pub fn classify_output_script_p2a_test() {
   check_output_script_classification(script_bytes, P2A)
 }
 
-pub fn classify_output_script_truncated_p2a_is_non_standard_test() {
+pub fn classify_output_script_truncated_p2a_is_unrecognized_test() {
   let script_bytes = <<0x51, 0x02, 0x4E>>
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
-pub fn classify_output_script_length_mismatched_p2a_is_non_standard_test() {
+pub fn classify_output_script_length_mismatched_p2a_is_unrecognized_test() {
   let script_bytes = <<0x51, 0x03, 0x4E, 0x73>>
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
 pub fn classify_output_script_p2pk_compressed_test() {
@@ -149,16 +149,16 @@ pub fn classify_output_script_nulldata_op_reserved_is_null_data_test() {
   check_output_script_classification(script_bytes, NullData)
 }
 
-pub fn classify_output_script_nulldata_non_push_is_non_standard_test() {
+pub fn classify_output_script_nulldata_non_push_is_unrecognized_test() {
   // OP_RETURN OP_ADD — non-push opcode after OP_RETURN is not NullData.
   let script_bytes = <<0x6A, 0x93>>
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
-pub fn classify_output_script_nulldata_truncated_pushdata_is_non_standard_test() {
+pub fn classify_output_script_nulldata_truncated_pushdata_is_unrecognized_test() {
   // OP_RETURN OP_PUSHDATA1 2 <one byte> — the push payload is truncated.
   let script_bytes = <<0x6A, 0x4C, 0x02, 0xAA>>
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
 pub fn classify_output_script_bare_multisig_1of1_test() {
@@ -225,7 +225,7 @@ pub fn classify_output_script_bare_multisig_rejects_21st_key_push_test() {
       <<0xAE>>,
     )
 
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
 pub fn classify_output_script_bare_multisig_accepts_all_key_push_encodings_test() {
@@ -278,14 +278,14 @@ pub fn classify_output_script_other_witness_program_v16_test() {
   )
 }
 
-pub fn classify_output_script_non_standard_test() {
+pub fn classify_output_script_unrecognized_test() {
   let script_bytes = <<0x00, 0x01, 0xAA>>
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
 pub fn classify_output_script_empty_test() {
   let script_bytes = <<>>
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
 pub fn classify_output_script_nulldata_ignores_legacy_relay_size_limit_test() {
@@ -302,7 +302,7 @@ pub fn classify_output_script_multisig_invalid_m_gt_n_test() {
   let script_bytes = <<
     0x53, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x52, 0xAE,
   >>
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
 pub fn classify_output_script_bare_multisig_4of4_ignores_relay_policy_test() {
@@ -319,7 +319,7 @@ pub fn classify_output_script_bare_multisig_4of4_ignores_relay_policy_test() {
   check_output_script_classification(script_bytes, BareMultisig)
 }
 
-pub fn classify_output_script_multisig_count_21_is_non_standard_test() {
+pub fn classify_output_script_multisig_count_21_is_unrecognized_test() {
   let key = key_push(1, 33, 0xAA)
   let script_with_n_21 =
     build_multisig_script_with_encodings(<<0x51>>, [key], <<0x01, 0x15>>, <<
@@ -330,8 +330,8 @@ pub fn classify_output_script_multisig_count_21_is_non_standard_test() {
       0xAE,
     >>)
 
-  check_output_script_classification(script_with_n_21, NonStandard)
-  check_output_script_classification(script_with_m_21, NonStandard)
+  check_output_script_classification(script_with_n_21, Unrecognized)
+  check_output_script_classification(script_with_m_21, Unrecognized)
 }
 
 pub fn classify_output_script_multisig_rejects_nonminimal_count_pushes_test() {
@@ -351,10 +351,10 @@ pub fn classify_output_script_multisig_rejects_nonminimal_count_pushes_test() {
       <<0xAE>>,
     )
 
-  check_output_script_classification(script_with_nonminimal_push, NonStandard)
+  check_output_script_classification(script_with_nonminimal_push, Unrecognized)
   check_output_script_classification(
     script_with_nonminimal_small_number,
-    NonStandard,
+    Unrecognized,
   )
 }
 
@@ -370,10 +370,10 @@ pub fn classify_output_script_multisig_rejects_nonminimal_script_number_test() {
       <<0xAE>>,
     )
 
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
-pub fn classify_output_script_multisig_incorrect_key_payload_size_is_non_standard_test() {
+pub fn classify_output_script_multisig_incorrect_key_payload_size_is_unrecognized_test() {
   let script_bytes = <<
     0x51,
     0x20,
@@ -382,23 +382,23 @@ pub fn classify_output_script_multisig_incorrect_key_payload_size_is_non_standar
     0xAE,
   >>
 
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
-pub fn classify_output_script_multisig_truncated_key_push_is_non_standard_test() {
+pub fn classify_output_script_multisig_truncated_key_push_is_unrecognized_test() {
   let script_bytes = <<0x51, 0x21, repeat_byte(0xAA, 32):bits>>
 
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
-pub fn classify_output_script_multisig_key_count_mismatch_is_non_standard_test() {
+pub fn classify_output_script_multisig_key_count_mismatch_is_unrecognized_test() {
   let key = key_push(1, 33, 0xAA)
   let script_bytes = build_multisig_script(1, [key], 2)
 
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
-pub fn classify_output_script_multisig_trailing_opcode_is_non_standard_test() {
+pub fn classify_output_script_multisig_trailing_opcode_is_unrecognized_test() {
   let key = key_push(1, 33, 0xAA)
   let script_bytes =
     build_multisig_script_with_encodings(<<0x51>>, [key], <<0x51>>, <<
@@ -406,7 +406,7 @@ pub fn classify_output_script_multisig_trailing_opcode_is_non_standard_test() {
       0x00,
     >>)
 
-  check_output_script_classification(script_bytes, NonStandard)
+  check_output_script_classification(script_bytes, Unrecognized)
 }
 
 pub fn classify_output_script_other_witness_program_v1_different_two_byte_program_test() {

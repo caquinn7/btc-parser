@@ -777,12 +777,14 @@ pub type OutputScriptType {
   /// This variant represents the null-data script template, not every script
   /// that begins with `OP_RETURN`.
   ///
-  /// Matches scripts that begin with `OP_RETURN`, are followed only by the push
-  /// opcodes recognized by this classifier, and contain only complete push
-  /// operations. Script size does not affect classification.
+  /// Matches scripts that begin with `OP_RETURN` and whose remaining bytes satisfy
+  /// Bitcoin Core-compatible push-only parsing. For historical compatibility,
+  /// this includes `OP_RESERVED`, even though executing that opcode fails. All
+  /// encoded push operations must be complete. Script size does not affect
+  /// classification.
   ///
   /// An `OP_RETURN` script with a non-push opcode or malformed push operation
-  /// after `OP_RETURN` classifies as `NonStandard` instead.
+  /// after `OP_RETURN` classifies as `Unrecognized` instead.
   NullData
 
   /// A well-formed witness program that is not one of this library's named
@@ -793,13 +795,13 @@ pub type OutputScriptType {
   /// so neither appears here. A later valid witness-program assignment remains
   /// `OtherWitnessProgram` until a major release adds a dedicated constructor.
   ///
-  /// Forward-compatible. Do not treat this the same as `NonStandard`.
+  /// Forward-compatible. Do not treat this the same as `Unrecognized`.
   OtherWitnessProgram(version: Int)
 
   /// Does not match any recognised structural output template.
   ///
   /// This is the unmatched structural fallback, not a relay-policy decision.
-  NonStandard
+  Unrecognized
 }
 
 /// Classify the script type of a transaction output's locking script.
@@ -827,12 +829,12 @@ pub type OutputScriptType {
 /// ├─ 41 [×65] AC                           → P2PK (65-byte payload)
 /// ├─ 6A …                                  (OP_RETURN prefix)
 /// │   ├─ complete push-only operations     → NullData
-/// │   └─ otherwise                         → NonStandard
+/// │   └─ otherwise                         → Unrecognized
 /// └─ (none matched)
 ///     ├─ [51–60] [02–28] [×push_length]    → OtherWitnessProgram(version)
 ///     └─ structural m-of-n (1 ≤ m ≤ n ≤ 20, minimal counts)
 ///         ├─ AND key-payload count = n     → BareMultisig
-///         └─ otherwise                     → NonStandard
+///         └─ otherwise                     → Unrecognized
 /// ```
 ///
 /// ## Example
@@ -878,7 +880,7 @@ pub fn classify_output_script(
     <<0x6A, rest:bits>> ->
       case do_is_push_only(rest) {
         True -> NullData
-        False -> NonStandard
+        False -> Unrecognized
       }
 
     _ -> do_classify_non_template(script_bytes)
@@ -902,7 +904,7 @@ fn do_classify_non_template(script_bytes: BitArray) -> OutputScriptType {
     _ ->
       case do_is_bare_multisig(script_bytes) {
         True -> BareMultisig
-        False -> NonStandard
+        False -> Unrecognized
       }
   }
 }
