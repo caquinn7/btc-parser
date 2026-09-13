@@ -42,6 +42,6 @@ fn output_script_counts(value: metrics.OutputScriptCounts) -> Json {
     #("bare_multisig", json.int(value.bare_multisig)),
     #("null_data", json.int(value.null_data)),
     #("other_witness_program", json.int(value.other_witness_program)),
-    #("non_standard", json.int(value.non_standard)),
+    #("unrecognized", json.int(value.unrecognized)),
   ])
 }

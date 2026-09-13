@@ -53,8 +53,8 @@ type OutputMetrics {
     bare_multisig_output_count: Int,
     null_data_output_count: Int,
     other_witness_program_output_count: Int,
-    nonstandard_output_count: Int,
-    op_return_nonstandard_output_count: Int,
+    unrecognized_output_count: Int,
+    op_return_unrecognized_output_count: Int,
   )
 }
 
@@ -237,11 +237,11 @@ fn measure_output(
   let script = transaction.get_output_script_pubkey(output)
   let script_length = transaction.get_script_size(script)
   let script_type = transaction.classify_output_script(script)
-  let op_return_nonstandard = case
+  let op_return_unrecognized = case
     transaction.get_raw_script_bytes(script),
     script_type
   {
-    <<0x6A, _:bits>>, transaction.NonStandard -> True
+    <<0x6A, _:bits>>, transaction.Unrecognized -> True
     _, _ -> False
   }
 
@@ -258,8 +258,8 @@ fn measure_output(
         + bool_to_int(script_length == 253),
       near_policy_script_pubkey_count: metrics.near_policy_script_pubkey_count
         + bool_to_int(script_length >= 9000 && script_length <= 10_000),
-      op_return_nonstandard_output_count: metrics.op_return_nonstandard_output_count
-        + bool_to_int(op_return_nonstandard),
+      op_return_unrecognized_output_count: metrics.op_return_unrecognized_output_count
+        + bool_to_int(op_return_unrecognized),
     )
 
   case script_type {
@@ -302,10 +302,10 @@ fn measure_output(
         other_witness_program_output_count: metrics.other_witness_program_output_count
           + 1,
       )
-    transaction.NonStandard ->
+    transaction.Unrecognized ->
       OutputMetrics(
         ..metrics,
-        nonstandard_output_count: metrics.nonstandard_output_count + 1,
+        unrecognized_output_count: metrics.unrecognized_output_count + 1,
       )
   }
 }
@@ -411,11 +411,11 @@ fn derive_codes(metrics: Metrics) -> List(String) {
     #(output.null_data_output_count > 0, "F08"),
     #(output.other_witness_program_output_count > 0, "F09"),
     #(
-      output.nonstandard_output_count
-        > output.op_return_nonstandard_output_count,
+      output.unrecognized_output_count
+        > output.op_return_unrecognized_output_count,
       "F10",
     ),
-    #(output.op_return_nonstandard_output_count > 0, "F11"),
+    #(output.op_return_unrecognized_output_count > 0, "F11"),
     #(output.p2a_output_count > 0, "F12"),
     #(metrics.total_size >= 360_000 && metrics.total_size <= 400_000, "S01"),
   ]
@@ -484,8 +484,8 @@ fn report_header() -> String {
     "bare_multisig_output_count",
     "null_data_output_count",
     "other_witness_program_output_count",
-    "nonstandard_output_count",
-    "op_return_nonstandard_output_count",
+    "unrecognized_output_count",
+    "op_return_unrecognized_output_count",
   ]
   |> string.join(with: "\t")
 }
@@ -545,8 +545,8 @@ fn render_row(metrics: Metrics) -> String {
     int.to_string(output.bare_multisig_output_count),
     int.to_string(output.null_data_output_count),
     int.to_string(output.other_witness_program_output_count),
-    int.to_string(output.nonstandard_output_count),
-    int.to_string(output.op_return_nonstandard_output_count),
+    int.to_string(output.unrecognized_output_count),
+    int.to_string(output.op_return_unrecognized_output_count),
   ]
   |> string.join(with: "\t")
 }

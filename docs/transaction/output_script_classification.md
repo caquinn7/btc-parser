@@ -24,7 +24,7 @@ Classification is a two-pass process:
 2. **Non-template fallback** — scripts that did not match a fixed template are
    tested for other valid witness programs and then for bare multisig.
 
-Any script that fails all structural tests is returned as `NonStandard`. This
+Any script that fails all structural tests is returned as `Unrecognized`. This
 fallback does not make a relay-policy decision.
 
 ---
@@ -120,7 +120,7 @@ Total: **34 bytes**. Supports both key-path and script-path spends
 
 > Note: OP_1 with a 32-byte program is always `P2TR`, and the exact `51 02 4E
 > 73` script is `P2A`. Other valid OP_1 witness-program shapes (2–40 bytes)
-> fall through to `OtherWitnessProgram`; malformed lengths are `NonStandard`.
+> fall through to `OtherWitnessProgram`; malformed lengths are `Unrecognized`.
 
 ---
 
@@ -175,7 +175,7 @@ A script beginning with `OP_RETURN` (`6A`) is `NullData` when every following
 operation is a complete push, as checked by
 [`do_is_push_only`](#push-only-validation-do_is_push_only). Script size does not
 affect classification. A non-push opcode or malformed/truncated push operation
-after `OP_RETURN` makes the script `NonStandard`.
+after `OP_RETURN` makes the script `Unrecognized`.
 
 ---
 
@@ -207,7 +207,7 @@ Cases already handled before reaching this fallback:
 - The exact `OP_1 OP_DATA_2 4E 73` script — matched as `P2A` in pass 1
 
 `OtherWitnessProgram` should be treated as forward-compatible, not as an error
-or as `NonStandard`. A dedicated constructor for a later assignment requires a
+or as `Unrecognized`. A dedicated constructor for a later assignment requires a
 major release.
 
 ---
@@ -257,7 +257,7 @@ validity condition; arbitrary bytes of length 33 or 65 qualify.
 After the key pushes, `n` must be followed immediately by one final
 `OP_CHECKMULTISIG` (`AE`) with no trailing bytes. Malformed or truncated pushes,
 incorrect key payload sizes, a key-count mismatch, and trailing operations are
-therefore `NonStandard`.
+therefore `Unrecognized`.
 
 Relay-policy evaluation is separate from `classify_output_script`; a qualifying
 structural 4–20-key script is `BareMultisig` regardless of a node's relay
@@ -306,14 +306,14 @@ classify_output_script(script)
 ├─ 41 [×65] AC                           → P2PK (65-byte payload)
 ├─ 6A …                                  (OP_RETURN prefix)
 │   ├─ complete push-only operations      → NullData
-│   └─ otherwise                         → NonStandard
+│   └─ otherwise                         → Unrecognized
 └─ (none matched) → do_classify_non_template
     │
     ├─ [51–60] [02–28] [×push_length]    → OtherWitnessProgram(version)
     └─ (none matched) → do_is_bare_multisig
         ├─ structural m-of-n (1≤m≤n≤20, minimal counts)
         │   AND key-payload count = n    → BareMultisig
-        └─ otherwise                     → NonStandard
+        └─ otherwise                     → Unrecognized
 ```
 
 ---

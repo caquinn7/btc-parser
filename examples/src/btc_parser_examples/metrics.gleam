@@ -17,7 +17,7 @@ pub type OutputScriptCounts {
     bare_multisig: Int,
     null_data: Int,
     other_witness_program: Int,
-    non_standard: Int,
+    unrecognized: Int,
   )
 }
 
@@ -250,8 +250,8 @@ fn increment_script_count(
         ..counts,
         other_witness_program: counts.other_witness_program + 1,
       )
-    transaction.NonStandard ->
-      OutputScriptCounts(..counts, non_standard: counts.non_standard + 1)
+    transaction.Unrecognized ->
+      OutputScriptCounts(..counts, unrecognized: counts.unrecognized + 1)
   }
 }
 
@@ -328,7 +328,7 @@ fn add_output_script_counts(
     null_data: left.null_data + right.null_data,
     other_witness_program: left.other_witness_program
       + right.other_witness_program,
-    non_standard: left.non_standard + right.non_standard,
+    unrecognized: left.unrecognized + right.unrecognized,
   )
 }
 

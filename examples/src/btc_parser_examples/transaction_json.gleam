@@ -115,6 +115,6 @@ fn classification(value: transaction.OutputScriptType) -> String {
     transaction.NullData -> "null_data"
     transaction.OtherWitnessProgram(version) ->
       "other_witness_program_v" <> int.to_string(version)
-    transaction.NonStandard -> "non_standard"
+    transaction.Unrecognized -> "unrecognized"
   }
 }

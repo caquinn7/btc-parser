@@ -199,7 +199,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
   key validation, consensus validation, or transaction-wide configurable relay
   policy.
 - `OtherWitnessProgram` should remain forward-compatible and distinct from
-  `NonStandard`. Do not add named `OutputScriptType` constructors outside a
+  `Unrecognized`. Do not add named `OutputScriptType` constructors outside a
   major release; later Core assignments remain `OtherWitnessProgram` until then.
 
 ## Coding Conventions
@@ -256,7 +256,7 @@ file/timer/CLI behavior, or a runtime-specific bug.
 - For serialization or hashing changes, include known vectors or manual double
   SHA-256 comparisons and round-trip checks.
 - For script classification, test exact byte templates plus near misses that
-  should be `NonStandard` or `OtherWitnessProgram`.
+  should be `Unrecognized` or `OtherWitnessProgram`.
 - Run both fuzz suites after changes to shared byte-level parsing, CompactSize
   handling, reader/parser internals, or transaction or block decode policy
   enforcement. Use `./fuzz/run -- transaction <iterations> [seed]` and
