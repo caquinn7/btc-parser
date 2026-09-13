@@ -210,6 +210,19 @@ pub fn classify_output_script_bare_multisig_20_key_maximum_test() {
   check_output_script_classification(script_bytes, BareMultisig)
 }
 
+pub fn classify_output_script_bare_multisig_rejects_21st_key_push_test() {
+  let key = key_push(1, 33, 0xAA)
+  let script_bytes =
+    build_multisig_script_with_encodings(
+      <<0x51>>,
+      list.repeat(key, 21),
+      <<0x01, 0x14>>,
+      <<0xAE>>,
+    )
+
+  check_output_script_classification(script_bytes, NonStandard)
+}
+
 pub fn classify_output_script_bare_multisig_accepts_all_key_push_encodings_test() {
   let keys = [
     key_push(1, 33, 0x00),
