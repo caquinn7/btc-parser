@@ -220,8 +220,17 @@ pub fn classify_output_script_bare_multisig_4of4_ignores_relay_policy_test() {
   let pubkey3 = repeat_byte(0xCC, 33)
   let pubkey4 = repeat_byte(0xDD, 33)
   let script_bytes = <<
-    0x51, 0x21, pubkey1:bits, 0x21, pubkey2:bits, 0x21, pubkey3:bits, 0x21,
-    pubkey4:bits, 0x54, 0xAE,
+    0x54,
+    0x21,
+    pubkey1:bits,
+    0x21,
+    pubkey2:bits,
+    0x21,
+    pubkey3:bits,
+    0x21,
+    pubkey4:bits,
+    0x54,
+    0xAE,
   >>
   check_output_script_classification(script_bytes, BareMultisig)
 }
