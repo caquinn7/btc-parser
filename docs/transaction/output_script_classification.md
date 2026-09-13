@@ -275,6 +275,7 @@ non-push opcode is encountered.
 | -------------- | --------- | ------------------------------------------ |
 | `OP_0`         | `00`      | 1 byte (opcode only, pushes empty array)   |
 | `OP_1NEGATE`   | `4F`      | 1 byte (opcode only, pushes –1)            |
+| `OP_RESERVED`  | `50`      | 1 byte (opcode only)                       |
 | `OP_1`–`OP_16` | `51`–`60` | 1 byte (opcode only, pushes small integer) |
 | Direct push    | `01`–`4B` | 1 + N bytes (opcode encodes the length N)  |
 | `OP_PUSHDATA1` | `4C`      | 1 + 1 + N bytes (next byte is N)           |
@@ -283,6 +284,10 @@ non-push opcode is encountered.
 | Anything else  | —         | Returns `False` immediately                |
 
 If the byte slice is exhausted cleanly (`<<>>`) the function returns `True`.
+
+`OP_RESERVED` is accepted here for structural compatibility with Bitcoin Core's
+historical `IsPushOnly` behavior. This classification does not execute the
+script, apply relay policy, or perform consensus validation.
 
 ---
 

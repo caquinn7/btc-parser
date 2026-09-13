@@ -908,8 +908,8 @@ fn do_classify_non_template(script_bytes: BitArray) -> OutputScriptType {
 }
 
 /// Return `True` if every opcode in `bytes` is a push opcode.
-/// Handles `OP_0`, `OP_1NEGATE`, `OP_1`–`OP_16`, direct pushes (1–75 bytes),
-/// `OP_PUSHDATA1`, `OP_PUSHDATA2`, and `OP_PUSHDATA4`.
+/// Handles `OP_0`, `OP_1NEGATE`, `OP_RESERVED`, `OP_1`–`OP_16`, direct pushes
+/// (1–75 bytes), `OP_PUSHDATA1`, `OP_PUSHDATA2`, and `OP_PUSHDATA4`.
 fn do_is_push_only(bytes: BitArray) -> Bool {
   case bytes {
     <<>> -> True
@@ -918,6 +918,9 @@ fn do_is_push_only(bytes: BitArray) -> Bool {
 
     // OP_1NEGATE: pushes -1
     <<0x4F, rest:bits>> -> do_is_push_only(rest)
+
+    // OP_RESERVED: accepted for historical Bitcoin Core IsPushOnly compatibility
+    <<0x50, rest:bits>> -> do_is_push_only(rest)
 
     // OP_1..OP_16: small integer pushes
     <<opcode, rest:bits>> if opcode >= 0x51 && opcode <= 0x60 ->

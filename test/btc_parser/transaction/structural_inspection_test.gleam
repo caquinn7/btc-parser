@@ -144,6 +144,11 @@ pub fn classify_output_script_nulldata_empty_test() {
   check_output_script_classification(script_bytes, NullData)
 }
 
+pub fn classify_output_script_nulldata_op_reserved_is_null_data_test() {
+  let script_bytes = <<0x6A, 0x50>>
+  check_output_script_classification(script_bytes, NullData)
+}
+
 pub fn classify_output_script_nulldata_non_push_is_non_standard_test() {
   // OP_RETURN OP_ADD — non-push opcode after OP_RETURN is not NullData.
   let script_bytes = <<0x6A, 0x93>>
