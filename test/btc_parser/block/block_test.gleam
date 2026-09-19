@@ -7,6 +7,7 @@ import btc_parser/transaction
 import gleam/bit_array
 import gleam/crypto.{Sha256}
 import gleam/list
+import gleam/option.{None, Some}
 import support/bitcoin_wire.{compact_size}
 import support/target
 import support/transaction_assertions.{check_transaction_decode_error}
@@ -143,9 +144,18 @@ pub fn deserialize_preserves_multibyte_compact_size_transaction_count_test() {
 
 pub fn default_decode_policy_returns_expected_values_test() {
   let policy = block.default_decode_policy()
+  let tx_policy = block.decode_policy_transaction_policy(policy)
 
   assert block.decode_policy_max_block_size(policy) == 4_000_000
   assert block.decode_policy_max_tx_count(policy) == 20_000
+  assert transaction.decode_policy_max_tx_size(tx_policy) == 400_000
+  assert transaction.decode_policy_max_input_count(tx_policy) == 100_000
+  assert transaction.decode_policy_max_output_count(tx_policy) == 100_000
+  assert transaction.decode_policy_max_script_size(tx_policy) == 10_000
+  assert transaction.decode_policy_max_witness_stack_item_count(tx_policy)
+    == None
+  assert transaction.decode_policy_max_witness_stack_payload_size(tx_policy)
+    == None
 }
 
 pub fn decode_policy_builder_overrides_default_limits_test() {
@@ -156,6 +166,40 @@ pub fn decode_policy_builder_overrides_default_limits_test() {
 
   assert block.decode_policy_max_block_size(policy) == 8_000_000
   assert block.decode_policy_max_tx_count(policy) == 40_000
+}
+
+pub fn decode_policy_builder_replaces_transaction_policy_without_changing_block_limits_test() {
+  let tx_policy =
+    transaction.default_decode_policy()
+    |> transaction.decode_policy_with_max_tx_size(8)
+    |> transaction.decode_policy_with_max_input_count(6)
+    |> transaction.decode_policy_with_max_output_count(7)
+    |> transaction.decode_policy_with_max_script_size(5)
+    |> transaction.decode_policy_with_max_witness_stack_item_count(Some(9))
+    |> transaction.decode_policy_with_max_witness_stack_payload_size(Some(10))
+
+  let policy =
+    block.default_decode_policy()
+    |> block.decode_policy_with_max_block_size(123)
+    |> block.decode_policy_with_max_tx_count(4)
+    |> block.decode_policy_with_transaction_policy(tx_policy)
+
+  let actual_tx_policy = block.decode_policy_transaction_policy(policy)
+
+  assert block.decode_policy_max_block_size(policy) == 123
+  assert block.decode_policy_max_tx_count(policy) == 4
+  assert transaction.decode_policy_max_tx_size(actual_tx_policy) == 8
+  assert transaction.decode_policy_max_input_count(actual_tx_policy) == 6
+  assert transaction.decode_policy_max_output_count(actual_tx_policy) == 7
+  assert transaction.decode_policy_max_script_size(actual_tx_policy) == 5
+  assert transaction.decode_policy_max_witness_stack_item_count(
+      actual_tx_policy,
+    )
+    == Some(9)
+  assert transaction.decode_policy_max_witness_stack_payload_size(
+      actual_tx_policy,
+    )
+    == Some(10)
 }
 
 // ============================================================================
@@ -490,6 +534,62 @@ pub fn deserialize_wraps_contained_transaction_policy_error_with_block_offset_te
       10_001,
       10_000,
     )
+}
+
+pub fn deserialize_with_policy_applies_a_relaxed_contained_transaction_script_limit_test() {
+  let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let oversized_tx = build_transaction_with_script_sig_size(10_001)
+  let tx_policy =
+    transaction.default_decode_policy()
+    |> transaction.decode_policy_with_max_script_size(10_001)
+  let policy =
+    block.default_decode_policy()
+    |> block.decode_policy_with_transaction_policy(tx_policy)
+
+  let assert Ok(decoded_block) =
+    block.deserialize_with_policy(build_block(header, [oversized_tx]), policy)
+
+  assert block.get_transaction_count(decoded_block) == 1
+}
+
+pub fn deserialize_with_policy_wraps_stricter_contained_transaction_policy_error_test() {
+  let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let tx_bytes = build_transaction_with_script_sig_size(11)
+  let tx_policy =
+    transaction.default_decode_policy()
+    |> transaction.decode_policy_with_max_script_size(10)
+  let policy =
+    block.default_decode_policy()
+    |> block.decode_policy_with_transaction_policy(tx_policy)
+
+  let assert Error(error) =
+    block.deserialize_with_policy(build_block(header, [tx_bytes]), policy)
+
+  let assert TransactionDecodeFailed(tx_decode_err) =
+    check_block_decode_error(error, 122, "block.transactions[0]")
+
+  assert check_transaction_decode_error(
+      tx_decode_err,
+      41,
+      "transaction.inputs[0].script_sig.length",
+    )
+    == transaction.PolicyLimitExceeded(transaction.MaxScriptSize, 11, 10)
+}
+
+pub fn deserialize_with_policy_ignores_contained_transaction_max_tx_size_test() {
+  let header = build_block_header(1, <<0:size(256)>>, <<0:size(256)>>, 0, 0, 0)
+  let tx_bytes = build_minimal_legacy_transaction_bytes(1)
+  let tx_policy =
+    transaction.default_decode_policy()
+    |> transaction.decode_policy_with_max_tx_size(1)
+  let policy =
+    block.default_decode_policy()
+    |> block.decode_policy_with_transaction_policy(tx_policy)
+
+  let assert Ok(decoded_block) =
+    block.deserialize_with_policy(build_block(header, [tx_bytes]), policy)
+
+  assert block.get_transaction_count(decoded_block) == 1
 }
 
 // ============================================================================
@@ -851,6 +951,22 @@ fn build_block(header: BitArray, txs: List(BitArray)) -> BitArray {
     header:bits,
     compact_size(list.length(txs)):bits,
     bit_array.concat(txs):bits,
+  >>
+}
+
+fn build_transaction_with_script_sig_size(script_size: Int) -> BitArray {
+  let script_sig = <<0:size({ script_size * 8 })>>
+
+  <<
+    1:32-little,
+    1,
+    0:size(256),
+    0:32-little,
+    compact_size(script_size):bits,
+    script_sig:bits,
+    0:32-little,
+    0,
+    0:32-little,
   >>
 }
 

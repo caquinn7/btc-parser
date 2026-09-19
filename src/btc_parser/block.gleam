@@ -525,12 +525,10 @@ fn field_error(
 /// Limits are enforced during decoding. If a limit is exceeded,
 /// decoding fails with `PolicyLimitExceeded`.
 ///
-/// ## Contained Transactions
-///
-/// Contained transactions are decoded with `transaction.default_decode_policy`.
-/// Its top-level `max_tx_size` limit is not applied because `max_block_size`
-/// owns the enclosing byte budget. The other default transaction limits still
-/// apply, and this policy cannot configure or override them.
+/// The block-size and transaction-count limits complement one another: one
+/// bounds input bytes, while the other bounds the number of transaction decodes.
+/// See the corresponding `decode_policy_with_*` functions for enforcement
+/// details.
 ///
 /// Builder functions do not validate whether custom limits are useful for
 /// decoding consensus-valid blocks. Callers that override `default_decode_policy`
@@ -548,6 +546,8 @@ pub opaque type DecodePolicy {
     max_block_size: Int,
     /// Maximum decoded transaction count.
     max_tx_count: Int,
+    /// Policy applied to every transaction contained in the block.
+    transaction_policy: transaction.DecodePolicy,
   )
 }
 
@@ -559,20 +559,23 @@ pub opaque type DecodePolicy {
 /// and processing time. As these are policy limits rather than consensus rules,
 /// some valid Bitcoin blocks may be rejected by this configuration.
 ///
-/// The overall block size limit (`max_block_size`) serves as the primary
-/// resource constraint.
-///
-/// ## Default Values
-///
-/// - `max_block_size`: 4,000,000 bytes - Primary resource constraint, enforced before
-///   decoding begins.
-/// - `max_tx_count`: 20,000 transactions - Substantially higher than typical blocks
-///   but prevents unbounded memory allocation for transaction lists.
+/// By default, decoding accepts serialized blocks up to 4,000,000 bytes and
+/// transaction counts up to 20,000.
 pub fn default_decode_policy() -> DecodePolicy {
-  DecodePolicy(max_block_size: 4_000_000, max_tx_count: 20_000)
+  DecodePolicy(
+    max_block_size: 4_000_000,
+    max_tx_count: 20_000,
+    transaction_policy: transaction.default_decode_policy(),
+  )
 }
 
 /// Return a policy with a custom maximum serialized block size.
+///
+/// For byte-aligned input, this limit is checked before decoding begins. It
+/// provides the absolute byte envelope for the block and all contained
+/// transactions. Because every structurally decodable transaction occupies at
+/// least ten bytes, it also provides an absolute bound on transaction-list
+/// allocation.
 pub fn decode_policy_with_max_block_size(
   policy: DecodePolicy,
   max_block_size: Int,
@@ -581,11 +584,30 @@ pub fn decode_policy_with_max_block_size(
 }
 
 /// Return a policy with a custom maximum transaction count.
+///
+/// After the decoded count has been checked against the bytes remaining in the
+/// input, this limit is enforced before any contained transaction is decoded.
+/// It bounds transaction parsing and list allocation more tightly than the
+/// block-size limit alone, providing fail-fast protection against inputs with
+/// many small, consensus-invalid transactions.
 pub fn decode_policy_with_max_tx_count(
   policy: DecodePolicy,
   max_tx_count: Int,
 ) -> DecodePolicy {
   DecodePolicy(..policy, max_tx_count:)
+}
+
+/// Return a policy with custom limits for every contained transaction.
+///
+/// The maximum serialized transaction size configured on the transaction
+/// policy is ignored during block decoding. The block's maximum serialized size
+/// remains the only byte-envelope limit for the block and all of its contained
+/// transactions.
+pub fn decode_policy_with_transaction_policy(
+  policy: DecodePolicy,
+  transaction_policy: transaction.DecodePolicy,
+) -> DecodePolicy {
+  DecodePolicy(..policy, transaction_policy:)
 }
 
 /// Get the maximum serialized block size.
@@ -596,6 +618,13 @@ pub fn decode_policy_max_block_size(policy: DecodePolicy) -> Int {
 /// Get the maximum decoded transaction count.
 pub fn decode_policy_max_tx_count(policy: DecodePolicy) -> Int {
   policy.max_tx_count
+}
+
+/// Get the policy applied to every transaction contained in a block.
+pub fn decode_policy_transaction_policy(
+  policy: DecodePolicy,
+) -> transaction.DecodePolicy {
+  policy.transaction_policy
 }
 
 /// Deserialize a Bitcoin block from its canonical Bitcoin wire-format
@@ -631,10 +660,6 @@ pub fn deserialize(bytes: BitArray) -> Result(Block(Parsed), DecodeError) {
 /// Byte alignment is validated before resource limits. For byte-aligned inputs,
 /// limits that are exceeded produce a `PolicyLimitExceeded` error. See
 /// `DecodePolicy` and `default_decode_policy` for available options and defaults.
-///
-/// This policy controls block-level limits only. Contained transactions use
-/// `transaction.default_decode_policy`: its `max_tx_size` does not apply, while
-/// its other limits remain in effect and cannot be customized here.
 ///
 /// ## Returns
 ///
@@ -708,10 +733,6 @@ pub fn deserialize_hex(
 /// fine-grained control over resource limits. Use this when working with
 /// hex-encoded block data that requires custom resource constraints.
 ///
-/// As with `deserialize_with_policy`, this policy controls block-level limits only.
-/// Contained transactions use the default transaction policy without its
-/// top-level `max_tx_size` limit.
-///
 /// ## Returns
 ///
 /// - `Ok(Block(Parsed))`: Successfully deserialized within the supplied policy limits.
@@ -753,7 +774,10 @@ fn block_body_parser(
   use transaction_count <- parser.then(transaction_count_parser(
     policy.max_tx_count,
   ))
-  use transactions <- parser.then(transactions_parser(transaction_count))
+  use transactions <- parser.then(transactions_parser(
+    transaction_count,
+    policy.transaction_policy,
+  ))
   parser.return(Block(header:, transaction_count:, transactions:))
 }
 
@@ -786,8 +810,13 @@ fn header_parser() -> Parser(ParseContext, Header, DecodeError) {
 
 fn transactions_parser(
   tx_count: Int,
+  transaction_policy: transaction.DecodePolicy,
 ) -> Parser(ParseContext, List(Transaction(Parsed)), DecodeError) {
-  parser.indexed_repeat(tx_count, transaction_parser(), AtTransaction)
+  parser.indexed_repeat(
+    tx_count,
+    transaction_parser(transaction_policy),
+    AtTransaction,
+  )
 }
 
 fn transaction_count_parser(
@@ -805,13 +834,10 @@ fn transaction_count_parser(
   })
 }
 
-fn transaction_parser() -> Parser(
-  ParseContext,
-  Transaction(Parsed),
-  DecodeError,
-) {
+fn transaction_parser(
+  transaction_policy: transaction.DecodePolicy,
+) -> Parser(ParseContext, Transaction(Parsed), DecodeError) {
   fn(reader, ctx) {
-    let tx_policy = transaction.default_decode_policy()
     let tx_start_offset = reader.get_offset(reader)
 
     // Decode one transaction without consuming the remainder of the block.
@@ -820,7 +846,7 @@ fn transaction_parser() -> Parser(
     use #(tx, bytes_read) <- result.try(
       reader
       |> reader.get_remaining
-      |> transaction.decode_prefix_with_policy(tx_policy)
+      |> transaction.decode_prefix_with_policy(transaction_policy)
       |> result.map_error(fn(err) {
         err
         |> TransactionDecodeFailed
