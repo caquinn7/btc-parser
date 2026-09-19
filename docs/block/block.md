@@ -71,6 +71,9 @@ Proof-of-work and block-size failures stop validation immediately. Once those
 checks pass, independent block-level and transaction-level violations are
 collected in deterministic validation and wire order.
 
+Proof-of-work failures include a reason that distinguishes malformed compact
+targets, targets above the supplied limit, and insufficient header work.
+
 ## Scope
 
 The module performs whole-value deserialization, structural inspection,
