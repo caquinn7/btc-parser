@@ -946,12 +946,12 @@ pub type ConsensusViolation {
 
   /// Proof-of-work validation failed under the supplied proof-of-work limit.
   ///
-  /// This is reported when the header's compact target encoding represents a
-  /// negative or zero target, expands beyond 256 bits, or expands to a target
-  /// exceeding the supplied `PowLimit`; or when the header hash exceeds the
-  /// expanded target. Constructing the `PowLimit` separately ensures this
-  /// variant always identifies a failure attributable to the block.
-  InvalidProofOfWork
+  /// The contained reason identifies whether the header's compact target is
+  /// zero, negative, or too large; whether its expanded target exceeds the
+  /// supplied `PowLimit`; or whether the header hash exceeds the target.
+  /// Constructing the `PowLimit` separately ensures this variant always
+  /// identifies a failure attributable to the block.
+  InvalidProofOfWork(reason: ProofOfWorkFailure)
 
   /// The stripped block serialization exceeded the consensus size limit.
   ///
@@ -1006,6 +1006,28 @@ pub type ConsensusViolation {
     index: Int,
     violations: List(transaction.ConsensusViolation),
   )
+}
+
+/// The reason a block's proof-of-work validation failed.
+///
+/// Compact-target construction failures are distinguished from comparisons
+/// against the supplied proof-of-work limit and the computed block-header hash.
+pub type ProofOfWorkFailure {
+  /// The header's compact target encoding expands to zero.
+  ZeroTarget
+
+  /// The header's compact target encoding has a nonzero magnitude with its
+  /// sign bit set.
+  NegativeTarget
+
+  /// The header's compact target encoding expands beyond 256 bits.
+  TargetOverflow
+
+  /// The expanded target exceeds the supplied `PowLimit`.
+  TargetExceedsLimit
+
+  /// The computed block-header hash exceeds the expanded target.
+  InsufficientWork
 }
 
 /// A nonzero maximum proof-of-work target for a Bitcoin network.
@@ -1139,8 +1161,9 @@ pub fn validate_context_free_consensus(
 /// supplied proof-of-work limit, and is satisfied by the header hash.
 ///
 /// `pow_limit` is a valid nonzero 256-bit limit constructed by
-/// `new_pow_limit`. An invalid compact target, a target above that limit, or a
-/// header hash above the target is reported as `InvalidProofOfWork`.
+/// `new_pow_limit`. A zero, negative, or overflowing compact target; a target
+/// above that limit; or a header hash above the target is reported as
+/// `InvalidProofOfWork` with the corresponding `ProofOfWorkFailure` reason.
 ///
 /// This does not determine whether the target is the difficulty required by
 /// preceding headers or validate a Signet block solution.
@@ -1153,7 +1176,8 @@ fn validate_proof_of_work(
   use target <- result.try(
     <<block.header.target:32-little>>
     |> pow_target.from_compact_encoding
-    |> result.replace_error(InvalidProofOfWork),
+    |> result.map_error(proof_of_work_failure)
+    |> result.map_error(InvalidProofOfWork),
   )
 
   use _ <- result.try(validate_pow_target_within_limit(target, limit))
@@ -1165,7 +1189,23 @@ fn validate_proof_of_work(
 
   case pow_target.is_satisfied_by(target, block_hash) {
     True -> Ok(Nil)
-    False -> Error(InvalidProofOfWork)
+    False -> Error(InvalidProofOfWork(InsufficientWork))
+  }
+}
+
+/// Convert compact-target construction errors to public validation failures.
+///
+/// `validate_proof_of_work` always converts the fixed-width header target to
+/// exactly 32 bits before expanding it, so `InvalidBitCount` cannot occur.
+fn proof_of_work_failure(
+  error: pow_target.ConstructionError,
+) -> ProofOfWorkFailure {
+  case error {
+    pow_target.ZeroTarget -> ZeroTarget
+    pow_target.NegativeTarget -> NegativeTarget
+    pow_target.Overflow -> TargetOverflow
+    pow_target.InvalidBitCount(..) ->
+      panic as "a fixed-width block-header compact target must contain exactly 32 bits"
   }
 }
 
@@ -1174,7 +1214,7 @@ fn validate_pow_target_within_limit(
   limit: PowTarget,
 ) -> Result(Nil, ConsensusViolation) {
   case pow_target.compare(target, limit) {
-    Gt -> Error(InvalidProofOfWork)
+    Gt -> Error(InvalidProofOfWork(TargetExceedsLimit))
     Lt | Eq -> Ok(Nil)
   }
 }

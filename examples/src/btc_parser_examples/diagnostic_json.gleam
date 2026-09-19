@@ -171,8 +171,11 @@ fn block_violation(value: block.ConsensusViolation) -> Json {
       json.object([#("kind", json.string("no_transactions"))])
     block.ImpossiblyLargeTransactionCount ->
       json.object([#("kind", json.string("impossibly_large_transaction_count"))])
-    block.InvalidProofOfWork ->
-      json.object([#("kind", json.string("invalid_proof_of_work"))])
+    block.InvalidProofOfWork(reason) ->
+      json.object([
+        #("kind", json.string("invalid_proof_of_work")),
+        #("reason", json.string(proof_of_work_failure(reason))),
+      ])
     block.BaseSizeLimitExceeded(size) ->
       json.object([
         #("kind", json.string("base_size_limit_exceeded")),
@@ -209,6 +212,16 @@ fn block_violation(value: block.ConsensusViolation) -> Json {
         #("index", json.int(index)),
         #("violations", json.array(violations, transaction_violation)),
       ])
+  }
+}
+
+fn proof_of_work_failure(value: block.ProofOfWorkFailure) -> String {
+  case value {
+    block.ZeroTarget -> "zero_target"
+    block.NegativeTarget -> "negative_target"
+    block.TargetOverflow -> "target_overflow"
+    block.TargetExceedsLimit -> "target_exceeds_limit"
+    block.InsufficientWork -> "insufficient_work"
   }
 }
 

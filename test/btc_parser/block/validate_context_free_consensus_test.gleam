@@ -1,8 +1,9 @@
 import btc_parser/block.{
   type PowLimit, BaseSizeLimitExceeded, ImpossiblyLargeTransactionCount,
-  InvalidProofOfWork, InvalidTransaction, LegacySigOpLimitExceeded,
-  MerkleRootMismatch, MissingCoinbase, MutatedMerkleTree, NoTransactions,
-  UnexpectedCoinbase, WeightLimitExceeded,
+  InsufficientWork, InvalidProofOfWork, InvalidTransaction,
+  LegacySigOpLimitExceeded, MerkleRootMismatch, MissingCoinbase,
+  MutatedMerkleTree, NegativeTarget, NoTransactions, TargetExceedsLimit,
+  TargetOverflow, UnexpectedCoinbase, WeightLimitExceeded, ZeroTarget,
 }
 import btc_parser/transaction.{
   CoinbaseWithMultipleInputs, InvalidCoinbaseScriptSigLength, NoInputs,
@@ -120,7 +121,7 @@ pub fn validate_context_free_consensus_rejects_negative_pow_target_test() {
       parsed_block,
       regtest_pow_limit(),
     )
-    == Error([InvalidProofOfWork])
+    == Error([InvalidProofOfWork(NegativeTarget)])
 }
 
 pub fn validate_context_free_consensus_rejects_zero_pow_target_before_block_size_checks_test() {
@@ -131,7 +132,7 @@ pub fn validate_context_free_consensus_rejects_zero_pow_target_before_block_size
       parsed_block,
       regtest_pow_limit(),
     )
-    == Error([InvalidProofOfWork])
+    == Error([InvalidProofOfWork(ZeroTarget)])
 }
 
 pub fn validate_context_free_consensus_rejects_overflowing_pow_target_test() {
@@ -146,7 +147,7 @@ pub fn validate_context_free_consensus_rejects_overflowing_pow_target_test() {
       parsed_block,
       regtest_pow_limit(),
     )
-    == Error([InvalidProofOfWork])
+    == Error([InvalidProofOfWork(TargetOverflow)])
 }
 
 pub fn validate_context_free_consensus_rejects_pow_target_above_supplied_limit_test() {
@@ -161,7 +162,7 @@ pub fn validate_context_free_consensus_rejects_pow_target_above_supplied_limit_t
       parsed_block,
       mainnet_pow_limit(),
     )
-    == Error([InvalidProofOfWork])
+    == Error([InvalidProofOfWork(TargetExceedsLimit)])
 }
 
 pub fn validate_context_free_consensus_accepts_pow_target_equal_to_supplied_limit_test() {
@@ -194,7 +195,7 @@ pub fn validate_context_free_consensus_rejects_header_hash_above_pow_target_test
       parsed_block,
       mainnet_pow_limit(),
     )
-    == Error([InvalidProofOfWork])
+    == Error([InvalidProofOfWork(InsufficientWork)])
 }
 
 // ============================================================================
