@@ -94,6 +94,10 @@ type PostParseOperations {
     ),
     stripped_serialization: BitArray,
     complete_serialization: BitArray,
+    base_size: Int,
+    total_size: Int,
+    weight: Int,
+    virtual_size: Int,
     txid: BitArray,
     wtxid: BitArray,
   )
@@ -173,6 +177,8 @@ fn verify_seed_tx(seed_tx: SeedTx) -> Result(Nil, String) {
   )
 
   let operations = run_post_parse_operations(tx)
+
+  assert_size_invariants(operations)
 
   use _ <- result.try(
     operations.validation
@@ -299,6 +305,7 @@ fn run_deserialize(mutated_tx_bytes: BitArray) -> Nil {
   case transaction.deserialize(mutated_tx_bytes) {
     Ok(tx) -> {
       let operations = run_post_parse_operations(tx)
+      assert_size_invariants(operations)
       assert operations.complete_serialization == mutated_tx_bytes
 
       Nil
@@ -323,6 +330,10 @@ fn run_post_parse_operations(
 
   let stripped_serialization = transaction.serialize_stripped(tx)
   let complete_serialization = transaction.serialize(tx)
+  let base_size = transaction.compute_base_size(tx)
+  let total_size = transaction.compute_total_size(tx)
+  let weight = transaction.compute_weight(tx)
+  let virtual_size = transaction.compute_virtual_size(tx)
   let txid = transaction.compute_txid(tx)
   let wtxid = transaction.compute_wtxid(tx)
 
@@ -330,9 +341,23 @@ fn run_post_parse_operations(
     validation:,
     stripped_serialization:,
     complete_serialization:,
+    base_size:,
+    total_size:,
+    weight:,
+    virtual_size:,
     txid:,
     wtxid:,
   )
+}
+
+fn assert_size_invariants(operations: PostParseOperations) -> Nil {
+  assert operations.base_size
+    == bit_array.byte_size(operations.stripped_serialization)
+  assert operations.total_size
+    == bit_array.byte_size(operations.complete_serialization)
+  assert operations.weight == operations.base_size * 3 + operations.total_size
+  let weight_with_rounding = operations.weight + 3
+  assert operations.virtual_size == weight_with_rounding / 4
 }
 
 // Mutation

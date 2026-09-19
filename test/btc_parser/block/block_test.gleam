@@ -835,6 +835,7 @@ pub fn compute_sizes_and_weight_for_empty_block_test() {
   assert block.compute_base_size(block) == 81
   assert block.compute_total_size(block) == 81
   assert block.compute_weight(block) == 324
+  assert block.compute_virtual_size(block) == 81
 }
 
 pub fn compute_sizes_and_weight_for_one_minimal_legacy_transaction_test() {
@@ -845,6 +846,7 @@ pub fn compute_sizes_and_weight_for_one_minimal_legacy_transaction_test() {
   assert block.compute_base_size(block) == 141
   assert block.compute_total_size(block) == 141
   assert block.compute_weight(block) == 564
+  assert block.compute_virtual_size(block) == 141
 }
 
 pub fn compute_sizes_and_weight_for_one_segwit_transaction_with_witness_data_test() {
@@ -864,6 +866,7 @@ pub fn compute_sizes_and_weight_for_one_segwit_transaction_with_witness_data_tes
   assert block.compute_base_size(block) == 141
   assert block.compute_total_size(block) == 148
   assert block.compute_weight(block) == 571
+  assert block.compute_virtual_size(block) == 143
 }
 
 pub fn compute_sizes_and_weight_for_253_minimal_legacy_transactions_test() {
@@ -875,6 +878,7 @@ pub fn compute_sizes_and_weight_for_253_minimal_legacy_transactions_test() {
   assert block.compute_base_size(block) == 15_263
   assert block.compute_total_size(block) == 15_263
   assert block.compute_weight(block) == 61_052
+  assert block.compute_virtual_size(block) == 15_263
 }
 
 // ============================================================================

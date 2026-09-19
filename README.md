@@ -16,11 +16,12 @@ The following Bitcoin wire-format data structures are currently implemented:
 
 - [`btc_parser/transaction`](https://github.com/caquinn7/btc-parser/blob/main/docs/transaction/transaction.md) deserializes and
   serializes legacy and SegWit transactions, exposes their fields and output
-  script classifications, computes their sizes, weights, txids, and wtxids, and
-  runs context-free consensus checks.
+  script classifications, computes their base sizes, total sizes, weights, and
+  virtual sizes, txids, and wtxids, and runs context-free consensus checks.
 - [`btc_parser/block`](https://github.com/caquinn7/btc-parser/blob/main/docs/block/block.md) deserializes and serializes complete
-  blocks, exposes their headers and transactions, computes their sizes, weights,
-  Merkle roots, and block hashes, and runs context-free consensus checks.
+  blocks, exposes their headers and transactions, computes their base sizes,
+  total sizes, weights, virtual sizes, Merkle roots, and block hashes, and runs
+  context-free consensus checks.
 
 Additional domains may be added as the library expands.
 

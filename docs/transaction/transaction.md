@@ -23,8 +23,8 @@ transactions while preserving Bitcoin's wire representation.
 - **Validation-aware API**: Phantom types distinguish parsed transactions from
   transactions that passed context-free consensus validation.
 - **Serialization, measurements, and identifiers**: Produce stripped or full
-  wire bytes, compute BIP 141 base size, total size, and weight, and compute
-  txids and wtxids.
+  wire bytes, compute BIP 141 base size, total size, weight, and upward-rounded
+  virtual size in vbytes, and compute txids and wtxids.
 
 ## Quick Start
 
