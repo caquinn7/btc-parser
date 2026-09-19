@@ -27,6 +27,7 @@ blocks while preserving Bitcoin's wire representation.
 
 ```gleam
 import btc_parser/block
+import btc_parser/transaction
 import gleam/result
 
 pub fn block_hash_from_bytes(
@@ -45,6 +46,29 @@ pub fn block_hash_from_hex(
   |> result.map(block.compute_block_hash)
 }
 ```
+
+## Decode Policy
+
+Block decoding applies `max_block_size` to the complete block byte envelope and
+uses the configured transaction policy for every contained transaction. For
+example, a caller can allow larger scripts while keeping the block limits at
+their defaults:
+
+```gleam
+let transaction_policy =
+  transaction.default_decode_policy()
+  |> transaction.decode_policy_with_max_script_size(20_000)
+
+let policy =
+  block.default_decode_policy()
+  |> block.decode_policy_with_transaction_policy(transaction_policy)
+
+let result = block.deserialize_with_policy(block_bytes, policy)
+```
+
+The contained transaction policy's `max_tx_size` is ignored during block
+deserialization. `max_block_size` remains the only byte-envelope limit for the
+block and its transactions.
 
 Previous-block hashes, Merkle roots, and computed block hashes are exposed as
 32-byte values in the same little-endian order used on the Bitcoin wire. Reverse
