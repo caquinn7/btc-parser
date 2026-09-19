@@ -525,12 +525,10 @@ fn field_error(
 /// Limits are enforced during decoding. If a limit is exceeded,
 /// decoding fails with `PolicyLimitExceeded`.
 ///
-/// ## Contained Transactions
-///
-/// Contained transactions are decoded with the policy returned by
-/// `decode_policy_transaction_policy`. Its top-level `max_tx_size` limit is not
-/// applied because `max_block_size` owns the enclosing byte budget. The other
-/// transaction limits apply to every contained transaction.
+/// The block-size and transaction-count limits complement one another: one
+/// bounds input bytes, while the other bounds the number of transaction decodes.
+/// See the corresponding `decode_policy_with_*` functions for enforcement
+/// details.
 ///
 /// Builder functions do not validate whether custom limits are useful for
 /// decoding consensus-valid blocks. Callers that override `default_decode_policy`
@@ -561,15 +559,8 @@ pub opaque type DecodePolicy {
 /// and processing time. As these are policy limits rather than consensus rules,
 /// some valid Bitcoin blocks may be rejected by this configuration.
 ///
-/// The overall block size limit (`max_block_size`) serves as the primary
-/// resource constraint.
-///
-/// ## Default Values
-///
-/// - `max_block_size`: 4,000,000 bytes - Primary resource constraint, enforced before
-///   decoding begins.
-/// - `max_tx_count`: 20,000 transactions - Substantially higher than typical blocks
-///   but prevents unbounded memory allocation for transaction lists.
+/// By default, decoding accepts serialized blocks up to 4,000,000 bytes and
+/// transaction counts up to 20,000.
 pub fn default_decode_policy() -> DecodePolicy {
   DecodePolicy(
     max_block_size: 4_000_000,
@@ -579,6 +570,12 @@ pub fn default_decode_policy() -> DecodePolicy {
 }
 
 /// Return a policy with a custom maximum serialized block size.
+///
+/// For byte-aligned input, this limit is checked before decoding begins. It
+/// provides the absolute byte envelope for the block and all contained
+/// transactions. Because every structurally decodable transaction occupies at
+/// least ten bytes, it also provides an absolute bound on transaction-list
+/// allocation.
 pub fn decode_policy_with_max_block_size(
   policy: DecodePolicy,
   max_block_size: Int,
@@ -587,6 +584,12 @@ pub fn decode_policy_with_max_block_size(
 }
 
 /// Return a policy with a custom maximum transaction count.
+///
+/// After the decoded count has been checked against the bytes remaining in the
+/// input, this limit is enforced before any contained transaction is decoded.
+/// It bounds transaction parsing and list allocation more tightly than the
+/// block-size limit alone, providing fail-fast protection against inputs with
+/// many small, consensus-invalid transactions.
 pub fn decode_policy_with_max_tx_count(
   policy: DecodePolicy,
   max_tx_count: Int,
@@ -596,9 +599,10 @@ pub fn decode_policy_with_max_tx_count(
 
 /// Return a policy with custom limits for every contained transaction.
 ///
-/// The transaction policy's `max_tx_size` is ignored during block decoding.
-/// `max_block_size` remains the only byte-envelope limit for the block and all
-/// of its contained transactions.
+/// The maximum serialized transaction size configured on the transaction
+/// policy is ignored during block decoding. The block's maximum serialized size
+/// remains the only byte-envelope limit for the block and all of its contained
+/// transactions.
 pub fn decode_policy_with_transaction_policy(
   policy: DecodePolicy,
   transaction_policy: transaction.DecodePolicy,
@@ -656,11 +660,6 @@ pub fn deserialize(bytes: BitArray) -> Result(Block(Parsed), DecodeError) {
 /// Byte alignment is validated before resource limits. For byte-aligned inputs,
 /// limits that are exceeded produce a `PolicyLimitExceeded` error. See
 /// `DecodePolicy` and `default_decode_policy` for available options and defaults.
-///
-/// This policy controls block-level limits and the limits applied to contained
-/// transactions. The contained transaction policy's `max_tx_size` does not
-/// apply; `max_block_size` remains the only byte-envelope limit for block
-/// deserialization.
 ///
 /// ## Returns
 ///
@@ -733,11 +732,6 @@ pub fn deserialize_hex(
 /// deserialization, providing both the convenience of hexadecimal input and
 /// fine-grained control over resource limits. Use this when working with
 /// hex-encoded block data that requires custom resource constraints.
-///
-/// As with `deserialize_with_policy`, this policy controls block-level limits
-/// and the limits applied to contained transactions. The contained transaction
-/// policy's top-level `max_tx_size` does not apply; `max_block_size` remains the
-/// only byte-envelope limit for block deserialization.
 ///
 /// ## Returns
 ///

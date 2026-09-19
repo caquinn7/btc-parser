@@ -1377,6 +1377,11 @@ fn field_error(
 /// Limits are enforced during decoding. If a limit is exceeded,
 /// decoding fails with `PolicyLimitExceeded`.
 ///
+/// The limits complement one another: transaction size bounds the complete
+/// input buffer, while count and per-field limits can impose tighter bounds as
+/// the transaction is decoded. See the corresponding
+/// `decode_policy_with_*` functions for enforcement details.
+///
 /// Optional limits are only enforced when `Some`; `None` disables the limit.
 ///
 /// Builder functions do not validate whether custom limits are useful for
@@ -1416,22 +1421,10 @@ pub opaque type DecodePolicy {
 /// and processing time. As these are policy limits rather than consensus rules,
 /// some valid Bitcoin transactions may be rejected by this configuration.
 /// 
-/// The overall transaction size limit (`max_tx_size`) serves as the primary
-/// resource constraint. Witness-related limits are optional and may be enabled
-/// by callers who wish to impose additional per-input constraints.
-///
-/// ## Default Values
-///
-/// - `max_tx_size`: 400,000 bytes - Primary resource constraint, enforced before
-///   decoding begins.
-/// - `max_input_count`: 100,000 inputs - Substantially higher than typical transactions
-///   but prevents unbounded memory allocation for input lists.
-/// - `max_output_count`: 100,000 outputs - Similarly generous for outputs.
-/// - `max_script_size`: 10,000 bytes - Accommodates common transaction scripts
-///   (e.g., P2PKH, P2SH, P2WPKH, P2WSH, P2TR) with significant headroom for
-///   complex or non-standard scripts.
-/// - `max_witness_stack_item_count`: `None` - No limit on witness stack item count.
-/// - `max_witness_stack_payload_size`: `None` - No limit on witness stack payload size.
+/// By default, whole-value decoding accepts serialized transactions up to
+/// 400,000 bytes, input and output counts up to 100,000 each, and each
+/// `scriptSig` or `scriptPubKey` up to 10,000 bytes. It imposes no per-input
+/// limit on witness stack item count or payload size.
 pub fn default_decode_policy() -> DecodePolicy {
   DecodePolicy(
     max_tx_size: 400_000,
@@ -1444,6 +1437,11 @@ pub fn default_decode_policy() -> DecodePolicy {
 }
 
 /// Return a policy with a custom maximum serialized transaction size.
+///
+/// For byte-aligned input, this limit is checked before whole-value decoding
+/// begins and provides its primary byte envelope. It is not applied when a
+/// transaction is decoded as a prefix inside a block; the enclosing block
+/// policy owns that byte envelope.
 pub fn decode_policy_with_max_tx_size(
   policy: DecodePolicy,
   max_tx_size: Int,
@@ -1452,6 +1450,11 @@ pub fn decode_policy_with_max_tx_size(
 }
 
 /// Return a policy with a custom maximum transaction input count.
+///
+/// After the decoded count has been checked against the bytes remaining in the
+/// input, this limit is enforced before any input is decoded. It can bound input
+/// parsing and list allocation more tightly than the transaction-size limit
+/// alone.
 pub fn decode_policy_with_max_input_count(
   policy: DecodePolicy,
   max_input_count: Int,
@@ -1460,6 +1463,11 @@ pub fn decode_policy_with_max_input_count(
 }
 
 /// Return a policy with a custom maximum transaction output count.
+///
+/// After the decoded count has been checked against the bytes remaining in the
+/// input, this limit is enforced before any output is decoded. It can bound
+/// output parsing and list allocation more tightly than the transaction-size
+/// limit alone.
 pub fn decode_policy_with_max_output_count(
   policy: DecodePolicy,
   max_output_count: Int,
@@ -1469,7 +1477,10 @@ pub fn decode_policy_with_max_output_count(
 
 /// Return a policy with a custom maximum script size.
 ///
-/// This limit applies to each `scriptSig` and `scriptPubKey`.
+/// This limit applies separately to each `scriptSig` and `scriptPubKey` and
+/// measures raw script bytes, excluding the CompactSize length prefix. After a
+/// decoded script length has been checked against the bytes remaining in the
+/// input, this limit is enforced before the script bytes are read.
 pub fn decode_policy_with_max_script_size(
   policy: DecodePolicy,
   max_script_size: Int,
@@ -1479,7 +1490,9 @@ pub fn decode_policy_with_max_script_size(
 
 /// Return a policy with a custom item count limit per witness stack.
 ///
-/// Set to `None` to disable this limit.
+/// This is a per-input limit. When set to `Some`, it is checked after the
+/// witness item count is decoded and before any item in that stack is decoded.
+/// Zero-length items count toward the limit. Set to `None` to disable it.
 pub fn decode_policy_with_max_witness_stack_item_count(
   policy: DecodePolicy,
   max_witness_stack_item_count: Option(Int),
@@ -1489,8 +1502,10 @@ pub fn decode_policy_with_max_witness_stack_item_count(
 
 /// Return a policy with a custom payload size limit per witness stack.
 ///
-/// This limit is the total number of bytes across all witness items for a
-/// single input. Set to `None` to disable this limit.
+/// This is a per-input limit on the cumulative raw bytes across all witness
+/// items, excluding their CompactSize length prefixes. When set to `Some`,
+/// decoding fails as soon as the cumulative decoded payload exceeds the limit.
+/// Set to `None` to disable it.
 pub fn decode_policy_with_max_witness_stack_payload_size(
   policy: DecodePolicy,
   max_witness_stack_payload_size: Option(Int),

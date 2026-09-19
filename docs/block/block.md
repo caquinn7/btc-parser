@@ -49,8 +49,9 @@ pub fn block_hash_from_hex(
 
 ## Decode Policy
 
-Block decoding applies `max_block_size` to the complete block byte envelope and
-uses the configured transaction policy for every contained transaction. For
+Block decoding applies the limit configured by
+`block.decode_policy_with_max_block_size` to the complete block byte envelope
+and uses the configured transaction policy for every contained transaction. For
 example, a caller can allow larger scripts while keeping the block limits at
 their defaults:
 
@@ -66,9 +67,9 @@ let policy =
 let result = block.deserialize_with_policy(block_bytes, policy)
 ```
 
-The contained transaction policy's `max_tx_size` is ignored during block
-deserialization. `max_block_size` remains the only byte-envelope limit for the
-block and its transactions.
+The limit configured by `transaction.decode_policy_with_max_tx_size` is ignored
+for contained transactions. The block's maximum serialized size remains the
+only byte-envelope limit for the block and its transactions.
 
 Previous-block hashes, Merkle roots, and computed block hashes are exposed as
 32-byte values in the same little-endian order used on the Bitcoin wire. Reverse
