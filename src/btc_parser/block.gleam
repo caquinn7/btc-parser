@@ -1016,7 +1016,8 @@ pub type ProofOfWorkFailure {
   /// The header's compact target encoding expands to zero.
   ZeroTarget
 
-  /// The header's compact target encoding has its sign bit set.
+  /// The header's compact target encoding has a nonzero magnitude with its
+  /// sign bit set.
   NegativeTarget
 
   /// The header's compact target encoding expands beyond 256 bits.
