@@ -162,6 +162,7 @@ type PostParseOperations {
     base_size: Int,
     total_size: Int,
     weight: Int,
+    virtual_size: Int,
     previous_block_hash: BitArray,
     recorded_merkle_root: BitArray,
     serialized_header: BitArray,
@@ -308,6 +309,7 @@ fn run_deserialize(
       assert operations.total_size == bit_array.byte_size(mutated_block_bytes)
       assert operations.weight
         == operations.base_size * 3 + operations.total_size
+      assert operations.virtual_size == { operations.weight + 3 } / 4
       assert operations.serialized_block == mutated_block_bytes
 
       assert bit_array.byte_size(operations.serialized_header) == 80
@@ -368,6 +370,7 @@ fn run_post_parse_operations(
   let base_size = block.compute_base_size(parsed_block)
   let total_size = block.compute_total_size(parsed_block)
   let weight = block.compute_weight(parsed_block)
+  let virtual_size = block.compute_virtual_size(parsed_block)
   let serialized_header = block.serialize_header(header)
   let serialized_block = block.serialize(parsed_block)
   let block_hash = block.compute_block_hash(parsed_block)
@@ -381,6 +384,7 @@ fn run_post_parse_operations(
     base_size:,
     total_size:,
     weight:,
+    virtual_size:,
     previous_block_hash:,
     recorded_merkle_root:,
     serialized_header:,
@@ -453,6 +457,10 @@ fn prepare_verified_seed_block(
   use _ <- result.try(ensure(
     operations.weight == operations.base_size * 3 + operations.total_size,
     "weight did not equal base size * 3 + total size",
+  ))
+  use _ <- result.try(ensure(
+    operations.virtual_size == { operations.weight + 3 } / 4,
+    "virtual size did not equal rounded weight / 4",
   ))
   use _ <- result.try(ensure(
     bit_array.byte_size(operations.serialized_header) == 80,

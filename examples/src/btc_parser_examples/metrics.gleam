@@ -97,7 +97,7 @@ pub fn transaction_metrics(
     total_size_bytes:,
     witness_size_bytes: total_size_bytes - base_size_bytes,
     weight_units:,
-    virtual_size_bytes: virtual_size(weight_units),
+    virtual_size_bytes: transaction.compute_virtual_size(tx),
     output_scripts: output_metrics.script_counts,
   )
 }
@@ -131,7 +131,7 @@ pub fn block_metrics(block_value: block.Block(state)) -> BlockMetrics {
     total_size_bytes:,
     witness_size_bytes: total_size_bytes - base_size_bytes,
     weight_units:,
-    virtual_size_bytes: virtual_size(weight_units),
+    virtual_size_bytes: block.compute_virtual_size(block_value),
     output_scripts: totals.output_scripts,
   )
 }
@@ -330,9 +330,4 @@ fn add_output_script_counts(
       + right.other_witness_program,
     unrecognized: left.unrecognized + right.unrecognized,
   )
-}
-
-fn virtual_size(weight_units: Int) -> Int {
-  let rounded_weight_units = weight_units + 3
-  rounded_weight_units / 4
 }

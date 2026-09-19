@@ -305,6 +305,23 @@ pub fn compute_weight(tx: Transaction(state)) -> Int {
   }
 }
 
+/// Compute the transaction's virtual size in virtual bytes (vbytes).
+///
+/// A virtual byte is four weight units. The result is the transaction's BIP 141
+/// weight divided by four and rounded up. For example, a transaction weighing
+/// 665 weight units has a virtual size of 167 vbytes.
+///
+/// This calculation does not allocate a serialized `BitArray` or enforce size
+/// or weight limits.
+pub fn compute_virtual_size(tx: Transaction(state)) -> Int {
+  let weight = compute_weight(tx)
+
+  let weight_units_per_vbyte = 4
+  // Adding one less than the divisor implements ceiling integer division.
+  let weight_with_rounding_offset = weight + weight_units_per_vbyte - 1
+  weight_with_rounding_offset / weight_units_per_vbyte
+}
+
 /// Compute the transaction bytes included in total size but excluded from base
 /// size.
 ///

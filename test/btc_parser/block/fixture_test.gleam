@@ -13,6 +13,7 @@ type FixtureExpectation {
     byte_length: Int,
     base_size: Int,
     weight: Int,
+    virtual_size: Int,
     version: Int,
     previous_block_hash_hex: String,
     merkle_root_hex: String,
@@ -30,6 +31,7 @@ const mainnet_0_fixture = FixtureExpectation(
   byte_length: 285,
   base_size: 285,
   weight: 1140,
+  virtual_size: 285,
   version: 1,
   previous_block_hash_hex: "0000000000000000000000000000000000000000000000000000000000000000",
   merkle_root_hex: "3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a",
@@ -46,6 +48,7 @@ const mainnet_170_fixture = FixtureExpectation(
   byte_length: 490,
   base_size: 490,
   weight: 1960,
+  virtual_size: 490,
   version: 1,
   previous_block_hash_hex: "55bd840a78798ad0da853f68974f3d183e2bd1db6a842c1feecf222a00000000",
   merkle_root_hex: "ff104ccb05421ab93e63f8c3ce5c2c2e9dbb37de2764b3a3175c8166562cac7d",
@@ -62,6 +65,7 @@ const mainnet_519311_fixture = FixtureExpectation(
   byte_length: 22_884,
   base_size: 15_613,
   weight: 69_723,
+  virtual_size: 17_431,
   version: 536_870_912,
   previous_block_hash_hex: "90e82ac51d6b37446dc3e6ade48e387a46bcc0b454e126000000000000000000",
   merkle_root_hex: "1ca2e4bd9b9a855e21e53f9b238a6a0065ec8d4417d8140ce3354159c583ea69",
@@ -91,6 +95,7 @@ fn assert_fixture_deserializes(expectation: FixtureExpectation) -> Nil {
     byte_length: expected_byte_length,
     base_size: _,
     weight: _,
+    virtual_size: _,
     version: expected_version,
     previous_block_hash_hex:,
     merkle_root_hex:,
@@ -167,6 +172,7 @@ fn assert_fixture_sizes(expectation: FixtureExpectation) -> Nil {
   assert block.compute_base_size(block) == expectation.base_size
   assert block.compute_total_size(block) == expectation.byte_length
   assert block.compute_weight(block) == expectation.weight
+  assert block.compute_virtual_size(block) == expectation.virtual_size
 }
 
 pub fn validate_context_free_consensus_accepts_mainnet_0_test() {
