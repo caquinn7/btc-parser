@@ -1,3 +1,4 @@
+import btc_parser/hash256
 import btc_parser/transaction.{NoOutputs}
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -170,8 +171,15 @@ pub fn serialize_and_hashing_accept_context_free_invalid_segwit_tx_test() {
     |> crypto.hash(Sha256, _)
     |> crypto.hash(Sha256, _)
 
-  assert transaction.compute_txid(tx) == expected_txid
-  assert transaction.compute_wtxid(tx) == expected_wtxid
+  assert tx
+    |> transaction.compute_txid
+    |> hash256.to_bytes_le
+    == expected_txid
+
+  assert tx
+    |> transaction.compute_wtxid
+    |> hash256.to_bytes_le
+    == expected_wtxid
 }
 
 // ============================================================================
@@ -202,7 +210,7 @@ pub fn compute_txid_matches_manual_dsha256_test() {
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
   let txid = transaction.compute_txid(tx)
 
-  assert txid == expected_txid
+  assert hash256.to_bytes_le(txid) == expected_txid
 }
 
 pub fn compute_wtxid_matches_manual_dsha256_test() {
@@ -229,7 +237,7 @@ pub fn compute_wtxid_matches_manual_dsha256_test() {
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
   let wtxid = transaction.compute_wtxid(tx)
 
-  assert wtxid == expected_wtxid
+  assert hash256.to_bytes_le(wtxid) == expected_wtxid
 }
 
 pub fn compute_txid_differs_from_wtxid_for_segwit_test() {

@@ -29,29 +29,33 @@ transactions while preserving Bitcoin's wire representation.
 ## Quick Start
 
 ```gleam
+import btc_parser/hash256
 import btc_parser/transaction
 import gleam/result
 
-pub fn txid_from_bytes(
+pub fn display_txid_from_bytes(
   bytes: BitArray,
-) -> Result(BitArray, transaction.DecodeError) {
+) -> Result(String, transaction.DecodeError) {
   bytes
   |> transaction.deserialize
   |> result.map(transaction.compute_txid)
+  |> result.map(hash256.to_display_hex)
 }
 
-pub fn txid_from_hex(
+pub fn txid_bytes_from_hex(
   hex: String,
 ) -> Result(BitArray, transaction.DeserializeHexError) {
   hex
   |> transaction.deserialize_hex
   |> result.map(transaction.compute_txid)
+  |> result.map(hash256.to_bytes_le)
 }
 ```
 
-Outpoint txids and computed txids and wtxids are exposed as 32-byte values in
-the same little-endian order used on the Bitcoin wire. Reverse them before
-displaying the conventional hexadecimal identifier notation used by explorers.
+Outpoint txids and computed txids and wtxids are exposed as `Hash256` values in
+the same little-endian order used on the Bitcoin wire. Use
+`hash256.to_display_hex` for conventional explorer notation or
+`hash256.to_bytes_le` for the exact 32 wire-order bytes.
 
 ## Scope
 

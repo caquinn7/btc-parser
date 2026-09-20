@@ -1,4 +1,5 @@
 import btc_parser/block.{type Block, type Parsed}
+import btc_parser/hash256
 import btc_parser/transaction
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -25,7 +26,12 @@ pub fn compute_merkle_root_for_single_legacy_transaction_is_its_txid_test() {
   let assert Ok(tx) = transaction.deserialize(tx_bytes)
   let parsed_block = deserialize_zero_header_block([tx_bytes])
 
-  assert_computed_merkle_root(parsed_block, transaction.compute_txid(tx), False)
+  let expected_root =
+    tx
+    |> transaction.compute_txid
+    |> hash256.to_bytes_le
+
+  assert_computed_merkle_root(parsed_block, expected_root, False)
 }
 
 pub fn compute_merkle_root_for_single_segwit_transaction_uses_txid_not_wtxid_test() {
@@ -38,7 +44,7 @@ pub fn compute_merkle_root_for_single_segwit_transaction_uses_txid_not_wtxid_tes
 
   let parsed_block = deserialize_zero_header_block([tx_bytes])
 
-  assert_computed_merkle_root(parsed_block, txid, False)
+  assert_computed_merkle_root(parsed_block, hash256.to_bytes_le(txid), False)
 }
 
 pub fn compute_merkle_root_for_two_unique_transactions_hashes_their_txids_test() {
@@ -169,6 +175,7 @@ fn assert_fixture_merkle_root(fixture: MainnetFixture) -> Nil {
     parsed_block
     |> block.get_header
     |> block.get_header_merkle_root
+    |> hash256.to_bytes_le
 
   assert block.get_transaction_count(parsed_block) == transaction_count
   assert_computed_merkle_root(parsed_block, header_merkle_root, False)
@@ -193,7 +200,10 @@ fn deserialize_zero_header_block(
 
 fn compute_txid(bytes: BitArray) -> BitArray {
   let assert Ok(tx) = transaction.deserialize(bytes)
-  transaction.compute_txid(tx)
+
+  tx
+  |> transaction.compute_txid
+  |> hash256.to_bytes_le
 }
 
 fn assert_computed_merkle_root(
@@ -202,9 +212,10 @@ fn assert_computed_merkle_root(
   expected_mutated: Bool,
 ) -> Nil {
   let #(root, mutated) = block.compute_merkle_root(parsed_block)
+  let root_bytes = hash256.to_bytes_le(root)
 
-  assert bit_array.byte_size(root) == 32
-  assert root == expected_root
+  assert bit_array.byte_size(root_bytes) == 32
+  assert root_bytes == expected_root
   assert mutated == expected_mutated
 }
 

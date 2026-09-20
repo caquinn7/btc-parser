@@ -3,6 +3,7 @@ import btc_parser/block.{
   MaxTransactionCount, NonByteAlignedInput, NonMinimalCompactSize,
   PolicyLimitExceeded, TrailingBytes, TransactionDecodeFailed, UnexpectedEof,
 }
+import btc_parser/hash256
 import btc_parser/transaction
 import gleam/bit_array
 import gleam/crypto.{Sha256}
@@ -58,8 +59,15 @@ pub fn deserialize_preserves_header_hashes_in_wire_order_test() {
   let assert Ok(block) = block.deserialize(bytes)
   let header = block.get_header(block)
 
-  assert block.get_header_previous_block_hash(header) == previous_block_hash
-  assert block.get_header_merkle_root(header) == merkle_root
+  assert header
+    |> block.get_header_previous_block_hash
+    |> hash256.to_bytes_le
+    == previous_block_hash
+
+  assert header
+    |> block.get_header_merkle_root
+    |> hash256.to_bytes_le
+    == merkle_root
 }
 
 pub fn deserialize_preserves_unsigned_header_timestamp_target_and_nonce_test() {
@@ -904,7 +912,10 @@ pub fn compute_block_hash_matches_manual_dsha256_test() {
     |> crypto.hash(Sha256, _)
     |> crypto.hash(Sha256, _)
 
-  assert block.compute_block_hash(block) == expected_hash
+  assert block
+    |> block.compute_block_hash
+    |> hash256.to_bytes_le
+    == expected_hash
 }
 
 // ============================================================================

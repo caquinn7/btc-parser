@@ -1,3 +1,4 @@
+import btc_parser/hash256
 import btc_parser/transaction.{
   DecodeFailed, InsufficientBytes, IntegerOutOfRange, InvalidHex,
   InvalidSegwitMarkerFlag, NonByteAlignedInput, NonMinimalCompactSize,
@@ -266,7 +267,11 @@ pub fn deserialize_preserves_single_input_test() {
 
   let outpoint = transaction.get_input_outpoint(first_input)
 
-  assert transaction.get_outpoint_txid(outpoint) == outpoint_txid_bytes
+  assert outpoint
+    |> transaction.get_outpoint_txid
+    |> hash256.to_bytes_le
+    == outpoint_txid_bytes
+
   assert transaction.get_outpoint_vout(outpoint) == outpoint_vout
 
   assert transaction.get_input_sequence(first_input) == sequence
@@ -366,7 +371,11 @@ pub fn deserialize_preserves_multiple_inputs_test() {
 
   let outpoint1 = transaction.get_input_outpoint(input1)
 
-  assert transaction.get_outpoint_txid(outpoint1) == outpoint1_txid_bytes
+  assert outpoint1
+    |> transaction.get_outpoint_txid
+    |> hash256.to_bytes_le
+    == outpoint1_txid_bytes
+
   assert transaction.get_outpoint_vout(outpoint1) == outpoint1_vout
   assert transaction.get_input_sequence(input1) == seq1
   assert input1
@@ -376,7 +385,11 @@ pub fn deserialize_preserves_multiple_inputs_test() {
 
   let outpoint2 = transaction.get_input_outpoint(input2)
 
-  assert transaction.get_outpoint_txid(outpoint2) == outpoint2_txid_bytes
+  assert outpoint2
+    |> transaction.get_outpoint_txid
+    |> hash256.to_bytes_le
+    == outpoint2_txid_bytes
+
   assert transaction.get_outpoint_vout(outpoint2) == outpoint2_vout
   assert transaction.get_input_sequence(input2) == seq2
   assert input2
@@ -386,7 +399,11 @@ pub fn deserialize_preserves_multiple_inputs_test() {
 
   let outpoint3 = transaction.get_input_outpoint(input3)
 
-  assert transaction.get_outpoint_txid(outpoint3) == outpoint3_txid_bytes
+  assert outpoint3
+    |> transaction.get_outpoint_txid
+    |> hash256.to_bytes_le
+    == outpoint3_txid_bytes
+
   assert transaction.get_outpoint_vout(outpoint3) == outpoint3_vout
   assert transaction.get_input_sequence(input3) == seq3
   assert input3

@@ -5,6 +5,7 @@ import btc_parser/block.{
   MutatedMerkleTree, NegativeTarget, NoTransactions, TargetExceedsLimit,
   TargetOverflow, UnexpectedCoinbase, WeightLimitExceeded, ZeroTarget,
 }
+import btc_parser/hash256.{type Hash256}
 import btc_parser/transaction.{
   CoinbaseWithMultipleInputs, InvalidCoinbaseScriptSigLength, NoInputs,
   NoOutputs,
@@ -188,9 +189,10 @@ pub fn validate_context_free_consensus_rejects_header_hash_above_pow_target_test
     )
   let assert Ok(parsed_block) = block.deserialize(block_bytes)
   let block_hash = block.compute_block_hash(parsed_block)
+  let block_hash_bytes = hash256.to_bytes_le(block_hash)
 
-  assert block_hash != <<0:256>>
-  assert block_hash != <<1, 0:size(248)>>
+  assert block_hash_bytes != <<0:256>>
+  assert block_hash_bytes != <<1, 0:size(248)>>
   assert block.validate_context_free_consensus(
       parsed_block,
       mainnet_pow_limit(),
@@ -338,8 +340,8 @@ pub fn validate_context_free_consensus_rejects_mismatched_merkle_root_test() {
     )
     == Error([
       MerkleRootMismatch(
-        actual: header_merkle_root,
-        expected: computed_merkle_root,
+        actual: hash256_from_bytes(header_merkle_root),
+        expected: hash256_from_bytes(computed_merkle_root),
       ),
     ])
 }
@@ -377,8 +379,8 @@ pub fn validate_context_free_consensus_prioritizes_merkle_root_mismatch_over_mut
     )
     == Error([
       MerkleRootMismatch(
-        actual: header_merkle_root,
-        expected: computed_merkle_root,
+        actual: hash256_from_bytes(header_merkle_root),
+        expected: hash256_from_bytes(computed_merkle_root),
       ),
     ])
 }
@@ -605,8 +607,8 @@ pub fn validate_context_free_consensus_collects_all_violations_in_validation_ord
     )
     == Error([
       MerkleRootMismatch(
-        actual: header_merkle_root,
-        expected: computed_merkle_root,
+        actual: hash256_from_bytes(header_merkle_root),
+        expected: hash256_from_bytes(computed_merkle_root),
       ),
       MissingCoinbase,
       LegacySigOpLimitExceeded(20_001),
@@ -662,8 +664,8 @@ pub fn validate_context_free_consensus_collects_merkle_root_mismatch_before_tran
     )
     == Error([
       MerkleRootMismatch(
-        actual: header_merkle_root,
-        expected: computed_merkle_root,
+        actual: hash256_from_bytes(header_merkle_root),
+        expected: hash256_from_bytes(computed_merkle_root),
       ),
       InvalidTransaction(1, [NoInputs, NoOutputs]),
     ])
@@ -795,9 +797,17 @@ fn compute_transaction_merkle_root(transactions: List(BitArray)) -> BitArray {
   transactions
   |> list.map(fn(bytes) {
     let assert Ok(tx) = transaction.deserialize(bytes)
-    transaction.compute_txid(tx)
+
+    tx
+    |> transaction.compute_txid
+    |> hash256.to_bytes_le
   })
   |> compute_merkle_root_from_hashes
+}
+
+fn hash256_from_bytes(bytes: BitArray) -> Hash256 {
+  let assert Ok(hash) = hash256.from_bytes_le(bytes)
+  hash
 }
 
 fn compute_merkle_root_from_hashes(hashes: List(BitArray)) -> BitArray {

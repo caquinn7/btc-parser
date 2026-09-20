@@ -1,10 +1,10 @@
 import btc_parser/block.{type PowLimit}
+import btc_parser/hash256.{type Hash256}
 import btc_parser/transaction.{type Transaction}
 import gleam/bit_array
 import gleam/list
 import gleam/string
 import simplifile
-import support/bitcoin_wire.{get_display_hex}
 
 type FixtureExpectation {
   FixtureExpectation(
@@ -131,8 +131,9 @@ fn assert_fixture_deserializes(expectation: FixtureExpectation) -> Nil {
   assert list.length(txs) == expected_legacy_count + expected_segwit_count
 }
 
-fn fixture_hash_from_hex(hex: String) -> BitArray {
-  let assert Ok(hash) = bit_array.base16_decode(hex)
+fn fixture_hash_from_hex(hex: String) -> Hash256 {
+  let assert Ok(bytes) = bit_array.base16_decode(hex)
+  let assert Ok(hash) = hash256.from_bytes_le(bytes)
   hash
 }
 
@@ -237,11 +238,14 @@ fn compare_compute_block_hash_against_known_vector(
 ) -> Nil {
   let assert Ok(fixture_hex) =
     simplifile.read("test/btc_parser/block/fixtures/" <> expectation.file_name)
+
   let assert Ok(block) =
     fixture_hex
     |> string.trim
     |> block.deserialize_hex
 
   let wire_block_hash = block.compute_block_hash(block)
-  assert get_display_hex(wire_block_hash) == expectation.display_block_hash_hex
+
+  assert hash256.to_display_hex(wire_block_hash)
+    == expectation.display_block_hash_hex
 }

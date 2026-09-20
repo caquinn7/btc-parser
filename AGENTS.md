@@ -30,6 +30,9 @@ changes.
   block-level decode errors. It computes block sizes, weights, Merkle roots, and
   block hashes; serializes headers and complete blocks; and performs documented
   context-free consensus validation using a caller-supplied proof-of-work limit.
+- `src/btc_parser/hash256.gleam` exposes fixed-width hashes in wire-order
+  little-endian bytes for transaction identifiers, block-header hashes, and
+  Merkle roots, with raw-byte and conventional display conversions.
 - `src/btc_parser/internal/reader.gleam` is the byte reader. It owns offset
   tracking and byte-aligned reads.
 - `src/btc_parser/internal/parser.gleam` is a function-backed parser combinator
@@ -43,9 +46,6 @@ changes.
 - `src/btc_parser/internal/fixed_int/*.gleam` stores signed and unsigned
   fixed-width values, including 64-bit and 256-bit integers, as little-endian
   bytes so values remain exact on JavaScript.
-- `src/btc_parser/internal/hash256.gleam` stores 256-bit hashes in wire-order
-  little-endian bytes for transaction identifiers, block-header hashes, and
-  merkle roots.
 - `src/btc_parser/internal/pow_target.gleam` expands compact target encodings,
   preserves nonzero unsigned 256-bit targets exactly, and compares targets,
   proof-of-work limits, and block hashes without target-native integer loss.

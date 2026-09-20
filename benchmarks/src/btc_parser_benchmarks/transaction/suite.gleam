@@ -772,7 +772,7 @@ fn measure_synthetic_parsed_curve(
   build_specs: fn(List(Int)) -> List(SyntheticTxSpec),
   curve: List(MeasurementCurvePoint),
   function_label: String,
-  measured_function: fn(Transaction(Parsed)) -> BitArray,
+  measured_function: fn(Transaction(Parsed)) -> output,
 ) -> List(PerfCaseResult) {
   measure_curve(
     curve,

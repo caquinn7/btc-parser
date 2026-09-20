@@ -6,9 +6,9 @@
 //// exception.
 
 import btc_parser/block
+import btc_parser/hash256.{type Hash256}
 import btc_parser/transaction
 import btc_parser_fuzz/fuzz_result.{type FuzzResult, FuzzResult}
-import btc_parser_fuzz/internal/hash
 import btc_parser_fuzz/internal/mutation
 import btc_parser_fuzz/internal/rng.{type Rng}
 import btc_parser_fuzz/internal/trace.{type Trace}
@@ -163,12 +163,12 @@ type PostParseOperations {
     total_size: Int,
     weight: Int,
     virtual_size: Int,
-    previous_block_hash: BitArray,
-    recorded_merkle_root: BitArray,
+    previous_block_hash: Hash256,
+    recorded_merkle_root: Hash256,
     serialized_header: BitArray,
     serialized_block: BitArray,
-    block_hash: BitArray,
-    computed_merkle_root: BitArray,
+    block_hash: Hash256,
+    computed_merkle_root: Hash256,
     merkle_tree_mutated: Bool,
   )
 }
@@ -313,10 +313,6 @@ fn run_deserialize(
       assert operations.serialized_block == mutated_block_bytes
 
       assert bit_array.byte_size(operations.serialized_header) == 80
-      assert bit_array.byte_size(operations.previous_block_hash) == 32
-      assert bit_array.byte_size(operations.block_hash) == 32
-      assert bit_array.byte_size(operations.recorded_merkle_root) == 32
-      assert bit_array.byte_size(operations.computed_merkle_root) == 32
 
       Nil
     }
@@ -467,22 +463,6 @@ fn prepare_verified_seed_block(
     "serialized header did not contain 80 bytes",
   ))
   use _ <- result.try(ensure(
-    bit_array.byte_size(operations.previous_block_hash) == 32,
-    "previous block hash did not contain 32 bytes",
-  ))
-  use _ <- result.try(ensure(
-    bit_array.byte_size(operations.recorded_merkle_root) == 32,
-    "header Merkle root did not contain 32 bytes",
-  ))
-  use _ <- result.try(ensure(
-    bit_array.byte_size(operations.block_hash) == 32,
-    "computed block hash did not contain 32 bytes",
-  ))
-  use _ <- result.try(ensure(
-    bit_array.byte_size(operations.computed_merkle_root) == 32,
-    "computed Merkle root did not contain 32 bytes",
-  ))
-  use _ <- result.try(ensure(
     operations.computed_merkle_root == operations.recorded_merkle_root,
     "computed Merkle root did not match the header Merkle root",
   ))
@@ -491,7 +471,7 @@ fn prepare_verified_seed_block(
     "computed Merkle tree was mutated",
   ))
   use _ <- result.try(ensure(
-    hash.to_display_hex(operations.block_hash) == seed_block.block_hash,
+    hash256.to_display_hex(operations.block_hash) == seed_block.block_hash,
     "computed display block hash did not match the recorded block hash",
   ))
 
