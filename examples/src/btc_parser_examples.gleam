@@ -2,9 +2,9 @@
 
 import argv
 import btc_parser/block
+import btc_parser/hash256
 import btc_parser/transaction
 import btc_parser_examples/diagnostic_json
-import btc_parser_examples/display
 import btc_parser_examples/mempool_client
 import btc_parser_examples/metrics
 import btc_parser_examples/metrics_json
@@ -141,7 +141,10 @@ fn validate_block_example(height_argument: String) -> Result(Json, String) {
       )
     Ok(block_value) -> {
       let computed_block_hash =
-        display.hash(block.compute_block_hash(block_value))
+        block_value
+        |> block.compute_block_hash
+        |> hash256.to_display_hex
+
       let serialization_round_trips = block.serialize(block_value) == bytes
       let block_hash_matches_requested =
         computed_block_hash == requested_block_hash

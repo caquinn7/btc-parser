@@ -1,5 +1,5 @@
+import btc_parser/hash256.{type Hash256}
 import btc_parser/internal/fixed_int/uint256.{type Uint256}
-import btc_parser/internal/hash256.{type Hash256}
 import gleam/bit_array
 import gleam/bool
 import gleam/int

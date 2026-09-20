@@ -22,6 +22,8 @@ The following Bitcoin wire-format data structures are currently implemented:
   blocks, exposes their headers and transactions, computes their base sizes,
   total sizes, weights, virtual sizes, Merkle roots, and block hashes, and runs
   context-free consensus checks.
+- `btc_parser/hash256` provides fixed-width wire-order hashes with conversions
+  to raw little-endian bytes and conventional Bitcoin display notation.
 
 Additional domains may be added as the library expands.
 

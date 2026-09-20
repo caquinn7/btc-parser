@@ -1,10 +1,10 @@
+import btc_parser/hash256
 import btc_parser/transaction.{type Parsed, type Transaction}
 import gleam/bit_array
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import simplifile
-import support/bitcoin_wire.{get_display_hex}
 
 type FixtureEncoding {
   LegacyEncoding
@@ -193,13 +193,18 @@ pub fn compute_identifiers_segwit_wtxid_vector_fixture_test() {
 fn assert_fixture_identifiers(expectation: FixtureExpectation) -> Nil {
   let tx = deserialize_fixture(expectation)
 
-  assert get_display_hex(transaction.compute_txid(tx))
+  assert tx
+    |> transaction.compute_txid
+    |> hash256.to_display_hex
     == expectation.display_txid_hex
 
   case expectation.display_wtxid_hex {
     None -> Nil
     Some(display_wtxid_hex) -> {
-      assert get_display_hex(transaction.compute_wtxid(tx)) == display_wtxid_hex
+      assert tx
+        |> transaction.compute_wtxid
+        |> hash256.to_display_hex
+        == display_wtxid_hex
     }
   }
 }

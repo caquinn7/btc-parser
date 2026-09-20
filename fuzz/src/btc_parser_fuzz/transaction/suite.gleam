@@ -10,9 +10,9 @@
 ////  plausible, so mutations are more likely to reach deep parser paths rather
 ////  than being rejected at early boundary checks.
 
+import btc_parser/hash256.{type Hash256}
 import btc_parser/transaction
 import btc_parser_fuzz/fuzz_result.{type FuzzResult, FuzzResult}
-import btc_parser_fuzz/internal/hash
 import btc_parser_fuzz/internal/mutation
 import btc_parser_fuzz/internal/rng.{type Rng}
 import btc_parser_fuzz/internal/trace.{type Trace}
@@ -98,8 +98,8 @@ type PostParseOperations {
     total_size: Int,
     weight: Int,
     virtual_size: Int,
-    txid: BitArray,
-    wtxid: BitArray,
+    txid: Hash256,
+    wtxid: Hash256,
   )
 }
 
@@ -198,30 +198,15 @@ fn verify_seed_operations(
     False -> Error("complete serialization did not match the original bytes")
 
     True -> {
-      let txid_size = bit_array.byte_size(operations.txid)
-      let wtxid_size = bit_array.byte_size(operations.wtxid)
-
-      case txid_size == 32 && wtxid_size == 32 {
+      let computed_txid = hash256.to_display_hex(operations.txid)
+      case computed_txid == seed_tx.txid {
+        True -> Ok(Nil)
         False ->
           Error(
-            "txid and wtxid must each contain 32 bytes; got "
-            <> int.to_string(txid_size)
-            <> " and "
-            <> int.to_string(wtxid_size),
+            "computed display txid "
+            <> computed_txid
+            <> " did not match the recorded txid",
           )
-
-        True -> {
-          let computed_txid = hash.to_display_hex(operations.txid)
-          case computed_txid == seed_tx.txid {
-            True -> Ok(Nil)
-            False ->
-              Error(
-                "computed display txid "
-                <> computed_txid
-                <> " did not match the recorded txid",
-              )
-          }
-        }
       }
     }
   }

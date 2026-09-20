@@ -1,8 +1,8 @@
 //// JSON diagnostics for public btc_parser decode and validation errors.
 
 import btc_parser/block
+import btc_parser/hash256
 import btc_parser/transaction
-import btc_parser_examples/display
 import gleam/json.{type Json}
 
 pub fn transaction_deserialize_hex_error(
@@ -189,8 +189,8 @@ fn block_violation(value: block.ConsensusViolation) -> Json {
     block.MerkleRootMismatch(actual, expected) ->
       json.object([
         #("kind", json.string("merkle_root_mismatch")),
-        #("actual", json.string(display.hash(actual))),
-        #("expected", json.string(display.hash(expected))),
+        #("actual", json.string(hash256.to_display_hex(actual))),
+        #("expected", json.string(hash256.to_display_hex(expected))),
       ])
     block.MutatedMerkleTree ->
       json.object([#("kind", json.string("mutated_merkle_tree"))])
@@ -258,7 +258,9 @@ fn transaction_violation(value: transaction.ConsensusViolation) -> Json {
           json.object([
             #(
               "txid",
-              json.string(display.hash(transaction.get_outpoint_txid(outpoint))),
+              json.string(
+                hash256.to_display_hex(transaction.get_outpoint_txid(outpoint)),
+              ),
             ),
             #("vout", json.int(transaction.get_outpoint_vout(outpoint))),
           ]),

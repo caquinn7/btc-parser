@@ -28,23 +28,26 @@ blocks while preserving Bitcoin's wire representation.
 
 ```gleam
 import btc_parser/block
+import btc_parser/hash256
 import btc_parser/transaction
 import gleam/result
 
-pub fn block_hash_from_bytes(
+pub fn display_block_hash_from_bytes(
   bytes: BitArray,
-) -> Result(BitArray, block.DecodeError) {
+) -> Result(String, block.DecodeError) {
   bytes
   |> block.deserialize
   |> result.map(block.compute_block_hash)
+  |> result.map(hash256.to_display_hex)
 }
 
-pub fn block_hash_from_hex(
+pub fn block_hash_bytes_from_hex(
   hex: String,
 ) -> Result(BitArray, block.DeserializeHexError) {
   hex
   |> block.deserialize_hex
   |> result.map(block.compute_block_hash)
+  |> result.map(hash256.to_bytes_le)
 }
 ```
 
@@ -73,8 +76,9 @@ for contained transactions. The block's maximum serialized size remains the
 only byte-envelope limit for the block and its transactions.
 
 Previous-block hashes, Merkle roots, and computed block hashes are exposed as
-32-byte values in the same little-endian order used on the Bitcoin wire. Reverse
-them before displaying the conventional block-hash notation used by explorers.
+`Hash256` values in the same little-endian order used on the Bitcoin wire. Use
+`hash256.to_display_hex` for conventional explorer notation or
+`hash256.to_bytes_le` for the exact 32 wire-order bytes.
 
 ## Context-Free Consensus Validation
 

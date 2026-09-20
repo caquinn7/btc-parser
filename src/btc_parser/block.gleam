@@ -1,10 +1,10 @@
 //// Deserialize, inspect, validate, and serialize Bitcoin blocks.
 
+import btc_parser/hash256.{type Hash256}
 import btc_parser/internal/compact_size
 import btc_parser/internal/decode
 import btc_parser/internal/double_sha256
 import btc_parser/internal/fixed_int/uint64.{type Uint64}
-import btc_parser/internal/hash256.{type Hash256}
 import btc_parser/internal/lifecycle
 import btc_parser/internal/parser.{type Parser}
 import btc_parser/internal/pow_target.{type PowTarget}
@@ -102,16 +102,18 @@ pub fn get_header_version(header: Header) -> Int {
   header.version
 }
 
-/// Get the previous block header hash in its 32-byte wire-order little-endian
-/// representation.
-pub fn get_header_previous_block_hash(header: Header) -> BitArray {
-  hash256.to_bytes_le(header.previous_block_hash)
+/// Get the previous block header hash.
+///
+/// The hash uses the same little-endian byte order found on the Bitcoin wire.
+pub fn get_header_previous_block_hash(header: Header) -> Hash256 {
+  header.previous_block_hash
 }
 
-/// Get the transaction merkle root in its 32-byte wire-order little-endian
-/// representation.
-pub fn get_header_merkle_root(header: Header) -> BitArray {
-  hash256.to_bytes_le(header.merkle_root)
+/// Get the transaction Merkle root from a block header.
+///
+/// The hash uses the same little-endian byte order found on the Bitcoin wire.
+pub fn get_header_merkle_root(header: Header) -> Hash256 {
+  header.merkle_root
 }
 
 /// Get the unsigned 32-bit timestamp from a block header.
@@ -224,22 +226,25 @@ fn compute_txs_weight_loop(txs: List(Transaction(state)), acc: Int) -> Int {
 /// Parent hashes are produced by double-SHA-256 hashing each adjacent pair,
 /// duplicating the final hash when a level contains an odd number of hashes.
 ///
-/// The returned root is a 32-byte `BitArray` in wire-order little-endian
-/// representation. An empty transaction list produces a zero-valued 32-byte
-/// root. The `Bool` is `True` when an actual pair at any level contains
-/// identical hashes before odd-node padding.
+/// The returned root uses the wire-order little-endian representation. An empty
+/// transaction list produces a zero-valued hash. The `Bool` is `True` when an
+/// actual pair at any level contains identical hashes before odd-node padding.
 ///
 /// This function does not compare the computed root with the block header or
 /// otherwise validate the block.
-pub fn compute_merkle_root(block: Block(state)) -> #(BitArray, Bool) {
+pub fn compute_merkle_root(block: Block(state)) -> #(Hash256, Bool) {
   case block.transactions {
-    [] -> #(<<0:256>>, False)
+    [] -> {
+      let assert Ok(zero_hash) = hash256.from_bytes_le(<<0:256>>)
+      #(zero_hash, False)
+    }
     [tx] -> #(transaction.compute_txid(tx), False)
     txs -> {
       let #(parents, mutated) =
         compute_merkle_parents_from_transactions_loop(txs, [], False)
       let assert #([root], mutated) = compute_merkle_root_loop(parents, mutated)
-      #(root, mutated)
+      let assert Ok(root_hash) = hash256.from_bytes_le(root)
+      #(root_hash, mutated)
     }
   }
 }
@@ -256,13 +261,18 @@ fn compute_merkle_parents_from_transactions_loop(
     [] -> #(list.reverse(parents), mutated)
     [tx] -> {
       let txid = transaction.compute_txid(tx)
-      let parent = double_sha256.hash(bit_array.append(txid, txid))
+      let txid_bytes = hash256.to_bytes_le(txid)
+      let parent = double_sha256.hash(bit_array.append(txid_bytes, txid_bytes))
       #(list.reverse([parent, ..parents]), mutated)
     }
     [tx1, tx2, ..rest] -> {
       let txid1 = transaction.compute_txid(tx1)
       let txid2 = transaction.compute_txid(tx2)
-      let parent = double_sha256.hash(bit_array.append(txid1, txid2))
+      let parent =
+        double_sha256.hash(bit_array.append(
+          hash256.to_bytes_le(txid1),
+          hash256.to_bytes_le(txid2),
+        ))
 
       compute_merkle_parents_from_transactions_loop(
         rest,
@@ -1012,8 +1022,8 @@ pub type ConsensusViolation {
   /// computed from the block's transaction IDs.
   ///
   /// `actual` is the root recorded in the header and `expected` is the computed
-  /// root. Both are 32-byte values in wire-order little-endian representation.
-  MerkleRootMismatch(actual: BitArray, expected: BitArray)
+  /// root. Both use wire-order little-endian representation.
+  MerkleRootMismatch(actual: Hash256, expected: Hash256)
 
   /// The transaction Merkle tree contained identical hashes in an actual pair
   /// at some level before odd-node padding.
@@ -1225,11 +1235,7 @@ fn validate_proof_of_work(
 
   use _ <- result.try(validate_pow_target_within_limit(target, limit))
 
-  let assert Ok(block_hash) =
-    block
-    |> compute_block_hash
-    |> hash256.from_bytes_le
-
+  let block_hash = compute_block_hash(block)
   case pow_target.is_satisfied_by(target, block_hash) {
     True -> Ok(Nil)
     False -> Error(InvalidProofOfWork(InsufficientWork))
@@ -1331,7 +1337,7 @@ fn validate_transaction_count(
 fn validate_merkle_root(
   block: Block(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
-  let header_merkle_root = hash256.to_bytes_le(block.header.merkle_root)
+  let header_merkle_root = block.header.merkle_root
   let #(computed_merkle_root, mutated) = compute_merkle_root(block)
 
   case computed_merkle_root == header_merkle_root {
@@ -1456,18 +1462,21 @@ fn mark_as_context_free_validated(
 /// Returns the double SHA-256 hash of the block's exact 80-byte header. The
 /// transaction count and transactions are not included in this computation.
 ///
-/// The returned 32 bytes use the little-endian byte order carried by previous
+/// The returned hash uses the little-endian byte order carried by previous
 /// block hash fields on the Bitcoin wire. This function does not validate the
 /// header's proof of work.
 ///
 /// ## See Also
 ///
 /// - `serialize_header` — produces the header serialization being hashed
-pub fn compute_block_hash(block: Block(state)) -> BitArray {
-  let assert <<_:256-bits>> =
+pub fn compute_block_hash(block: Block(state)) -> Hash256 {
+  let hash_bytes =
     block.header
     |> serialize_header
     |> double_sha256.hash
+
+  let assert Ok(hash) = hash256.from_bytes_le(hash_bytes)
+  hash
 }
 
 /// Serialize a block in its complete Bitcoin wire form.

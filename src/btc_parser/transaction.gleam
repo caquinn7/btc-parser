@@ -1,11 +1,11 @@
 //// Deserialize, inspect, validate, and serialize Bitcoin transactions.
 
+import btc_parser/hash256.{type Hash256}
 import btc_parser/internal/compact_size
 import btc_parser/internal/decode
 import btc_parser/internal/double_sha256
 import btc_parser/internal/fixed_int/int64
 import btc_parser/internal/fixed_int/uint64.{type Uint64}
-import btc_parser/internal/hash256.{type Hash256}
 import btc_parser/internal/lifecycle
 import btc_parser/internal/parser.{type Parser}
 import btc_parser/internal/reader.{type Reader}
@@ -583,12 +583,16 @@ pub opaque type OutPoint {
 
 /// Get the transaction ID from an outpoint.
 ///
-/// Returns the 32 bytes of the txid in little-endian byte order.
-/// For coinbase inputs (which don't reference a previous output), returns an all-zero hash.
-pub fn get_outpoint_txid(outpoint: OutPoint) -> BitArray {
+/// The hash uses the same little-endian byte order found on the Bitcoin wire.
+/// For coinbase inputs, which do not reference a previous output, this returns
+/// an all-zero hash.
+pub fn get_outpoint_txid(outpoint: OutPoint) -> Hash256 {
   case outpoint {
-    NullOutPoint -> <<0:256>>
-    OutPoint(txid:, ..) -> hash256.to_bytes_le(txid)
+    NullOutPoint -> {
+      let assert Ok(txid) = hash256.from_bytes_le(<<0:256>>)
+      txid
+    }
+    OutPoint(txid:, ..) -> txid
   }
 }
 
@@ -2666,26 +2670,31 @@ fn validate_no_duplicate_inputs_loop(
 /// Compute the transaction identifier (txid) for a transaction.
 ///
 /// The txid is the double SHA-256 hash of the transaction's stripped serialization.
-/// Returns the 32 bytes of the txid in little-endian byte order, as they
-/// appear in Bitcoin transactions and on the wire.
-pub fn compute_txid(tx: Transaction(state)) -> BitArray {
-  let assert <<_:256-bits>> =
+/// The returned hash uses the same little-endian byte order found on the
+/// Bitcoin wire.
+pub fn compute_txid(tx: Transaction(state)) -> Hash256 {
+  let hash_bytes =
     tx
     |> serialize_stripped
     |> double_sha256.hash
+
+  let assert Ok(hash) = hash256.from_bytes_le(hash_bytes)
+  hash
 }
 
 /// Compute the witness transaction identifier (wtxid) for a transaction.
 ///
 /// The wtxid is the double SHA-256 hash of the transaction's full wire serialization.
-/// Returns the 32 bytes of the wtxid in little-endian byte order, as they
-/// appear in Bitcoin transactions and on the wire. For legacy transactions,
-/// the wtxid is identical to the txid.
-pub fn compute_wtxid(tx: Transaction(state)) -> BitArray {
-  let assert <<_:256-bits>> =
+/// The returned hash uses the same little-endian byte order found on the
+/// Bitcoin wire. For legacy transactions, the wtxid is identical to the txid.
+pub fn compute_wtxid(tx: Transaction(state)) -> Hash256 {
+  let hash_bytes =
     tx
     |> serialize
     |> double_sha256.hash
+
+  let assert Ok(hash) = hash256.from_bytes_le(hash_bytes)
+  hash
 }
 
 /// Serialize a transaction without witness data (the "stripped" form).
@@ -2722,11 +2731,13 @@ fn collect_input_parts(
   case reversed_inputs {
     [] -> parts
     [input, ..rest] -> {
+      let outpoint_txid_bytes =
+        hash256.to_bytes_le(get_outpoint_txid(input.outpoint))
       let script_sig_bytes = get_raw_script_bytes(input.script_sig)
       let script_sig_length = bit_array.byte_size(script_sig_bytes)
 
       let parts = [
-        get_outpoint_txid(input.outpoint),
+        outpoint_txid_bytes,
         <<get_outpoint_vout(input.outpoint):32-little>>,
         compact_size.encode_int(script_sig_length),
         script_sig_bytes,

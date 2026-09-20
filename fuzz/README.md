@@ -167,13 +167,14 @@ JavaScript with the same Gleam flags used by the fuzz suite:
 Every block run first verifies every original corpus seed once in corpus order.
 Verification requires successful deserialization and context-free consensus
 validation with the mainnet proof-of-work limit, matching transaction count and
-list length, correct size and weight calculations, 80-byte header and 32-byte
-hash/root values, an unmutated matching Merkle root, a matching display block
-hash, and exact reconstruction from the serialized header, CompactSize count,
-and serialized transactions. A verification failure exits immediately with the
-block height, hash, and failure reason; fuzzing does not begin and no aggregated
-fuzz report is produced. This phase neither consumes RNG values nor contributes
-bytes to the trace. It does not verify recorded block heights or taxonomy codes.
+list length, correct size and weight calculations, an 80-byte header, 32-byte
+hash and Merkle-root values, an unmutated matching Merkle root, a matching
+display block hash, and exact reconstruction from the serialized header,
+CompactSize count, and serialized transactions. A verification failure exits
+immediately with the block height, hash, and failure reason; fuzzing does not
+begin and no aggregated fuzz report is produced. This phase neither consumes
+RNG values nor contributes bytes to the trace. It does not verify recorded
+block heights or taxonomy codes.
 
 After verification, the block suite selects a corpus block, applies one
 mutation, and calls `block.deserialize`. A deserialization error is clean. For

@@ -7,8 +7,8 @@
 //// The tab-separated report contains one row per corpus record in source order.
 //// Metrics and taxonomy codes are derived only through the public transaction API.
 
+import btc_parser/hash256
 import btc_parser/transaction
-import btc_parser_fuzz/internal/hash
 import gleam/bit_array
 import gleam/bool
 import gleam/int
@@ -151,14 +151,14 @@ fn measure(record: CorpusRecord) -> Metrics {
     Ok(_) -> True
     Error(_) -> False
   }
-  let computed_txid = hash.to_display_hex(transaction.compute_txid(tx))
+  let computed_txid = hash256.to_display_hex(transaction.compute_txid(tx))
   assert computed_txid == record.txid
 
   let metrics =
     Metrics(
       txid: record.txid,
       computed_txid:,
-      computed_wtxid: hash.to_display_hex(transaction.compute_wtxid(tx)),
+      computed_wtxid: hash256.to_display_hex(transaction.compute_wtxid(tx)),
       txid_matches: computed_txid == record.txid,
       recorded_codes: record.recorded_codes,
       derived_codes: [],

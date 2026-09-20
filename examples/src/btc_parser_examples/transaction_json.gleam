@@ -1,5 +1,6 @@
 //// JSON-friendly structural transaction view.
 
+import btc_parser/hash256
 import btc_parser/transaction
 import btc_parser_examples/display
 import gleam/bit_array
@@ -15,8 +16,11 @@ pub fn encode(tx: transaction.Transaction(state)) -> Json {
   }
 
   json.object([
-    #("txid", json.string(display.hash(transaction.compute_txid(tx)))),
-    #("wtxid", json.string(display.hash(transaction.compute_wtxid(tx)))),
+    #("txid", json.string(hash256.to_display_hex(transaction.compute_txid(tx)))),
+    #(
+      "wtxid",
+      json.string(hash256.to_display_hex(transaction.compute_wtxid(tx))),
+    ),
     #("version", json.int(transaction.get_version(tx))),
     #("input_count", json.int(transaction.get_input_count(tx))),
     #("inputs", json.array(transaction.get_inputs(tx), input)),
@@ -38,7 +42,9 @@ fn input(value: transaction.Input) -> Json {
       json.object([
         #(
           "txid",
-          json.string(display.hash(transaction.get_outpoint_txid(outpoint))),
+          json.string(
+            hash256.to_display_hex(transaction.get_outpoint_txid(outpoint)),
+          ),
         ),
         #("vout", json.int(transaction.get_outpoint_vout(outpoint))),
         #("is_null", json.bool(transaction.is_null_outpoint(outpoint))),

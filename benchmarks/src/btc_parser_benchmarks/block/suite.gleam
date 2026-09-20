@@ -19,6 +19,7 @@ import btc_parser/block.{
   type Block, type ConsensusViolation, type Parsed, type PowLimit,
   BaseSizeLimitExceeded, WeightLimitExceeded,
 }
+import btc_parser/hash256
 import btc_parser/transaction.{type Transaction}
 import btc_parser_benchmarks/internal/benchmark.{
   type MeasurementCurvePoint, type PerfCaseInput, type PerfCaseResult,
@@ -285,7 +286,10 @@ fn validation_synthetic_transaction_block_case(
   assert computed_root == header_root
   assert !mutated
 
-  let block_hash = block.compute_block_hash(parsed_block)
+  let block_hash =
+    parsed_block
+    |> block.compute_block_hash
+    |> hash256.to_bytes_le
   let assert <<_:bytes-size(31), most_significant_byte>> = block_hash
   assert most_significant_byte < 0x7F
 
@@ -366,9 +370,13 @@ fn size_limit_rejection_block_case(
   assert computed_root == header_root
   assert !mutated
 
-  let block_hash = block.compute_block_hash(parsed_block)
+  let block_hash =
+    parsed_block
+    |> block.compute_block_hash
+    |> hash256.to_bytes_le
   let assert <<_:bytes-size(31), most_significant_byte>> = block_hash
   assert most_significant_byte < 0x7F
+
   assert block.validate_context_free_consensus(parsed_block, pow_limit)
     == Error([expected_violation])
 
@@ -517,7 +525,7 @@ fn synthetic_transaction_prepared_block(tx_count: Int) -> PreparedBlock {
   assert block.compute_weight(parsed_block) == total_size * 4
 
   let #(root, mutated) = block.compute_merkle_root(parsed_block)
-  assert bit_array.byte_size(root) == 32
+  assert bit_array.byte_size(hash256.to_bytes_le(root)) == 32
   assert !mutated
 
   PreparedBlock(block_bytes, parsed_block)
@@ -586,7 +594,7 @@ fn build_validation_block_bytes(txs: List(BitArray)) -> BitArray {
 
   assert !mutated
 
-  let header = mine_regtest_header(merkle_root, 0)
+  let header = mine_regtest_header(hash256.to_bytes_le(merkle_root), 0)
 
   <<
     header:bits,
@@ -666,7 +674,10 @@ fn mine_regtest_header(merkle_root: BitArray, nonce: Int) -> BitArray {
     False -> {
       let header = build_regtest_header(merkle_root, nonce)
       let assert Ok(header_block) = block.deserialize(<<header:bits, 0>>)
-      let header_hash = block.compute_block_hash(header_block)
+      let header_hash =
+        header_block
+        |> block.compute_block_hash
+        |> hash256.to_bytes_le
       let assert <<_:bytes-size(31), most_significant_byte>> = header_hash
 
       case most_significant_byte < 0x7F {

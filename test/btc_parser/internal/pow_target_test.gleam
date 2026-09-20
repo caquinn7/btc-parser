@@ -1,4 +1,4 @@
-import btc_parser/internal/hash256.{type Hash256}
+import btc_parser/hash256.{type Hash256}
 import btc_parser/internal/pow_target.{
   type PowTarget, InvalidBitCount, NegativeTarget, Overflow, ZeroTarget,
 }
