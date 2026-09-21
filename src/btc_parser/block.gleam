@@ -220,31 +220,46 @@ fn compute_txs_weight_loop(txs: List(Transaction(state)), acc: Int) -> Int {
   }
 }
 
-/// Compute a block's transaction Merkle root and mutation flag.
+/// The result of computing a block's transaction Merkle root.
+pub type ComputedMerkleRoot {
+  /// The tree contained identical hashes in an actual pair before padding.
+  Mutated(Hash256)
+  /// The tree did not contain identical hashes in an actual pair before padding.
+  NonMutated(Hash256)
+}
+
+/// Compute a block's transaction Merkle root and mutation status.
 ///
-/// Leaves are transaction IDs—not witness transaction IDs—in block order.
-/// Parent hashes are produced by double-SHA-256 hashing each adjacent pair,
-/// duplicating the final hash when a level contains an odd number of hashes.
+/// Leaves are transaction IDs in block order. Parent hashes are produced by
+/// double-SHA-256 hashing each adjacent pair, duplicating the final hash
+/// when a level contains an odd number of hashes.
 ///
-/// The returned root uses the wire-order little-endian representation. An empty
-/// transaction list produces a zero-valued hash. The `Bool` is `True` when an
-/// actual pair at any level contains identical hashes before odd-node padding.
+/// The contained root uses the wire-order little-endian representation. An
+/// empty transaction list produces a zero-valued `NonMutated` hash. The result
+/// is `Mutated` when an actual pair at any level contains identical hashes
+/// before odd-node padding and `NonMutated` otherwise.
 ///
 /// This function does not compare the computed root with the block header or
 /// otherwise validate the block.
-pub fn compute_merkle_root(block: Block(state)) -> #(Hash256, Bool) {
+pub fn compute_merkle_root(block: Block(state)) -> ComputedMerkleRoot {
   case block.transactions {
     [] -> {
       let assert Ok(zero_hash) = hash256.from_bytes_le(<<0:256>>)
-      #(zero_hash, False)
+      NonMutated(zero_hash)
     }
-    [tx] -> #(transaction.compute_txid(tx), False)
+
+    [tx] -> NonMutated(transaction.compute_txid(tx))
+
     txs -> {
       let #(parents, mutated) =
         compute_merkle_parents_from_transactions_loop(txs, [], False)
       let assert #([root], mutated) = compute_merkle_root_loop(parents, mutated)
       let assert Ok(root_hash) = hash256.from_bytes_le(root)
-      #(root_hash, mutated)
+
+      case mutated {
+        True -> Mutated(root_hash)
+        False -> NonMutated(root_hash)
+      }
     }
   }
 }
@@ -259,12 +274,14 @@ fn compute_merkle_parents_from_transactions_loop(
 ) -> #(List(BitArray), Bool) {
   case txs {
     [] -> #(list.reverse(parents), mutated)
+
     [tx] -> {
       let txid = transaction.compute_txid(tx)
       let txid_bytes = hash256.to_bytes_le(txid)
       let parent = double_sha256.hash(bit_array.append(txid_bytes, txid_bytes))
       #(list.reverse([parent, ..parents]), mutated)
     }
+
     [tx1, tx2, ..rest] -> {
       let txid1 = transaction.compute_txid(tx1)
       let txid2 = transaction.compute_txid(tx2)
@@ -1338,12 +1355,21 @@ fn validate_merkle_root(
   block: Block(Parsed),
 ) -> Result(Nil, ConsensusViolation) {
   let header_merkle_root = block.header.merkle_root
-  let #(computed_merkle_root, mutated) = compute_merkle_root(block)
 
-  case computed_merkle_root == header_merkle_root {
-    False -> Error(MerkleRootMismatch(header_merkle_root, computed_merkle_root))
-    True if mutated -> Error(MutatedMerkleTree)
-    True -> Ok(Nil)
+  case compute_merkle_root(block) {
+    Mutated(computed_merkle_root) ->
+      case computed_merkle_root == header_merkle_root {
+        True -> Error(MutatedMerkleTree)
+        False ->
+          Error(MerkleRootMismatch(header_merkle_root, computed_merkle_root))
+      }
+
+    NonMutated(computed_merkle_root) ->
+      case computed_merkle_root == header_merkle_root {
+        True -> Ok(Nil)
+        False ->
+          Error(MerkleRootMismatch(header_merkle_root, computed_merkle_root))
+      }
   }
 }
 

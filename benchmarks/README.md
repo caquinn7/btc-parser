@@ -406,13 +406,13 @@ mainnet block 898,064. Its 1,576,176-byte complete serialization contains 2,450
 transactions—218 legacy and 2,232 SegWit—and has a base size of 805,947 bytes.
 The fixture is read, hex-decoded, deserialized, and checked against its header
 Merkle root before timing begins; the preflight also verifies its sizes,
-transaction encoding counts, and non-mutated tree. The row uses one operation
+transaction encoding counts, and `NonMutated` result. The row uses one operation
 per timed call, with a 250 ms warmup and a 1,000 ms measurement duration.
 
 `block.compute-merkle-root.synthetic-transactions` measures
 `block.compute_merkle_root` over prebuilt, parsed blocks containing `1`, `10`,
 `100`, and `1,000` unique minimal legacy transactions. Transaction versions
-make the transactions unique, so the preflight mutation flag remains false.
+make the transactions unique, so the preflight result remains `NonMutated`.
 Block construction and deserialization occur before timing; each timed operation
 computes only the Merkle root. The curve uses `100`, `100`, `10`, and `1`
 operations per timed call respectively, with a 250 ms warmup and a 1,000 ms

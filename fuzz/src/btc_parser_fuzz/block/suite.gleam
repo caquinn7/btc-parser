@@ -5,9 +5,11 @@
 //// either a successful operation or a defined error, never an unhandled
 //// exception.
 
-import btc_parser/block
+import btc_parser/block.{
+  type Block, type ComputedMerkleRoot, Mutated, NonMutated,
+}
 import btc_parser/hash256.{type Hash256}
-import btc_parser/transaction
+import btc_parser/transaction.{type Transaction}
 import btc_parser_fuzz/fuzz_result.{type FuzzResult, FuzzResult}
 import btc_parser_fuzz/internal/mutation
 import btc_parser_fuzz/internal/rng.{type Rng}
@@ -154,11 +156,11 @@ type MutationStrategy {
 type PostParseOperations {
   PostParseOperations(
     validation: Result(
-      block.Block(block.ContextFreeValidated),
+      Block(block.ContextFreeValidated),
       List(block.ConsensusViolation),
     ),
     transaction_count: Int,
-    transactions: List(transaction.Transaction(transaction.Parsed)),
+    transactions: List(Transaction(transaction.Parsed)),
     base_size: Int,
     total_size: Int,
     weight: Int,
@@ -168,8 +170,7 @@ type PostParseOperations {
     serialized_header: BitArray,
     serialized_block: BitArray,
     block_hash: Hash256,
-    computed_merkle_root: Hash256,
-    merkle_tree_mutated: Bool,
+    computed_merkle_root: ComputedMerkleRoot,
   )
 }
 
@@ -347,7 +348,7 @@ fn run_deserialize(
 }
 
 fn run_post_parse_operations(
-  parsed_block: block.Block(block.Parsed),
+  parsed_block: Block(block.Parsed),
   pow_limit: block.PowLimit,
 ) -> PostParseOperations {
   let validation =
@@ -370,8 +371,7 @@ fn run_post_parse_operations(
   let serialized_header = block.serialize_header(header)
   let serialized_block = block.serialize(parsed_block)
   let block_hash = block.compute_block_hash(parsed_block)
-  let #(computed_merkle_root, merkle_tree_mutated) =
-    block.compute_merkle_root(parsed_block)
+  let computed_merkle_root = block.compute_merkle_root(parsed_block)
 
   PostParseOperations(
     validation:,
@@ -387,7 +387,6 @@ fn run_post_parse_operations(
     serialized_block:,
     block_hash:,
     computed_merkle_root:,
-    merkle_tree_mutated:,
   )
 }
 
@@ -462,12 +461,16 @@ fn prepare_verified_seed_block(
     bit_array.byte_size(operations.serialized_header) == 80,
     "serialized header did not contain 80 bytes",
   ))
+  let computed_merkle_root = case operations.computed_merkle_root {
+    Mutated(root) | NonMutated(root) -> root
+  }
   use _ <- result.try(ensure(
-    operations.computed_merkle_root == operations.recorded_merkle_root,
+    computed_merkle_root == operations.recorded_merkle_root,
     "computed Merkle root did not match the header Merkle root",
   ))
   use _ <- result.try(ensure(
-    operations.merkle_tree_mutated == False,
+    operations.computed_merkle_root
+      == NonMutated(operations.recorded_merkle_root),
     "computed Merkle tree was mutated",
   ))
   use _ <- result.try(ensure(
@@ -500,7 +503,7 @@ fn prepare_verified_seed_block(
 
 fn verify_successful_validation(
   validation: Result(
-    block.Block(block.ContextFreeValidated),
+    Block(block.ContextFreeValidated),
     List(block.ConsensusViolation),
   ),
 ) -> Result(Nil, String) {

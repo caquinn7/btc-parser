@@ -14,7 +14,7 @@ blocks while preserving Bitcoin's wire representation.
   transactions in wire order.
 - **Measurements and Merkle trees**: Compute BIP 141 base size, total size,
   weight, and upward-rounded virtual size in vbytes, as well as the transaction
-  Merkle root and mutation flag.
+  Merkle root with explicit `Mutated` or `NonMutated` status.
 - **Context-free consensus validation**: Check proof of work, block size and
   weight limits, transaction-count bounds, the transaction Merkle root,
   coinbase placement, the legacy sigop limit, and every contained transaction's
