@@ -67,5 +67,5 @@ or network/RPC access.
 
 ## Documentation
 
-- [Project overview](https://github.com/caquinn7/btc-parser)
 - [Output script classification](https://github.com/caquinn7/btc-parser/blob/main/docs/transaction/output_script_classification.md)
+- [Project overview](https://github.com/caquinn7/btc-parser)

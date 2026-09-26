@@ -8,7 +8,7 @@ Bitcoin wire-format data in Gleam.
 
 `btc_parser` is designed to reflect Bitcoin's wire formats and protocol
 structures closely, expose malformed encodings as structured errors, and remain
-portable across Erlang and JavaScript targets.
+portable across Erlang and supported server-side JavaScript runtimes.
 
 ## Project Status
 
@@ -51,7 +51,12 @@ gleam add btc_parser@1
 
 ### Cross-runtime portability
 
-> Public behavior remains consistent across Erlang and JavaScript targets
+> Public behavior remains consistent across Erlang and the supported
+> server-side JavaScript runtimes: Node.js, Deno, and Bun.
+
+Native browser builds are not currently supported. The JavaScript hashing
+implementation imports `node:crypto`, which is available through the supported
+runtimes but not through native browser APIs.
 
 ## Scope
 

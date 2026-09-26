@@ -86,16 +86,17 @@ Deserialization produces a `Block(Parsed)`. Pass that block and the intended
 network's proof-of-work limit to `validate_context_free_consensus` to obtain a
 `Block(ContextFreeValidated)`:
 
+For mainnet, supply its maximum target as 32 little-endian bytes:
+
 ```gleam
-let assert Ok(pow_limit) = block.new_pow_limit(network_pow_limit_le)
+let mainnet_pow_limit_le = <<0:size(208), 0xFF, 0xFF, 0:size(32)>>
+let assert Ok(pow_limit) = block.new_pow_limit(mainnet_pow_limit_le)
 let assert Ok(validated_block) =
   block.validate_context_free_consensus(parsed_block, pow_limit)
 ```
 
-`network_pow_limit_le` must contain the network's nonzero maximum target as
-exactly 32 little-endian bytes. `new_pow_limit` validates that representation;
-it cannot determine whether the supplied value is the correct limit for the
-network.
+`new_pow_limit` checks that the supplied value is nonzero and exactly 32 bytes.
+It cannot determine whether the value is the correct limit for the network.
 
 Proof-of-work and block-size failures stop validation immediately. Once those
 checks pass, independent block-level and transaction-level violations are
@@ -117,5 +118,6 @@ scope.
 
 ## Documentation
 
-- [Project overview](https://github.com/caquinn7/btc-parser)
+- [Merkle root](merkle_root.md)
 - [Transaction domain](https://github.com/caquinn7/btc-parser/blob/main/docs/transaction/transaction.md)
+- [Project overview](https://github.com/caquinn7/btc-parser)
