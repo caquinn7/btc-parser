@@ -135,6 +135,8 @@ Its corpus is
 [`fuzz/corpus/transaction/seed_txs.txt`](corpus/transaction/seed_txs.txt), using
 `txid|codes|raw_hex` records. Labels are documented in
 [`fuzz/corpus/transaction/seed_txs_codes.txt`](corpus/transaction/seed_txs_codes.txt).
+See [`corpus_checklist.md`](src/btc_parser_fuzz/transaction/corpus_checklist.md)
+for seed coverage and selection rationale.
 
 ### Transaction Corpus Metrics
 
@@ -197,7 +199,7 @@ Its corpus is
 decimal mainnet heights. See
 [`fuzz/corpus/block/seed_blocks_codes.txt`](corpus/block/seed_blocks_codes.txt)
 for the coverage taxonomy represented by the `codes` field and the
-[block corpus checklist](src/btc_parser_fuzz/block/btc_block_corpus_checklist.md)
+[block corpus checklist](src/btc_parser_fuzz/block/corpus_checklist.md)
 for seed metrics and selection rationale.
 
 ## Mutations and Scope
