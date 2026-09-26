@@ -1,4 +1,4 @@
-import btc_parser/block.{type Block, type Parsed}
+import btc_parser/block.{type Block, type Parsed, Mutated, NonMutated}
 import btc_parser/hash256
 import btc_parser/transaction
 import gleam/bit_array
@@ -18,7 +18,7 @@ import support/transaction_wire.{
 pub fn compute_merkle_root_for_empty_block_is_zero_and_not_mutated_test() {
   let parsed_block = deserialize_zero_header_block([])
 
-  assert_computed_merkle_root(parsed_block, <<0:256>>, False)
+  assert_non_mutated_merkle_root(parsed_block, <<0:256>>)
 }
 
 pub fn compute_merkle_root_for_single_legacy_transaction_is_its_txid_test() {
@@ -31,7 +31,7 @@ pub fn compute_merkle_root_for_single_legacy_transaction_is_its_txid_test() {
     |> transaction.compute_txid
     |> hash256.to_bytes_le
 
-  assert_computed_merkle_root(parsed_block, expected_root, False)
+  assert_non_mutated_merkle_root(parsed_block, expected_root)
 }
 
 pub fn compute_merkle_root_for_single_segwit_transaction_uses_txid_not_wtxid_test() {
@@ -44,7 +44,7 @@ pub fn compute_merkle_root_for_single_segwit_transaction_uses_txid_not_wtxid_tes
 
   let parsed_block = deserialize_zero_header_block([tx_bytes])
 
-  assert_computed_merkle_root(parsed_block, hash256.to_bytes_le(txid), False)
+  assert_non_mutated_merkle_root(parsed_block, hash256.to_bytes_le(txid))
 }
 
 pub fn compute_merkle_root_for_two_unique_transactions_hashes_their_txids_test() {
@@ -57,7 +57,7 @@ pub fn compute_merkle_root_for_two_unique_transactions_hashes_their_txids_test()
   let parsed_block = deserialize_zero_header_block([tx_a_bytes, tx_b_bytes])
   let expected_root = dsha256(bit_array.append(txid_a, txid_b))
 
-  assert_computed_merkle_root(parsed_block, expected_root, False)
+  assert_non_mutated_merkle_root(parsed_block, expected_root)
 }
 
 pub fn compute_merkle_root_for_three_unique_transactions_pads_without_mutation_test() {
@@ -76,7 +76,7 @@ pub fn compute_merkle_root_for_three_unique_transactions_pads_without_mutation_t
   let padded_c = dsha256(bit_array.append(txid_c, txid_c))
   let expected_root = dsha256(bit_array.append(pair_ab, padded_c))
 
-  assert_computed_merkle_root(parsed_block, expected_root, False)
+  assert_non_mutated_merkle_root(parsed_block, expected_root)
 }
 
 // ============================================================================
@@ -90,7 +90,7 @@ pub fn compute_merkle_root_marks_an_actual_identical_leaf_pair_as_mutated_test()
   let parsed_block = deserialize_zero_header_block([tx_a_bytes, tx_a_bytes])
   let expected_root = dsha256(bit_array.append(txid_a, txid_a))
 
-  assert_computed_merkle_root(parsed_block, expected_root, True)
+  assert_mutated_merkle_root(parsed_block, expected_root)
 }
 
 pub fn compute_merkle_root_distinguishes_padding_from_an_identical_leaf_pair_test() {
@@ -117,8 +117,8 @@ pub fn compute_merkle_root_distinguishes_padding_from_an_identical_leaf_pair_tes
       tx_c_bytes,
     ])
 
-  assert_computed_merkle_root(three_tx_block, expected_root, False)
-  assert_computed_merkle_root(four_tx_block, expected_root, True)
+  assert_non_mutated_merkle_root(three_tx_block, expected_root)
+  assert_mutated_merkle_root(four_tx_block, expected_root)
 }
 
 pub fn compute_merkle_root_marks_identical_parent_hashes_as_mutated_test() {
@@ -140,7 +140,7 @@ pub fn compute_merkle_root_marks_identical_parent_hashes_as_mutated_test() {
       tx_b_bytes,
     ])
 
-  assert_computed_merkle_root(parsed_block, expected_root, True)
+  assert_mutated_merkle_root(parsed_block, expected_root)
 }
 
 // ============================================================================
@@ -178,7 +178,7 @@ fn assert_fixture_merkle_root(fixture: MainnetFixture) -> Nil {
     |> hash256.to_bytes_le
 
   assert block.get_transaction_count(parsed_block) == transaction_count
-  assert_computed_merkle_root(parsed_block, header_merkle_root, False)
+  assert_non_mutated_merkle_root(parsed_block, header_merkle_root)
 }
 
 // ============================================================================
@@ -206,17 +206,26 @@ fn compute_txid(bytes: BitArray) -> BitArray {
   |> hash256.to_bytes_le
 }
 
-fn assert_computed_merkle_root(
+fn assert_non_mutated_merkle_root(
   parsed_block: Block(state),
   expected_root: BitArray,
-  expected_mutated: Bool,
 ) -> Nil {
-  let #(root, mutated) = block.compute_merkle_root(parsed_block)
-  let root_bytes = hash256.to_bytes_le(root)
+  let assert Ok(expected_hash) = hash256.from_bytes_le(expected_root)
+  let computed_root = block.compute_merkle_root(parsed_block)
 
-  assert bit_array.byte_size(root_bytes) == 32
-  assert root_bytes == expected_root
-  assert mutated == expected_mutated
+  assert bit_array.byte_size(expected_root) == 32
+  assert computed_root == NonMutated(expected_hash)
+}
+
+fn assert_mutated_merkle_root(
+  parsed_block: Block(state),
+  expected_root: BitArray,
+) -> Nil {
+  let assert Ok(expected_hash) = hash256.from_bytes_le(expected_root)
+  let computed_root = block.compute_merkle_root(parsed_block)
+
+  assert bit_array.byte_size(expected_root) == 32
+  assert computed_root == Mutated(expected_hash)
 }
 
 fn dsha256(bytes: BitArray) -> BitArray {

@@ -31,6 +31,11 @@ title = "Block guide"
 path = "block.html"
 source = "./docs/block/block.md"
 
+[[documentation.pages]]
+title = "Merkle roots"
+path = "merkle-roots.html"
+source = "./docs/block/merkle_root.md"
+
 [erlang]
 extra_applications = ["crypto"]
 

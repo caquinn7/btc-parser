@@ -17,7 +17,7 @@
 
 import btc_parser/block.{
   type Block, type ConsensusViolation, type Parsed, type PowLimit,
-  BaseSizeLimitExceeded, WeightLimitExceeded,
+  BaseSizeLimitExceeded, NonMutated, WeightLimitExceeded,
 }
 import btc_parser/hash256
 import btc_parser/transaction.{type Transaction}
@@ -277,14 +277,13 @@ fn validation_synthetic_transaction_block_case(
   assert block.get_header_target(block.get_header(parsed_block))
     == regtest_compact_target
 
-  let #(computed_root, mutated) = block.compute_merkle_root(parsed_block)
+  let assert NonMutated(computed_root) = block.compute_merkle_root(parsed_block)
   let header_root =
     parsed_block
     |> block.get_header
     |> block.get_header_merkle_root
 
   assert computed_root == header_root
-  assert !mutated
 
   let block_hash =
     parsed_block
@@ -361,14 +360,13 @@ fn size_limit_rejection_block_case(
   assert block.get_header_target(block.get_header(parsed_block))
     == regtest_compact_target
 
-  let #(computed_root, mutated) = block.compute_merkle_root(parsed_block)
+  let assert NonMutated(computed_root) = block.compute_merkle_root(parsed_block)
   let header_root =
     parsed_block
     |> block.get_header
     |> block.get_header_merkle_root
 
   assert computed_root == header_root
-  assert !mutated
 
   let block_hash =
     parsed_block
@@ -447,14 +445,13 @@ fn mainnet_898064_parsed_block(block_bytes: BitArray) -> Block(Parsed) {
   assert legacy_count == 218
   assert segwit_count == 2232
 
-  let #(computed_root, mutated) = block.compute_merkle_root(parsed_block)
+  let assert NonMutated(computed_root) = block.compute_merkle_root(parsed_block)
   let header_root =
     parsed_block
     |> block.get_header
     |> block.get_header_merkle_root
 
   assert computed_root == header_root
-  assert !mutated
 
   let assert Ok(_) =
     block.validate_context_free_consensus(parsed_block, mainnet_pow_limit())
@@ -524,9 +521,8 @@ fn synthetic_transaction_prepared_block(tx_count: Int) -> PreparedBlock {
   assert base_size == total_size
   assert block.compute_weight(parsed_block) == total_size * 4
 
-  let #(root, mutated) = block.compute_merkle_root(parsed_block)
+  let assert NonMutated(root) = block.compute_merkle_root(parsed_block)
   assert bit_array.byte_size(hash256.to_bytes_le(root)) == 32
-  assert !mutated
 
   PreparedBlock(block_bytes, parsed_block)
 }
@@ -590,9 +586,8 @@ fn build_validation_block_bytes(txs: List(BitArray)) -> BitArray {
     transaction_payload:bits,
   >>
   let assert Ok(provisional_block) = block.deserialize(provisional_block_bytes)
-  let #(merkle_root, mutated) = block.compute_merkle_root(provisional_block)
-
-  assert !mutated
+  let assert NonMutated(merkle_root) =
+    block.compute_merkle_root(provisional_block)
 
   let header = mine_regtest_header(hash256.to_bytes_le(merkle_root), 0)
 
